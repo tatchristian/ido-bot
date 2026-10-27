@@ -69,6 +69,8 @@ A dedicated, high-reliability Discord Tournament and Roster Management Bot desig
 | `/tournament-set-weapons`| `[Admin] /tournament-set-weapons [weapons:<text>]` | Set approved weapon classes for the event (e.g. Katana only, or custom list). |
 | `/tournament-set-role`   | `[Admin] /tournament-set-role role:<role>` | Set or link the Discord role auto-assigned to main bracket participants. |
 | `/tournament-view-role`  | `/tournament-view-role` | View the currently configured participant role. |
+| `/tournament-set-channels`| `[Admin] /tournament-set-channels [announcements] [checkin] [subs]` | Configure dedicated channels for announcements, check-ins, and substitutes. |
+| `/tournament-view-channels`| `/tournament-view-channels` | View the dedicated tournament channels currently configured. |
 | `/tournament-set-admin-role`| `[Admin] /tournament-set-admin-role role:<role>` | Select which role (and higher) can manage tournaments. |
 | `/tournament-view-admin-role`| `/tournament-view-admin-role` | View the currently configured tournament admin role. |
 | `/tournament-announce` | `[Admin] /tournament-announce message:<text> [target:<group>]` | Ping registered main players, substitutes, or everyone with an announcement. |

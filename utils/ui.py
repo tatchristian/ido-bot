@@ -78,6 +78,15 @@ def build_status_embed(
     ]
     if state.participant_role_name:
         desc_lines.append(f"🏷️ **Participant Role:** `@{state.participant_role_name}`")
+    if state.announcement_channel_id or state.checkin_channel_id or state.subs_channel_id:
+        channels_str = []
+        if state.announcement_channel_id:
+            channels_str.append(f"Announce: <#{state.announcement_channel_id}>")
+        if state.checkin_channel_id:
+            channels_str.append(f"Check-In: <#{state.checkin_channel_id}>")
+        if state.subs_channel_id:
+            channels_str.append(f"Subs: <#{state.subs_channel_id}>")
+        desc_lines.append(f"📁 **Dedicated Channels:** {', '.join(channels_str)}")
 
     embed = discord.Embed(
         title=f"🏆 {state.name}",
@@ -235,6 +244,7 @@ def build_help_embed(
             "• `/tournament-set-regions` — Update allowed regions filter.\n"
             "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
             "• `/tournament-set-role` — Set or link Discord role for participants.\n"
+            "• `/tournament-set-channels` — Configure dedicated channels for tournament.\n"
             "• `/tournament-set-admin-role` — Set role required for admin commands.\n"
             "• `/tournament-announce` — Broadcast announcement to players.\n"
             "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster.\n"

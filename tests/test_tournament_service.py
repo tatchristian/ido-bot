@@ -380,6 +380,34 @@ def test_export_roster_targets(service: TournamentService):
     assert "Substitute" in content_all
 
 
+def test_dedicated_channel_management(service: TournamentService):
+    service.open_tournament(
+        name="Channel Cup",
+        slots=8,
+        announcement_channel_id=111,
+    )
+    assert service.get_state().announcement_channel_id == 111
+
+    service.open_subs(subs_channel_id=222)
+    assert service.get_state().subs_channel_id == 222
+
+    service.open_checkin(checkin_channel_id=333)
+    assert service.get_state().checkin_channel_id == 333
+
+    # Set channels directly
+    msg = service.set_channels(announcement_channel_id=999)
+    assert "updated" in msg.lower()
+    assert service.get_state().announcement_channel_id == 999
+    assert service.get_state().checkin_channel_id == 333
+
+    # Clear channels
+    clear_msg = service.clear_channels()
+    assert "cleared" in clear_msg.lower()
+    assert service.get_state().announcement_channel_id is None
+    assert service.get_state().checkin_channel_id is None
+    assert service.get_state().subs_channel_id is None
+
+
 def test_multi_server_isolation(tmp_path: Path):
     """Verifies that Server A and Server B rosters are completely isolated."""
     service = TournamentService(data_dir=tmp_path)

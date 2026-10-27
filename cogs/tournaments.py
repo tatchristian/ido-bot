@@ -230,6 +230,33 @@ class TournamentCog(commands.Cog):
             except (discord.Forbidden, discord.HTTPException) as exc:
                 logger.warning("Failed to remove role %s from user %s: %s", role.id, member.id, exc)
 
+    async def _send_or_dispatch(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel],
+        embed: discord.Embed,
+        content: Optional[str] = None,
+        allowed_mentions: Optional[discord.AllowedMentions] = None,
+        confirm_message: str = "Dispatched",
+    ):
+        """Sends to target channel if specified and distinct; otherwise sends in the current interaction channel."""
+        if channel and interaction.guild and channel != interaction.channel:
+            perms = channel.permissions_for(interaction.guild.me)
+            if not perms.send_messages or not perms.embed_links:
+                await interaction.response.send_message(
+                    f"❌ I don't have permissions to send messages/embeds in {channel.mention}.",
+                    ephemeral=True,
+                )
+                return
+            await channel.send(content=content, embed=embed, allowed_mentions=allowed_mentions)
+            await interaction.response.send_message(
+                f"✅ {confirm_message} to {channel.mention}.", ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                content=content, embed=embed, allowed_mentions=allowed_mentions
+            )
+
     # =========================================================================
     # Help & Guidance
     # =========================================================================
@@ -398,6 +425,22 @@ class TournamentCog(commands.Cog):
             color=0x3498DB,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
+
+        subs_ch = (
+            interaction.guild.get_channel(state.subs_channel_id)
+            if (interaction.guild and state.subs_channel_id)
+            else None
+        )
+        if subs_ch and subs_ch != interaction.channel:
+            perms = subs_ch.permissions_for(interaction.guild.me)
+            if perms.send_messages and perms.embed_links:
+                await subs_ch.send(embed=embed)
+                await interaction.response.send_message(
+                    f"🛡️ Registered as Standby Substitute (**{sub.ign}**)!\n💡 *Logged into {subs_ch.mention} to keep this chat clean.*",
+                    ephemeral=True,
+                )
+                return
+
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
@@ -421,6 +464,22 @@ class TournamentCog(commands.Cog):
             color=0x95A5A6,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
+
+        subs_ch = (
+            interaction.guild.get_channel(state.subs_channel_id)
+            if (interaction.guild and state.subs_channel_id)
+            else None
+        )
+        if subs_ch and subs_ch != interaction.channel:
+            perms = subs_ch.permissions_for(interaction.guild.me)
+            if perms.send_messages and perms.embed_links:
+                await subs_ch.send(embed=embed)
+                await interaction.response.send_message(
+                    f"{message}\n💡 *Logged into {subs_ch.mention} to keep this chat clean.*",
+                    ephemeral=True,
+                )
+                return
+
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
@@ -485,6 +544,23 @@ class TournamentCog(commands.Cog):
             color=0x2ECC71,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
+
+        state = self.service.get_state(guild_id)
+        checkin_ch = (
+            interaction.guild.get_channel(state.checkin_channel_id)
+            if (interaction.guild and state.checkin_channel_id)
+            else None
+        )
+        if checkin_ch and checkin_ch != interaction.channel:
+            perms = checkin_ch.permissions_for(interaction.guild.me)
+            if perms.send_messages and perms.embed_links:
+                await checkin_ch.send(embed=embed)
+                await interaction.response.send_message(
+                    f"{msg}\n💡 *Logged into {checkin_ch.mention} to keep this chat clean.*",
+                    ephemeral=True,
+                )
+                return
+
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
@@ -1042,12 +1118,80 @@ class TournamentCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
+        name="tournament-set-channels",
+        description="[Admin] Set dedicated channels for announcements, check-in, and substitutes.",
+    )
+    @app_commands.describe(
+        announcements="Dedicated channel for tournament announcements and brackets",
+        checkin="Dedicated channel for tournament day check-ins",
+        substitutes="Dedicated channel for standby substitute signups and queue",
+    )
+    @is_tournament_admin()
+    async def set_channels_cmd(
+        self,
+        interaction: discord.Interaction,
+        announcements: Optional[discord.TextChannel] = None,
+        checkin: Optional[discord.TextChannel] = None,
+        substitutes: Optional[discord.TextChannel] = None,
+    ):
+        guild_id = interaction.guild_id or 0
+        if not announcements and not checkin and not substitutes:
+            await interaction.response.send_message(
+                "❌ Please specify at least one channel to configure.", ephemeral=True
+            )
+            return
+
+        self.service.set_channels(
+            announcement_channel_id=announcements.id if announcements else None,
+            checkin_channel_id=checkin.id if checkin else None,
+            subs_channel_id=substitutes.id if substitutes else None,
+            guild_id=guild_id,
+        )
+
+        state = self.service.get_state(guild_id)
+        desc = [
+            f"• **Announcements:** {interaction.guild.get_channel(state.announcement_channel_id).mention if (interaction.guild and state.announcement_channel_id) else '*None configured*'}",
+            f"• **Check-In:** {interaction.guild.get_channel(state.checkin_channel_id).mention if (interaction.guild and state.checkin_channel_id) else '*None configured*'}",
+            f"• **Substitutes:** {interaction.guild.get_channel(state.subs_channel_id).mention if (interaction.guild and state.subs_channel_id) else '*None configured*'}",
+            "",
+            "💡 *Activity for check-ins and substitutes will automatically be routed to these channels to keep general chats uncluttered!*",
+        ]
+        embed = discord.Embed(
+            title="📁 Dedicated Tournament Channels Configured",
+            description="\n".join(desc),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="tournament-view-channels",
+        description="View the dedicated channels configured for this tournament.",
+    )
+    async def view_channels_cmd(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        desc = [
+            f"• **Announcements:** {interaction.guild.get_channel(state.announcement_channel_id).mention if (interaction.guild and state.announcement_channel_id) else '*None configured*'}",
+            f"• **Check-In:** {interaction.guild.get_channel(state.checkin_channel_id).mention if (interaction.guild and state.checkin_channel_id) else '*None configured*'}",
+            f"• **Substitutes:** {interaction.guild.get_channel(state.subs_channel_id).mention if (interaction.guild and state.subs_channel_id) else '*None configured*'}",
+        ]
+        embed = discord.Embed(
+            title="📁 Dedicated Tournament Channels",
+            description="\n".join(desc),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
         name="tournament-announce",
         description="[Admin] Ping and announce tournament information to registered players.",
     )
     @app_commands.describe(
         message="The announcement message to broadcast",
         target="Who to ping (Main Bracket, Substitutes, or Everyone)",
+        channel="Optional channel to send the announcement to (defaults to current or configured announcements channel)",
     )
     @app_commands.choices(target=ANNOUNCE_TARGET_CHOICES)
     @is_tournament_admin()
@@ -1056,6 +1200,7 @@ class TournamentCog(commands.Cog):
         interaction: discord.Interaction,
         message: str,
         target: Optional[app_commands.Choice[str]] = None,
+        channel: Optional[discord.TextChannel] = None,
     ):
         target_val = target.value if target else "main"
         guild_id = interaction.guild_id or 0
@@ -1113,8 +1258,18 @@ class TournamentCog(commands.Cog):
         embed.set_footer(text=f"Announced by {interaction.user.display_name} • {config.organization_name}")
 
         allowed = discord.AllowedMentions(roles=True, users=True)
-        await interaction.response.send_message(
-            content=mentions_text, embed=embed, allowed_mentions=allowed
+        target_dest = channel or (
+            interaction.guild.get_channel(state.announcement_channel_id)
+            if (interaction.guild and state.announcement_channel_id)
+            else None
+        )
+        await self._send_or_dispatch(
+            interaction=interaction,
+            channel=target_dest,
+            embed=embed,
+            content=mentions_text,
+            allowed_mentions=allowed,
+            confirm_message="📢 Announcement published",
         )
 
     @app_commands.command(

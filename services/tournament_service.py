@@ -75,6 +75,9 @@ class TournamentState:
     admin_role_name: str | None = None
     participant_role_id: int | None = None
     participant_role_name: str | None = None
+    announcement_channel_id: int | None = None
+    checkin_channel_id: int | None = None
+    subs_channel_id: int | None = None
     participants: list[Participant] = field(default_factory=list)
     substitutes: list[Participant] = field(default_factory=list)
     created_at: str = field(
@@ -98,6 +101,9 @@ class TournamentState:
             admin_role_name=str(data["admin_role_name"]) if data.get("admin_role_name") is not None else None,
             participant_role_id=int(data["participant_role_id"]) if data.get("participant_role_id") is not None else None,
             participant_role_name=str(data["participant_role_name"]) if data.get("participant_role_name") is not None else None,
+            announcement_channel_id=int(data["announcement_channel_id"]) if data.get("announcement_channel_id") is not None else None,
+            checkin_channel_id=int(data["checkin_channel_id"]) if data.get("checkin_channel_id") is not None else None,
+            subs_channel_id=int(data["subs_channel_id"]) if data.get("subs_channel_id") is not None else None,
             participants=[
                 Participant.from_dict(p) for p in data.get("participants", [])
             ],
@@ -125,6 +131,9 @@ class TournamentState:
             "admin_role_name": self.admin_role_name,
             "participant_role_id": self.participant_role_id,
             "participant_role_name": self.participant_role_name,
+            "announcement_channel_id": self.announcement_channel_id,
+            "checkin_channel_id": self.checkin_channel_id,
+            "subs_channel_id": self.subs_channel_id,
             "participants": [p.to_dict() for p in self.participants],
             "substitutes": [s.to_dict() for s in self.substitutes],
             "created_at": self.created_at,
@@ -267,6 +276,7 @@ class TournamentService:
         open_subs: bool = False,
         participant_role_id: int | None = None,
         participant_role_name: str | None = None,
+        announcement_channel_id: int | None = None,
         guild_id: int = 0,
     ) -> str:
         """Opens main bracket submissions and updates tournament settings."""
@@ -282,6 +292,8 @@ class TournamentService:
         if participant_role_id is not None:
             state.participant_role_id = participant_role_id
             state.participant_role_name = participant_role_name
+        if announcement_channel_id is not None:
+            state.announcement_channel_id = announcement_channel_id
 
         state.main_open = True
         state.subs_open = open_subs
@@ -305,10 +317,12 @@ class TournamentService:
         self._persist(guild_id)
         return f"🔒 Main bracket submissions for **{state.name}** are now **CLOSED**."
 
-    def open_subs(self, guild_id: int = 0) -> str:
+    def open_subs(self, subs_channel_id: int | None = None, guild_id: int = 0) -> str:
         """Enables substitute signups."""
         state = self.get_state(guild_id)
         state.subs_open = True
+        if subs_channel_id is not None:
+            state.subs_channel_id = subs_channel_id
         self._persist(guild_id)
         return f"🟢 Substitute signups for **{state.name}** are now **OPEN**."
 
@@ -372,6 +386,33 @@ class TournamentService:
         if role_name:
             return f"🏷️ Tournament participant role set to: **@{role_name}**."
         return "🏷️ Tournament participant role cleared."
+
+    def set_channels(
+        self,
+        announcement_channel_id: int | None = None,
+        checkin_channel_id: int | None = None,
+        subs_channel_id: int | None = None,
+        guild_id: int = 0,
+    ) -> str:
+        """Sets dedicated Discord channel IDs for announcements, check-in, and substitutes."""
+        state = self.get_state(guild_id)
+        if announcement_channel_id is not None:
+            state.announcement_channel_id = announcement_channel_id
+        if checkin_channel_id is not None:
+            state.checkin_channel_id = checkin_channel_id
+        if subs_channel_id is not None:
+            state.subs_channel_id = subs_channel_id
+        self._persist(guild_id)
+        return "📁 Tournament dedicated channels updated."
+
+    def clear_channels(self, guild_id: int = 0) -> str:
+        """Clears all dedicated channel configurations."""
+        state = self.get_state(guild_id)
+        state.announcement_channel_id = None
+        state.checkin_channel_id = None
+        state.subs_channel_id = None
+        self._persist(guild_id)
+        return "📁 Tournament dedicated channels cleared."
 
     def clear_tournament(self, guild_id: int = 0) -> str:
         """Wipes both main roster, substitute list, and resets participant role."""
@@ -712,10 +753,12 @@ class TournamentService:
     # ---------------------------------------------------------
     # Tournament Day Flow: Check-In System
     # ---------------------------------------------------------
-    def open_checkin(self, guild_id: int = 0) -> str:
+    def open_checkin(self, checkin_channel_id: int | None = None, guild_id: int = 0) -> str:
         """Opens check-in for registered participants."""
         state = self.get_state(guild_id)
         state.checkin_open = True
+        if checkin_channel_id is not None:
+            state.checkin_channel_id = checkin_channel_id
         self._persist(guild_id)
         return (
             f"📢 **Tournament Check-In is now OPEN for {state.name}!**\n"
