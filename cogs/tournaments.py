@@ -731,3 +731,4 @@ async def setup(bot: commands.Bot):
         service = TournamentService(storage)
         bot.tournament_service = service
     await bot.add_cog(TournamentCog(bot, service))
+

@@ -258,3 +258,4 @@ def build_help_embed(
 
     embed.set_footer(text=f"{org} • International Dueling Organization")
     return embed
+
