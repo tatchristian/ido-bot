@@ -1,0 +1,16 @@
+services:
+  ido-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ido_tournament_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
