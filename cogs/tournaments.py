@@ -234,6 +234,17 @@ class TournamentCog(commands.Cog):
     # Help & Guidance
     # =========================================================================
 
+    async def _send_help(
+        self,
+        interaction: discord.Interaction,
+        section: Optional[app_commands.Choice[str]] = None,
+        ephemeral: bool = True,
+    ):
+        sec = section.value if section else "all"
+        embed = build_help_embed(sec)
+        view = HelpView()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
+
     @app_commands.command(
         name="help",
         description="Interactive guide and command manual for the IDO Tournament Bot.",
@@ -249,10 +260,7 @@ class TournamentCog(commands.Cog):
         section: Optional[app_commands.Choice[str]] = None,
         ephemeral: bool = True,
     ):
-        sec = section.value if section else "all"
-        embed = build_help_embed(sec)
-        view = HelpView()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
+        await self._send_help(interaction, section=section, ephemeral=ephemeral)
 
     @app_commands.command(
         name="tournament-help",
@@ -269,7 +277,7 @@ class TournamentCog(commands.Cog):
         section: Optional[app_commands.Choice[str]] = None,
         ephemeral: bool = True,
     ):
-        await self.help_command(interaction, section=section, ephemeral=ephemeral)
+        await self._send_help(interaction, section=section, ephemeral=ephemeral)
 
     # =========================================================================
     # Participant Commands
@@ -595,6 +603,16 @@ class TournamentCog(commands.Cog):
                 description=msg,
                 color=0x2ECC71,
             )
+            embed.add_field(
+                name="📝 How to Enter",
+                value=(
+                    "• Use `/tournament-register` to sign up for the main bracket.\n"
+                    "• Use `/tournament-unregister` if you need to withdraw and free your slot.\n"
+                    "• Use `/tournament-status` to view open slots, regions & weapons."
+                    + ("\n• Use `/tournament-sub-register` to join the standby substitute queue." if open_subs else "")
+                ),
+                inline=False,
+            )
             embed.set_footer(text=f"{config.organization_name} • Tournament System")
             await interaction.response.send_message(embed=embed)
         except ValueError as e:
@@ -629,6 +647,15 @@ class TournamentCog(commands.Cog):
             description=msg,
             color=0x3498DB,
         )
+        embed.add_field(
+            name="🛡️ How to Join the Standby Queue",
+            value=(
+                "• Use `/tournament-sub-register` to enter the standby substitute queue.\n"
+                "• Use `/tournament-sub-unregister` to leave the queue.\n"
+                "• Substitutes are called up in order to replace no-show players on tournament day!"
+            ),
+            inline=False,
+        )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed)
 
@@ -660,6 +687,14 @@ class TournamentCog(commands.Cog):
             title="📢 Tournament Check-In Opened",
             description=msg,
             color=0x2ECC71,
+        )
+        embed.add_field(
+            name="⏰ Required Action for Registered Players",
+            value=(
+                "• All registered main bracket participants must type `/tournament-checkin`.\n"
+                "• Unconfirmed players may be replaced by standby substitutes!"
+            ),
+            inline=False,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed)
