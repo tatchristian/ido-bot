@@ -47,6 +47,12 @@ EXPORT_FORMAT_CHOICES = [
     app_commands.Choice(name="Formatted Text", value="text"),
 ]
 
+EXPORT_TARGET_CHOICES = [
+    app_commands.Choice(name="Main Bracket (For Challonge / Start.gg Import — Excludes Subs)", value="main"),
+    app_commands.Choice(name="All (Full Roster with Substitutes)", value="all"),
+    app_commands.Choice(name="Substitutes Only", value="subs"),
+]
+
 ANNOUNCE_TARGET_CHOICES = [
     app_commands.Choice(name="Main Bracket Only", value="main"),
     app_commands.Choice(name="Substitutes Only", value="subs"),
@@ -176,6 +182,54 @@ class TournamentCog(commands.Cog):
         else:
             await interaction.response.send_message(err_msg, ephemeral=True)
 
+    async def _assign_participant_role(
+        self, guild: Optional[discord.Guild], user: discord.User | discord.Member
+    ):
+        """Safely assigns the tournament participant role to a member if configured and permitted."""
+        if not guild or not user:
+            return
+        member = user if isinstance(user, discord.Member) else guild.get_member(user.id)
+        if not member:
+            return
+        state = self.service.get_state(guild.id)
+        if not state.participant_role_id:
+            return
+        role = guild.get_role(state.participant_role_id)
+        if (
+            role
+            and guild.me.guild_permissions.manage_roles
+            and role < guild.me.top_role
+        ):
+            try:
+                if role not in member.roles:
+                    await member.add_roles(role, reason=f"Participant in {state.name}")
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                logger.warning("Failed to assign role %s to user %s: %s", role.id, member.id, exc)
+
+    async def _remove_participant_role(
+        self, guild: Optional[discord.Guild], user: discord.User | discord.Member
+    ):
+        """Safely removes the tournament participant role from a member if configured and permitted."""
+        if not guild or not user:
+            return
+        member = user if isinstance(user, discord.Member) else guild.get_member(user.id)
+        if not member:
+            return
+        state = self.service.get_state(guild.id)
+        if not state.participant_role_id:
+            return
+        role = guild.get_role(state.participant_role_id)
+        if (
+            role
+            and guild.me.guild_permissions.manage_roles
+            and role < guild.me.top_role
+        ):
+            try:
+                if role in member.roles:
+                    await member.remove_roles(role, reason=f"Removed from {state.name}")
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                logger.warning("Failed to remove role %s from user %s: %s", role.id, member.id, exc)
+
     # =========================================================================
     # Help & Guidance
     # =========================================================================
@@ -252,6 +306,8 @@ class TournamentCog(commands.Cog):
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
 
+        await self._assign_participant_role(interaction.guild, interaction.user)
+
         state = self.service.get_state(guild_id)
         embed = discord.Embed(
             title="✅ Registered for Main Bracket",
@@ -276,6 +332,8 @@ class TournamentCog(commands.Cog):
         if not success:
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
+
+        await self._remove_participant_role(interaction.guild, interaction.user)
 
         state = self.service.get_state(guild_id)
         embed = discord.Embed(
@@ -483,9 +541,55 @@ class TournamentCog(commands.Cog):
                 selected_regions.extend(self.service.parse_regions(custom_regions))
         try:
             guild_id = interaction.guild_id or 0
+            current_state = self.service.get_state(guild_id)
+            tourney_name = name.strip() if name else current_state.name
+
+            # Auto-manage tournament participant role based on tournament name
+            participant_role = None
+            if interaction.guild:
+                role_name = f"{tourney_name} Participant"[:100]
+                participant_role = discord.utils.get(interaction.guild.roles, name=role_name)
+                if not participant_role:
+                    participant_role = discord.utils.get(interaction.guild.roles, name=tourney_name[:100])
+
+                if not participant_role and interaction.guild.me.guild_permissions.manage_roles:
+                    try:
+                        participant_role = await interaction.guild.create_role(
+                            name=role_name,
+                            mentionable=True,
+                            reason=f"Auto-created IDO tournament participant role for {tourney_name}",
+                        )
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        logger.warning("Could not auto-create role for %s: %s", tourney_name, exc)
+
+            p_role_id = participant_role.id if participant_role else None
+            p_role_name = participant_role.name if participant_role else None
+
             msg = self.service.open_tournament(
-                name=name, slots=slots, regions=selected_regions, open_subs=open_subs, guild_id=guild_id
+                name=name,
+                slots=slots,
+                regions=selected_regions,
+                open_subs=open_subs,
+                participant_role_id=p_role_id,
+                participant_role_name=p_role_name,
+                guild_id=guild_id,
             )
+
+            # Assign role to any players already registered
+            if (
+                participant_role
+                and interaction.guild
+                and interaction.guild.me.guild_permissions.manage_roles
+                and participant_role < interaction.guild.me.top_role
+            ):
+                for p in self.service.get_state(guild_id).participants:
+                    mem = interaction.guild.get_member(p.user_id)
+                    if mem and participant_role not in mem.roles:
+                        try:
+                            await mem.add_roles(participant_role, reason=f"Participant in {tourney_name}")
+                        except (discord.Forbidden, discord.HTTPException):
+                            pass
+
             embed = discord.Embed(
                 title="🏆 Tournament Registrations Opened",
                 description=msg,
@@ -597,6 +701,8 @@ class TournamentCog(commands.Cog):
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
 
+        await self._remove_participant_role(interaction.guild, user)
+
         embed = discord.Embed(
             title="👢 Tournament Removal",
             description=msg,
@@ -638,6 +744,9 @@ class TournamentCog(commands.Cog):
             guild_id=guild_id,
         )
 
+        if success and not as_sub:
+            await self._assign_participant_role(interaction.guild, user)
+
         embed = discord.Embed(
             title="👑 Admin Force Registration",
             description=msg,
@@ -665,7 +774,7 @@ class TournamentCog(commands.Cog):
         sub_id = substitute.id if substitute else None
         rep_id = replace.id if replace else None
 
-        success, message, _ = self.service.promote_substitute(
+        success, message, promoted = self.service.promote_substitute(
             substitute_user_id=sub_id,
             replace_user_id=rep_id,
             guild_id=guild_id,
@@ -674,6 +783,14 @@ class TournamentCog(commands.Cog):
         if not success:
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
+
+        if promoted and interaction.guild:
+            promoted_mem = interaction.guild.get_member(promoted.user_id)
+            if promoted_mem:
+                await self._assign_participant_role(interaction.guild, promoted_mem)
+
+        if replace:
+            await self._remove_participant_role(interaction.guild, replace)
 
         embed = discord.Embed(
             title="🔄 Substitute Promoted",
@@ -832,6 +949,59 @@ class TournamentCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
+        name="tournament-set-role",
+        description="[Admin] Set or link a Discord role assigned to main bracket tournament participants.",
+    )
+    @app_commands.describe(role="The Discord role to give to registered main bracket participants")
+    @is_tournament_admin()
+    async def set_role_cmd(self, interaction: discord.Interaction, role: discord.Role):
+        guild_id = interaction.guild_id or 0
+        msg = self.service.set_participant_role(guild_id=guild_id, role_id=role.id, role_name=role.name)
+
+        # Retroactively grant to already-registered participants
+        assigned_count = 0
+        if interaction.guild and interaction.guild.me.guild_permissions.manage_roles and role < interaction.guild.me.top_role:
+            state = self.service.get_state(guild_id)
+            for p in state.participants:
+                mem = interaction.guild.get_member(p.user_id)
+                if mem and role not in mem.roles:
+                    try:
+                        await mem.add_roles(role, reason="Tournament participant role configured")
+                        assigned_count += 1
+                    except (discord.Forbidden, discord.HTTPException):
+                        pass
+
+        embed = discord.Embed(
+            title="🏷️ Tournament Participant Role Configured",
+            description=(
+                f"{msg}\n\n"
+                f"• Registered participants will automatically receive {role.mention}.\n"
+                f"• `/tournament-announce` will ping {role.mention} instead of spamming individual user tags.\n"
+                + (f"• Assigned to `{assigned_count}` existing participant(s)." if assigned_count > 0 else "")
+            ),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="tournament-view-role",
+        description="View the current participant role configured for this tournament.",
+    )
+    async def view_role_cmd(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        role = interaction.guild.get_role(state.participant_role_id) if (state.participant_role_id and interaction.guild) else None
+        role_display = role.mention if role else (f"`{state.participant_role_name}`" if state.participant_role_name else "*None configured*")
+        embed = discord.Embed(
+            title="🏷️ Tournament Participant Role",
+            description=f"**Current Role:** {role_display}\n\nThis role is automatically given to players registered in the main bracket.",
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
         name="tournament-announce",
         description="[Admin] Ping and announce tournament information to registered players.",
     )
@@ -851,19 +1021,50 @@ class TournamentCog(commands.Cog):
         guild_id = interaction.guild_id or 0
         state = self.service.get_state(guild_id)
 
-        mentions = []
-        if target_val in ("main", "all"):
-            mentions.extend(p.user_mention for p in state.participants)
-        if target_val in ("subs", "all"):
-            mentions.extend(s.user_mention for s in state.substitutes)
+        mentions_text = ""
+        role = (
+            interaction.guild.get_role(state.participant_role_id)
+            if (interaction.guild and state.participant_role_id)
+            else None
+        )
 
-        if not mentions:
-            await interaction.response.send_message(
-                "❌ No participants found in the selected target group.", ephemeral=True
-            )
-            return
+        if target_val == "main":
+            if role:
+                mentions_text = role.mention
+            elif state.participants:
+                mentions_text = " ".join(p.user_mention for p in state.participants)
+            else:
+                await interaction.response.send_message(
+                    "❌ No participants found in the main bracket.", ephemeral=True
+                )
+                return
+        elif target_val == "subs":
+            if state.substitutes:
+                mentions_text = " ".join(s.user_mention for s in state.substitutes)
+            else:
+                await interaction.response.send_message(
+                    "❌ No substitutes found on standby.", ephemeral=True
+                )
+                return
+        else:  # "all"
+            if role:
+                sub_mentions = [s.user_mention for s in state.substitutes]
+                mentions_text = (
+                    f"{role.mention} " + " ".join(sub_mentions)
+                    if sub_mentions
+                    else role.mention
+                )
+            else:
+                all_mentions = [p.user_mention for p in state.participants] + [
+                    s.user_mention for s in state.substitutes
+                ]
+                if not all_mentions:
+                    await interaction.response.send_message(
+                        "❌ No participants or substitutes found.", ephemeral=True
+                    )
+                    return
+                mentions_text = " ".join(all_mentions)
 
-        mentions_text = " ".join(mentions)
         embed = discord.Embed(
             title=f"📢 Tournament Announcement — {state.name}",
             description=message,
@@ -877,32 +1078,48 @@ class TournamentCog(commands.Cog):
         name="tournament-export",
         description="[Admin] Export tournament roster for Challonge, Start.gg, or Excel.",
     )
-    @app_commands.describe(format="Export file format")
-    @app_commands.choices(format=EXPORT_FORMAT_CHOICES)
+    @app_commands.describe(
+        format="Export file format (CSV, Challonge text, or formatted summary)",
+        target="Roster scope (Main Bracket for Challonge/Start.gg bracket import, or All for spreadsheet)",
+    )
+    @app_commands.choices(format=EXPORT_FORMAT_CHOICES, target=EXPORT_TARGET_CHOICES)
     @is_tournament_admin()
     async def export_roster(
         self,
         interaction: discord.Interaction,
         format: Optional[app_commands.Choice[str]] = None,
+        target: Optional[app_commands.Choice[str]] = None,
     ):
         fmt = format.value if format else "csv"
+        target_val = target.value if target else ("main" if fmt == "challonge" else "main")
         guild_id = interaction.guild_id or 0
-        filename, content = self.service.export_roster(fmt, guild_id=guild_id)
+        filename, content = self.service.export_roster(fmt, target=target_val, guild_id=guild_id)
         file_bytes = io.BytesIO(content.encode("utf-8"))
         discord_file = discord.File(file_bytes, filename=filename)
 
         format_name = format.name if format else "CSV"
         state = self.service.get_state(guild_id)
-        await interaction.response.send_message(
-            content=(
-                f"📁 **Roster Export Ready**\n"
-                f"• Event: **{state.name}**\n"
-                f"• Format: `{format_name}`\n"
-                f"• Players: `{len(state.participants)}` main, `{len(state.substitutes)}` subs"
+
+        target_names = {
+            "main": "Main Bracket (Bracket-ready, excludes subs)",
+            "all": "Full Roster (Main Bracket + Substitutes)",
+            "subs": "Standby Substitutes Only",
+        }
+        target_label = target_names.get(target_val, target_val.title())
+
+        embed = discord.Embed(
+            title=f"📥 Tournament Roster Export — {state.name}",
+            description=(
+                f"**Format:** `{format_name}`\n"
+                f"**Scope:** `{target_label}`\n"
+                f"**Main Participants:** `{len(state.participants)}`\n"
+                f"**Substitutes:** `{len(state.substitutes)}`\n\n"
+                f"💡 *Tip: For Start.gg or Challonge bracket generation, use **Main Bracket** so substitutes are not accidentally seeded into round 1 matches.*"
             ),
-            file=discord_file,
-            ephemeral=True,
+            color=0x2ECC71,
         )
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await interaction.response.send_message(embed=embed, file=discord_file, ephemeral=True)
 
     @app_commands.command(
         name="tournament-clear",
@@ -911,6 +1128,19 @@ class TournamentCog(commands.Cog):
     @is_tournament_admin()
     async def clear_tournament(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        if interaction.guild and state.participant_role_id:
+            role = interaction.guild.get_role(state.participant_role_id)
+            if (
+                role
+                and interaction.guild.me.guild_permissions.manage_roles
+                and role < interaction.guild.me.top_role
+            ):
+                try:
+                    await role.delete(reason="Tournament cleared by admin")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
+
         msg = self.service.clear_tournament(guild_id=guild_id)
         embed = discord.Embed(
             title="🧹 Tournament Reset",

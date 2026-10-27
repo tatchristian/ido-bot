@@ -76,6 +76,8 @@ def build_status_embed(
         f"🛡️ **Substitutes on Deck:** `{sub_count}` standby players",
         f"🌍 **Allowed Regions:** `{regions_str}`",
     ]
+    if state.participant_role_name:
+        desc_lines.append(f"🏷️ **Participant Role:** `@{state.participant_role_name}`")
 
     embed = discord.Embed(
         title=f"🏆 {state.name}",
@@ -232,6 +234,8 @@ def build_help_embed(
             "• `/tournament-set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
             "• `/tournament-set-regions` — Update allowed regions filter.\n"
             "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
+            "• `/tournament-set-role` — Set or link Discord role for participants.\n"
+            "• `/tournament-set-admin-role` — Set role required for admin commands.\n"
             "• `/tournament-announce` — Broadcast announcement to players.\n"
             "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster.\n"
             "• `/tournament-clear` — Wipe roster clean for next event."

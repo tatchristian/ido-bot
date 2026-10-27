@@ -73,6 +73,8 @@ class TournamentState:
     approved_weapons: list[str] = field(default_factory=lambda: list(DEFAULT_WEAPONS))
     admin_role_id: int | None = None
     admin_role_name: str | None = None
+    participant_role_id: int | None = None
+    participant_role_name: str | None = None
     participants: list[Participant] = field(default_factory=list)
     substitutes: list[Participant] = field(default_factory=list)
     created_at: str = field(
@@ -94,6 +96,8 @@ class TournamentState:
             approved_weapons=list(data.get("approved_weapons", DEFAULT_WEAPONS)),
             admin_role_id=int(data["admin_role_id"]) if data.get("admin_role_id") is not None else None,
             admin_role_name=str(data["admin_role_name"]) if data.get("admin_role_name") is not None else None,
+            participant_role_id=int(data["participant_role_id"]) if data.get("participant_role_id") is not None else None,
+            participant_role_name=str(data["participant_role_name"]) if data.get("participant_role_name") is not None else None,
             participants=[
                 Participant.from_dict(p) for p in data.get("participants", [])
             ],
@@ -119,6 +123,8 @@ class TournamentState:
             "approved_weapons": self.approved_weapons,
             "admin_role_id": self.admin_role_id,
             "admin_role_name": self.admin_role_name,
+            "participant_role_id": self.participant_role_id,
+            "participant_role_name": self.participant_role_name,
             "participants": [p.to_dict() for p in self.participants],
             "substitutes": [s.to_dict() for s in self.substitutes],
             "created_at": self.created_at,
@@ -259,6 +265,8 @@ class TournamentService:
         slots: int | None = None,
         regions: str | list[str] | None = None,
         open_subs: bool = False,
+        participant_role_id: int | None = None,
+        participant_role_name: str | None = None,
         guild_id: int = 0,
     ) -> str:
         """Opens main bracket submissions and updates tournament settings."""
@@ -271,6 +279,9 @@ class TournamentService:
             state.max_slots = slots
         if regions is not None:
             state.allowed_regions = self.parse_regions(regions)
+        if participant_role_id is not None:
+            state.participant_role_id = participant_role_id
+            state.participant_role_name = participant_role_name
 
         state.main_open = True
         state.subs_open = open_subs
@@ -278,11 +289,13 @@ class TournamentService:
 
         sub_status = "OPEN" if state.subs_open else "CLOSED"
         regions_str = ", ".join(state.allowed_regions)
+        role_info = f"\n• Participant Role: `@{state.participant_role_name}`" if state.participant_role_name else ""
         return (
             f"🏆 **{state.name}** is now **OPEN**!\n"
             f"• Max Slots: `{state.max_slots}`\n"
             f"• Allowed Regions: `{regions_str}`\n"
             f"• Substitute Signups: `{sub_status}`"
+            f"{role_info}"
         )
 
     def close_tournament(self, guild_id: int = 0) -> str:
@@ -348,14 +361,28 @@ class TournamentService:
         self._persist(guild_id)
         return f"🛡️ Tournament Admin threshold set to role: **{role_name}** (or higher)."
 
+    def set_participant_role(
+        self, role_id: int | None, role_name: str | None = None, guild_id: int = 0
+    ) -> str:
+        """Sets or clears the Discord role assigned to main bracket tournament participants."""
+        state = self.get_state(guild_id)
+        state.participant_role_id = role_id
+        state.participant_role_name = role_name
+        self._persist(guild_id)
+        if role_name:
+            return f"🏷️ Tournament participant role set to: **@{role_name}**."
+        return "🏷️ Tournament participant role cleared."
+
     def clear_tournament(self, guild_id: int = 0) -> str:
-        """Wipes both main roster and substitute list."""
+        """Wipes both main roster, substitute list, and resets participant role."""
         state = self.get_state(guild_id)
         p_count = len(state.participants)
         s_count = len(state.substitutes)
         state.participants.clear()
         state.substitutes.clear()
         state.checkin_open = False
+        state.participant_role_id = None
+        state.participant_role_name = None
         self._persist(guild_id)
         return f"🧹 Tournament roster wiped clean ({p_count} main players and {s_count} substitutes removed)."
 
@@ -736,60 +763,102 @@ class TournamentService:
     # ---------------------------------------------------------
     # Exporting Roster for External Brackets (Challonge/Start.gg)
     # ---------------------------------------------------------
-    def export_roster(self, format_type: str = "csv", guild_id: int = 0) -> tuple[str, str]:
+    def export_roster(
+        self, format_type: str = "csv", target: str = "all", guild_id: int = 0
+    ) -> tuple[str, str]:
         """
         Exports the tournament roster formatted for Challonge, Start.gg, or spreadsheets.
+        target options:
+          - "all": Full roster including both main bracket and standby substitutes (default for spreadsheets).
+          - "main": Main bracket participants only (recommended for direct Challonge/Start.gg bracket imports).
+          - "subs": Standby substitutes only.
         Returns (filename, content_string).
         """
         state = self.get_state(guild_id)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
         format_norm = format_type.lower().strip()
+        target_norm = target.lower().strip()
 
         if format_norm == "challonge":
-            lines = [p.ign for p in state.participants]
-            filename = f"challonge_roster_{timestamp}.txt"
+            if target_norm == "subs":
+                lines = [s.ign for s in state.substitutes]
+                filename = f"challonge_subs_{timestamp}.txt"
+            elif target_norm == "all":
+                lines = [p.ign for p in state.participants]
+                if state.substitutes:
+                    lines.extend(s.ign for s in state.substitutes)
+                filename = f"challonge_all_{timestamp}.txt"
+            else:  # default for challonge bracket: "main"
+                lines = [p.ign for p in state.participants]
+                filename = f"challonge_roster_{timestamp}.txt"
             return filename, "\n".join(lines)
 
         if format_norm == "text":
             lines = [f"=== {state.name} Roster ==="]
-            lines.append(f"Main Bracket ({len(state.participants)}/{state.max_slots}):")
-            for i, p in enumerate(state.participants, 1):
-                status = "Checked In" if p.checked_in else "Pending"
-                lines.append(f"{i}. {p.ign} (Discord: {p.user_id}) - {p.weapon} | {p.region} [{status}]")
-            lines.append("")
-            lines.append(f"Standby Substitutes ({len(state.substitutes)}):")
-            for i, s in enumerate(state.substitutes, 1):
-                status = "Checked In" if s.checked_in else "Pending"
-                lines.append(f"{i}. {s.ign} (Discord: {s.user_id}) - {s.weapon} | {s.region} [{status}]")
+            if target_norm in ("main", "all"):
+                lines.append(f"Main Bracket ({len(state.participants)}/{state.max_slots}):")
+                for i, p in enumerate(state.participants, 1):
+                    status = "Checked In" if p.checked_in else "Pending"
+                    lines.append(f"{i}. {p.ign} (Discord: {p.user_id}) - {p.weapon} | {p.region} [{status}]")
+                lines.append("")
+            if target_norm in ("subs", "all"):
+                lines.append(f"Standby Substitutes ({len(state.substitutes)}):")
+                for i, s in enumerate(state.substitutes, 1):
+                    status = "Checked In" if s.checked_in else "Pending"
+                    lines.append(f"{i}. {s.ign} (Discord: {s.user_id}) - {s.weapon} | {s.region} [{status}]")
             filename = f"tournament_roster_{timestamp}.txt"
             return filename, "\n".join(lines)
 
         # Default: CSV format
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["Seed", "IGN", "Discord_ID", "Weapon", "Region", "Checked_In", "Role"])
 
-        for seed, p in enumerate(state.participants, 1):
-            writer.writerow([
-                seed,
-                p.ign,
-                p.user_id,
-                p.weapon,
-                p.region,
-                "YES" if p.checked_in else "NO",
-                "Main Bracket",
-            ])
+        if target_norm == "main":
+            writer.writerow(["Seed", "IGN", "Discord_ID", "Weapon", "Region", "Checked_In"])
+            for seed, p in enumerate(state.participants, 1):
+                writer.writerow([
+                    seed,
+                    p.ign,
+                    p.user_id,
+                    p.weapon,
+                    p.region,
+                    "YES" if p.checked_in else "NO",
+                ])
+            filename = f"tournament_bracket_roster_{timestamp}.csv"
+        elif target_norm == "subs":
+            writer.writerow(["Queue_Position", "IGN", "Discord_ID", "Weapon", "Region", "Checked_In"])
+            for pos, s in enumerate(state.substitutes, 1):
+                writer.writerow([
+                    pos,
+                    s.ign,
+                    s.user_id,
+                    s.weapon,
+                    s.region,
+                    "YES" if s.checked_in else "NO",
+                ])
+            filename = f"tournament_subs_roster_{timestamp}.csv"
+        else:  # "all"
+            writer.writerow(["Seed", "IGN", "Discord_ID", "Weapon", "Region", "Checked_In", "Role"])
+            for seed, p in enumerate(state.participants, 1):
+                writer.writerow([
+                    seed,
+                    p.ign,
+                    p.user_id,
+                    p.weapon,
+                    p.region,
+                    "YES" if p.checked_in else "NO",
+                    "Main Bracket",
+                ])
+            for seed, s in enumerate(state.substitutes, 1):
+                writer.writerow([
+                    seed,
+                    s.ign,
+                    s.user_id,
+                    s.weapon,
+                    s.region,
+                    "YES" if s.checked_in else "NO",
+                    "Substitute",
+                ])
+            filename = f"tournament_roster_{timestamp}.csv"
 
-        for seed, s in enumerate(state.substitutes, 1):
-            writer.writerow([
-                seed,
-                s.ign,
-                s.user_id,
-                s.weapon,
-                s.region,
-                "YES" if s.checked_in else "NO",
-                "Substitute",
-            ])
-
-        filename = f"tournament_roster_{timestamp}.csv"
         return filename, output.getvalue()

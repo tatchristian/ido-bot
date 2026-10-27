@@ -333,6 +333,53 @@ def test_admin_set_admin_role_and_clear(service: TournamentService):
     assert len(service.get_state().participants) == 0
 
 
+def test_participant_role_management(service: TournamentService):
+    service.open_tournament(
+        name="Winter Invitational",
+        slots=8,
+        participant_role_id=123456789,
+        participant_role_name="Winter Invitational Participant",
+    )
+    state = service.get_state()
+    assert state.participant_role_id == 123456789
+    assert state.participant_role_name == "Winter Invitational Participant"
+
+    # Set participant role manually
+    msg = service.set_participant_role(555555555, "Custom Role")
+    assert "Custom Role" in msg
+    assert service.get_state().participant_role_id == 555555555
+
+    # Clear tournament resets participant role
+    service.clear_tournament()
+    assert service.get_state().participant_role_id is None
+    assert service.get_state().participant_role_name is None
+
+
+def test_export_roster_targets(service: TournamentService):
+    service.open_tournament(name="IDO Masters", slots=8, open_subs=True)
+    service.register_participant(1, "<@1>", "MainPlayer", "Katana", "NA")
+    service.register_substitute(2, "<@2>", "SubPlayer", "Daggers", "EU")
+
+    # Target: main (bracket import) - must ONLY include MainPlayer, NOT SubPlayer
+    fname_main, content_main = service.export_roster("csv", target="main")
+    assert fname_main.startswith("tournament_bracket_roster_")
+    assert "MainPlayer" in content_main
+    assert "SubPlayer" not in content_main
+
+    # Target: subs - must ONLY include SubPlayer
+    fname_subs, content_subs = service.export_roster("csv", target="subs")
+    assert fname_subs.startswith("tournament_subs_roster_")
+    assert "SubPlayer" in content_subs
+    assert "MainPlayer" not in content_subs
+
+    # Target: all - includes both
+    fname_all, content_all = service.export_roster("csv", target="all")
+    assert "MainPlayer" in content_all
+    assert "SubPlayer" in content_all
+    assert "Main Bracket" in content_all
+    assert "Substitute" in content_all
+
+
 def test_multi_server_isolation(tmp_path: Path):
     """Verifies that Server A and Server B rosters are completely isolated."""
     service = TournamentService(data_dir=tmp_path)
