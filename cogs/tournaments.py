@@ -216,13 +216,6 @@ class TournamentCog(commands.Cog):
         ephemeral: bool = True,
     ):
         await self.help_command(interaction, section=section, ephemeral=ephemeral)
-        section: Optional[app_commands.Choice[str]] = None,
-        ephemeral: bool = True,
-    ):
-        sec = section.value if section else "all"
-        embed = build_help_embed(sec)
-        view = HelpView()
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
 
     # =========================================================================
     # Participant Commands
