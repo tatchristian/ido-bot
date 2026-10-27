@@ -232,27 +232,35 @@ def build_help_embed(
         )
 
     if section in ("all", "admin"):
-        admin_cmds = (
+        admin_lifecycle = (
             "• `/tournament-open` — Open bracket, set capacity & region filters.\n"
             "• `/tournament-close` — Close main bracket registrations.\n"
             "• `/tournament-open-subs` / `/tournament-close-subs` — Toggle substitute signups.\n"
             "• `/tournament-open-checkin` / `/tournament-close-checkin` — Run check-in window.\n"
             "• `/tournament-promote-sub` — Swap a no-show player with standby sub.\n"
-            "• `/tournament-kick` — Remove specific player from main or sub queue.\n"
+            "• `/tournament-kick` — Remove player from main or sub queue.\n"
             "• `/tournament-force-register` — Manually add a participant or VIP.\n"
+            "• `/tournament-announce` — Broadcast announcement to players.\n"
+            "• `/tournament-clear` — Wipe roster clean for next event."
+        )
+        embed.add_field(
+            name="🛠️ Tournament Admin Controls — Operations",
+            value=admin_lifecycle,
+            inline=False,
+        )
+
+        admin_config = (
             "• `/tournament-set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
             "• `/tournament-set-regions` — Update allowed regions filter.\n"
             "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
             "• `/tournament-set-role` — Set or link Discord role for participants.\n"
             "• `/tournament-set-channels` — Configure dedicated channels for tournament.\n"
             "• `/tournament-set-admin-role` — Set role required for admin commands.\n"
-            "• `/tournament-announce` — Broadcast announcement to players.\n"
-            "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster.\n"
-            "• `/tournament-clear` — Wipe roster clean for next event."
+            "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster."
         )
         embed.add_field(
-            name="🛠️ Tournament Admin Controls",
-            value=admin_cmds,
+            name="⚙️ Tournament Admin Controls — Settings & Export",
+            value=admin_config,
             inline=False,
         )
 

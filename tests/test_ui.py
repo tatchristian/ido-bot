@@ -82,7 +82,8 @@ def test_build_help_embed():
     assert len(embed_part.fields) == 1
     assert "Participant Commands" in embed_part.fields[0].name
 
-    # Test admin only section
+    # Test admin only section (split into 2 sub-fields to respect Discord 1024-char limit)
     embed_admin = build_help_embed("admin")
-    assert len(embed_admin.fields) == 1
-    assert "Tournament Admin Controls" in embed_admin.fields[0].name
+    assert len(embed_admin.fields) == 2
+    assert all("Tournament Admin Controls" in f.name for f in embed_admin.fields)
+    assert all(len(f.value) <= 1024 for f in embed_all.fields)

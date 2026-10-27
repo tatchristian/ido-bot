@@ -273,7 +273,7 @@ class TournamentCog(commands.Cog):
         await interaction.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
 
     @app_commands.command(
-        name="help",
+        name="tournament-help",
         description="Interactive guide and command manual for the IDO Tournament Bot.",
     )
     @app_commands.describe(
@@ -281,7 +281,7 @@ class TournamentCog(commands.Cog):
         ephemeral="Whether the help message is only visible to you (default: True)",
     )
     @app_commands.choices(section=HELP_SECTION_CHOICES)
-    async def help_command(
+    async def tournament_help(
         self,
         interaction: discord.Interaction,
         section: Optional[app_commands.Choice[str]] = None,
@@ -290,15 +290,32 @@ class TournamentCog(commands.Cog):
         await self._send_help(interaction, section=section, ephemeral=ephemeral)
 
     @app_commands.command(
-        name="tournament-help",
-        description="Interactive guide and command manual for the IDO Tournament Bot (alias for /help).",
+        name="help-tournament",
+        description="Interactive guide and command manual for the IDO Tournament Bot (alias for /tournament-help).",
     )
     @app_commands.describe(
         section="Jump directly to a specific guide category",
         ephemeral="Whether the help message is only visible to you (default: True)",
     )
     @app_commands.choices(section=HELP_SECTION_CHOICES)
-    async def tournament_help_alias(
+    async def help_tournament_alias(
+        self,
+        interaction: discord.Interaction,
+        section: Optional[app_commands.Choice[str]] = None,
+        ephemeral: bool = True,
+    ):
+        await self._send_help(interaction, section=section, ephemeral=ephemeral)
+
+    @app_commands.command(
+        name="help",
+        description="Interactive guide and command manual for the IDO Tournament Bot (alias for /tournament-help).",
+    )
+    @app_commands.describe(
+        section="Jump directly to a specific guide category",
+        ephemeral="Whether the help message is only visible to you (default: True)",
+    )
+    @app_commands.choices(section=HELP_SECTION_CHOICES)
+    async def help_alias(
         self,
         interaction: discord.Interaction,
         section: Optional[app_commands.Choice[str]] = None,
