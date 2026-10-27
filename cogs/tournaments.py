@@ -52,21 +52,47 @@ HELP_SECTION_CHOICES = [
 
 
 def is_tournament_admin():
-    """Custom check for administrator permission or designated Tournament Admin role."""
+    """Custom check for administrator permission or designated Tournament Admin role or higher in hierarchy."""
     async def predicate(interaction: discord.Interaction) -> bool:
         if interaction.guild is None:
             return False
 
+        # Server owner always has full authority
         if interaction.user.id == interaction.guild.owner_id:
             return True
 
+        # Server administrator permission
         if interaction.permissions.administrator:
             return True
 
-        if isinstance(interaction.user, discord.Member):
-            for role in interaction.user.roles:
-                if role.name.lower() == config.admin_role_name.lower():
-                    return True
+        if not isinstance(interaction.user, discord.Member):
+            return False
+
+        # Get threshold role info from service state or config
+        cog = interaction.client.get_cog("TournamentCog")
+        target_role_id = None
+        target_role_name = config.admin_role_name
+        if cog and hasattr(cog, "service"):
+            target_role_id = cog.service.state.admin_role_id or config.admin_role_id
+            target_role_name = cog.service.state.admin_role_name or config.admin_role_name
+        else:
+            target_role_id = config.admin_role_id
+
+        threshold_role = None
+        if target_role_id:
+            threshold_role = interaction.guild.get_role(target_role_id)
+
+        if not threshold_role and target_role_name:
+            target_name_lower = target_role_name.strip().lower()
+            threshold_role = discord.utils.find(
+                lambda r: r.name.strip().lower() == target_name_lower,
+                interaction.guild.roles,
+            )
+
+        if threshold_role is not None:
+            # Check if user has this role or any higher role in the server's role hierarchy
+            if interaction.user.top_role.position >= threshold_role.position:
+                return True
 
         return False
 
@@ -112,9 +138,13 @@ class TournamentCog(commands.Cog):
     ):
         """Global error handler for tournament cog commands."""
         if isinstance(error, app_commands.CheckFailure):
+            role_name = (
+                self.service.state.admin_role_name
+                or config.admin_role_name
+            )
             msg = (
                 f"❌ **Permission Denied**: You need Administrator permissions or the "
-                f"`{config.admin_role_name}` role to run this command."
+                f"`{role_name}` role (or higher in server role hierarchy) to run this command."
             )
             if interaction.response.is_done():
                 await interaction.followup.send(msg, ephemeral=True)
@@ -630,6 +660,28 @@ class TournamentCog(commands.Cog):
         embed = discord.Embed(
             title="⚔️ Tournament Weapons Updated",
             description=msg,
+            color=0xF1C40F,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="tournament-set-admin-role",
+        description="[Admin] Set the minimum role required to manage tournaments (that role or higher).",
+    )
+    @app_commands.describe(
+        role="The threshold role. Members with this role or higher in server settings can use admin commands."
+    )
+    @is_tournament_admin()
+    async def set_admin_role_cmd(self, interaction: discord.Interaction, role: discord.Role):
+        msg = self.service.set_admin_role(role_id=role.id, role_name=role.name)
+        embed = discord.Embed(
+            title="🛡️ Admin Role Hierarchy Configured",
+            description=(
+                f"{msg}\n\n"
+                f"Members with **{role.mention}** or any role positioned higher in your server's role list "
+                f"can now use all tournament admin commands."
+            ),
             color=0xF1C40F,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")

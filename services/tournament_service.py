@@ -70,6 +70,8 @@ class TournamentState:
     max_slots: int = 8
     allowed_regions: list[str] = field(default_factory=lambda: ["GLOBAL"])
     approved_weapons: list[str] = field(default_factory=lambda: list(DEFAULT_WEAPONS))
+    admin_role_id: int | None = None
+    admin_role_name: str | None = None
     participants: list[Participant] = field(default_factory=list)
     substitutes: list[Participant] = field(default_factory=list)
     created_at: str = field(
@@ -89,6 +91,8 @@ class TournamentState:
             max_slots=int(data.get("max_slots", 8)),
             allowed_regions=list(data.get("allowed_regions", ["GLOBAL"])),
             approved_weapons=list(data.get("approved_weapons", DEFAULT_WEAPONS)),
+            admin_role_id=int(data["admin_role_id"]) if data.get("admin_role_id") is not None else None,
+            admin_role_name=str(data["admin_role_name"]) if data.get("admin_role_name") is not None else None,
             participants=[
                 Participant.from_dict(p) for p in data.get("participants", [])
             ],
@@ -112,6 +116,8 @@ class TournamentState:
             "max_slots": self.max_slots,
             "allowed_regions": self.allowed_regions,
             "approved_weapons": self.approved_weapons,
+            "admin_role_id": self.admin_role_id,
+            "admin_role_name": self.admin_role_name,
             "participants": [p.to_dict() for p in self.participants],
             "substitutes": [s.to_dict() for s in self.substitutes],
             "created_at": self.created_at,
@@ -272,6 +278,13 @@ class TournamentService:
 
         self._persist()
         return f"⚔️ Approved weapons updated: {', '.join(self.state.approved_weapons)}."
+
+    def set_admin_role(self, role_id: int, role_name: str) -> str:
+        """Sets the threshold role required for tournament admin permissions."""
+        self.state.admin_role_id = role_id
+        self.state.admin_role_name = role_name
+        self._persist()
+        return f"🛡️ Tournament Admin threshold set to role: **{role_name}** (or higher)."
 
     def clear_tournament(self) -> str:
         """Wipes both main roster and substitute list."""

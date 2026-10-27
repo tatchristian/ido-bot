@@ -294,3 +294,23 @@ def test_export_roster(service: TournamentService):
     fname_txt, content_txt = service.export_roster("text")
     assert fname_txt.endswith(".txt")
     assert "Main Bracket" in content_txt
+
+
+def test_admin_set_admin_role_and_clear(service: TournamentService):
+    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL")
+    service.register_participant(1, "<@1>", "Player1", "Katana", "NA")
+
+    # Set admin role threshold
+    role_msg = service.set_admin_role(role_id=987654321, role_name="Head Referee")
+    assert "Head Referee" in role_msg
+    assert service.get_state().admin_role_id == 987654321
+    assert service.get_state().admin_role_name == "Head Referee"
+
+    # Set limit
+    service.set_limit(16)
+    assert service.get_state().max_slots == 16
+
+    # Clear tournament
+    clear_msg = service.clear_tournament()
+    assert "wiped clean" in clear_msg.lower()
+    assert len(service.get_state().participants) == 0
