@@ -13,6 +13,8 @@ import sys
 import discord
 from discord.ext import commands
 
+from aiohttp import web
+
 from config import config
 from services.tournament_service import TournamentService
 from utils.storage import StorageManager
@@ -23,6 +25,31 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("ido_bot")
+
+
+async def start_health_server():
+    """Starts a lightweight HTTP health check endpoint for cloud platforms like Koyeb."""
+    port_str = config.data_dir.name if False else None
+    # Cloud providers like Koyeb inject PORT into environment
+    raw_port = sys.modules["os"].getenv("PORT", "8000")
+    if not raw_port or not raw_port.isdigit():
+        return None
+
+    port = int(raw_port)
+    app = web.Application()
+
+    async def health_handler(request):
+        return web.Response(text="IDO Tournament Bot is operational!", content_type="text/plain")
+
+    app.router.add_get("/", health_handler)
+    app.router.add_get("/health", health_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info("Health check endpoint listening on 0.0.0.0:%d", port)
+    return runner
 
 
 class IDOTournamentBot(commands.Bot):
@@ -46,6 +73,7 @@ class IDOTournamentBot(commands.Bot):
     async def setup_hook(self) -> None:
         """Invoked before the bot establishes its gateway connection."""
         logger.info("Initializing bot services and loading extensions...")
+        await start_health_server()
         await self.load_extension("cogs.tournaments")
 
         # Slash command tree synchronization
