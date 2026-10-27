@@ -1,6 +1,6 @@
 """
 Domain service handling tournament business logic, registrations, validations,
-check-ins, and roster states.
+check-ins, and roster states with full per-server (multi-guild) isolation.
 """
 
 from __future__ import annotations
@@ -8,8 +8,10 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from utils.storage import StorageManager
@@ -27,7 +29,6 @@ DEFAULT_WEAPONS = [
 ]
 
 DEFAULT_REGIONS = ["GLOBAL"]
-# Standard competitive regions (ME removed as requested)
 STANDARD_REGIONS = ["NA", "EU", "OCE", "ASIA", "SA"]
 
 
@@ -129,28 +130,74 @@ class TournamentService:
     """
     Manages tournament operations, enforcing rules for registration, capacity,
     regions, standby promotions, check-in, and tournament day flow.
+    Supports isolated per-server tournament rosters (multi-guild support).
     """
 
-    def __init__(self, storage: StorageManager):
-        self.storage = storage
-        self.state: TournamentState = self._load_state()
+    def __init__(
+        self,
+        storage: StorageManager | None = None,
+        data_dir: Path | None = None,
+        backup_dir: Path | None = None,
+        max_backups: int = 20,
+    ):
+        self._default_storage = storage
+        self.data_dir = Path(
+            data_dir or (storage.file_path.parent if storage else "data")
+        )
+        self.backup_dir = Path(
+            backup_dir or (storage.backup_dir if storage else self.data_dir / "backups")
+        )
+        self.max_backups = max_backups
+        self._managers: dict[int, StorageManager] = {}
+        self._states: dict[int, TournamentState] = {}
+        self._lock = threading.Lock()
 
-    def _load_state(self) -> TournamentState:
-        data = self.storage.load(default_factory=lambda: TournamentState().to_dict())
-        try:
-            return TournamentState.from_dict(data)
-        except Exception as e:
-            logger.error("Failed to parse tournament state, resetting to default: %s", e)
-            default = TournamentState()
-            self.storage.save(default.to_dict())
-            return default
+    def _get_manager(self, guild_id: int = 0) -> StorageManager:
+        if guild_id in self._managers:
+            return self._managers[guild_id]
 
-    def _persist(self) -> None:
-        self.state.updated_at = datetime.now(timezone.utc).isoformat()
-        self.storage.save(self.state.to_dict())
+        if guild_id == 0 and self._default_storage is not None:
+            manager = self._default_storage
+        else:
+            file_name = "tournament.json" if guild_id == 0 else f"tournament_{guild_id}.json"
+            file_path = self.data_dir / file_name
+            backup_dir = self.backup_dir if guild_id == 0 else (self.backup_dir / str(guild_id))
+            manager = StorageManager(
+                file_path, backup_dir=backup_dir, max_backups=self.max_backups
+            )
 
-    def get_state(self) -> TournamentState:
-        return self.state
+        self._managers[guild_id] = manager
+        return manager
+
+    def get_state(self, guild_id: int = 0) -> TournamentState:
+        with self._lock:
+            if guild_id not in self._states:
+                manager = self._get_manager(guild_id)
+                data = manager.load(default_factory=lambda: TournamentState().to_dict())
+                try:
+                    self._states[guild_id] = TournamentState.from_dict(data)
+                except Exception as e:
+                    logger.error(
+                        "Failed to parse tournament state for guild %s, resetting: %s",
+                        guild_id,
+                        e,
+                    )
+                    default = TournamentState()
+                    manager.save(default.to_dict())
+                    self._states[guild_id] = default
+
+            return self._states[guild_id]
+
+    @property
+    def state(self) -> TournamentState:
+        """Backward-compatible default state accessor (guild_id=0)."""
+        return self.get_state(0)
+
+    def _persist(self, guild_id: int = 0) -> None:
+        state = self.get_state(guild_id)
+        state.updated_at = datetime.now(timezone.utc).isoformat()
+        manager = self._get_manager(guild_id)
+        manager.save(state.to_dict())
 
     # ---------------------------------------------------------
     # Region Validation
@@ -174,17 +221,18 @@ class TournamentService:
 
         return sorted(list(dict.fromkeys(raw_tokens)))
 
-    def is_region_allowed(self, user_region: str) -> tuple[bool, str]:
+    def is_region_allowed(self, user_region: str, guild_id: int = 0) -> tuple[bool, str]:
         """
         Validates whether the user's selected region is allowed in this tournament.
         Returns (is_allowed, error_message_if_not).
         """
+        state = self.get_state(guild_id)
         cleaned_user = user_region.strip().upper()
 
-        if "GLOBAL" in self.state.allowed_regions:
+        if "GLOBAL" in state.allowed_regions:
             return True, ""
 
-        allowed_upper = [r.upper() for r in self.state.allowed_regions]
+        allowed_upper = [r.upper() for r in state.allowed_regions]
 
         for allowed in allowed_upper:
             if (
@@ -194,7 +242,7 @@ class TournamentService:
             ):
                 return True, ""
 
-        allowed_str = ", ".join(self.state.allowed_regions)
+        allowed_str = ", ".join(state.allowed_regions)
         return False, f"This tournament is only open to participants from: {allowed_str}"
 
     # ---------------------------------------------------------
@@ -206,123 +254,132 @@ class TournamentService:
         slots: int | None = None,
         regions: str | list[str] | None = None,
         open_subs: bool = False,
+        guild_id: int = 0,
     ) -> str:
         """Opens main bracket submissions and updates tournament settings."""
+        state = self.get_state(guild_id)
         if name:
-            self.state.name = name.strip()
+            state.name = name.strip()
         if slots is not None:
             if slots < 2:
                 raise ValueError("Tournament slot capacity must be at least 2.")
-            self.state.max_slots = slots
+            state.max_slots = slots
         if regions is not None:
-            self.state.allowed_regions = self.parse_regions(regions)
+            state.allowed_regions = self.parse_regions(regions)
 
-        self.state.main_open = True
-        self.state.subs_open = open_subs
-        self._persist()
+        state.main_open = True
+        state.subs_open = open_subs
+        self._persist(guild_id)
 
-        sub_status = "OPEN" if self.state.subs_open else "CLOSED"
-        regions_str = ", ".join(self.state.allowed_regions)
+        sub_status = "OPEN" if state.subs_open else "CLOSED"
+        regions_str = ", ".join(state.allowed_regions)
         return (
-            f"🏆 **{self.state.name}** is now **OPEN**!\n"
-            f"• Max Slots: `{self.state.max_slots}`\n"
+            f"🏆 **{state.name}** is now **OPEN**!\n"
+            f"• Max Slots: `{state.max_slots}`\n"
             f"• Allowed Regions: `{regions_str}`\n"
             f"• Substitute Signups: `{sub_status}`"
         )
 
-    def close_tournament(self) -> str:
+    def close_tournament(self, guild_id: int = 0) -> str:
         """Closes main bracket registrations."""
-        self.state.main_open = False
-        self._persist()
-        return f"🔒 Main bracket submissions for **{self.state.name}** are now **CLOSED**."
+        state = self.get_state(guild_id)
+        state.main_open = False
+        self._persist(guild_id)
+        return f"🔒 Main bracket submissions for **{state.name}** are now **CLOSED**."
 
-    def open_subs(self) -> str:
+    def open_subs(self, guild_id: int = 0) -> str:
         """Enables substitute signups."""
-        self.state.subs_open = True
-        self._persist()
-        return f"🟢 Substitute signups for **{self.state.name}** are now **OPEN**."
+        state = self.get_state(guild_id)
+        state.subs_open = True
+        self._persist(guild_id)
+        return f"🟢 Substitute signups for **{state.name}** are now **OPEN**."
 
-    def close_subs(self) -> str:
+    def close_subs(self, guild_id: int = 0) -> str:
         """Disables substitute signups."""
-        self.state.subs_open = False
-        self._persist()
-        return f"🔴 Substitute signups for **{self.state.name}** are now **CLOSED**."
+        state = self.get_state(guild_id)
+        state.subs_open = False
+        self._persist(guild_id)
+        return f"🔴 Substitute signups for **{state.name}** are now **CLOSED**."
 
-    def set_limit(self, limit: int) -> str:
+    def set_limit(self, limit: int, guild_id: int = 0) -> str:
         """Updates max capacity for the main bracket."""
         if limit < 2:
             raise ValueError("Participant limit must be at least 2.")
-        old_limit = self.state.max_slots
-        self.state.max_slots = limit
-        self._persist()
+        state = self.get_state(guild_id)
+        old_limit = state.max_slots
+        state.max_slots = limit
+        self._persist(guild_id)
         return f"📊 Tournament slot capacity updated from `{old_limit}` to `{limit}`."
 
-    def set_regions(self, regions: str | list[str]) -> str:
+    def set_regions(self, regions: str | list[str], guild_id: int = 0) -> str:
         """Updates allowed regions for the tournament."""
+        state = self.get_state(guild_id)
         parsed = self.parse_regions(regions)
-        self.state.allowed_regions = parsed
-        self._persist()
+        state.allowed_regions = parsed
+        self._persist(guild_id)
         return f"🌍 Allowed regions updated to: `{', '.join(parsed)}`."
 
-    def set_approved_weapons(self, weapons_input: str | list[str]) -> str:
+    def set_approved_weapons(self, weapons_input: str | list[str], guild_id: int = 0) -> str:
         """Updates approved weapons for the tournament."""
+        state = self.get_state(guild_id)
         if isinstance(weapons_input, str):
             weapons = [w.strip() for w in weapons_input.split(",") if w.strip()]
         else:
             weapons = [w.strip() for w in weapons_input if w.strip()]
 
         if not weapons:
-            self.state.approved_weapons = list(DEFAULT_WEAPONS)
+            state.approved_weapons = list(DEFAULT_WEAPONS)
         else:
-            self.state.approved_weapons = weapons
+            state.approved_weapons = weapons
 
-        self._persist()
-        return f"⚔️ Approved weapons updated: {', '.join(self.state.approved_weapons)}."
+        self._persist(guild_id)
+        return f"⚔️ Approved weapons updated: {', '.join(state.approved_weapons)}."
 
-    def set_admin_role(self, role_id: int, role_name: str) -> str:
+    def set_admin_role(self, role_id: int, role_name: str, guild_id: int = 0) -> str:
         """Sets the threshold role required for tournament admin permissions."""
-        self.state.admin_role_id = role_id
-        self.state.admin_role_name = role_name
-        self._persist()
+        state = self.get_state(guild_id)
+        state.admin_role_id = role_id
+        state.admin_role_name = role_name
+        self._persist(guild_id)
         return f"🛡️ Tournament Admin threshold set to role: **{role_name}** (or higher)."
 
-    def clear_tournament(self) -> str:
+    def clear_tournament(self, guild_id: int = 0) -> str:
         """Wipes both main roster and substitute list."""
-        p_count = len(self.state.participants)
-        s_count = len(self.state.substitutes)
-        self.state.participants.clear()
-        self.state.substitutes.clear()
-        self.state.checkin_open = False
-        self._persist()
+        state = self.get_state(guild_id)
+        p_count = len(state.participants)
+        s_count = len(state.substitutes)
+        state.participants.clear()
+        state.substitutes.clear()
+        state.checkin_open = False
+        self._persist(guild_id)
         return f"🧹 Tournament roster wiped clean ({p_count} main players and {s_count} substitutes removed)."
 
     # ---------------------------------------------------------
     # Essential Admin Tools (Kick & Force Register)
     # ---------------------------------------------------------
-    def kick_user(self, user_id: int, reason: str = "") -> tuple[bool, str]:
+    def kick_user(self, user_id: int, reason: str = "", guild_id: int = 0) -> tuple[bool, str]:
         """Removes a user from either the main bracket or the substitute queue."""
-        # Check main bracket
+        state = self.get_state(guild_id)
         p_idx = next(
-            (i for i, p in enumerate(self.state.participants) if p.user_id == user_id),
+            (i for i, p in enumerate(state.participants) if p.user_id == user_id),
             None,
         )
         if p_idx is not None:
-            removed = self.state.participants.pop(p_idx)
-            self._persist()
+            removed = state.participants.pop(p_idx)
+            self._persist(guild_id)
             reason_str = f" Reason: *{reason}*" if reason else ""
             return (
                 True,
                 f"👢 Removed **{removed.ign}** ({removed.user_mention}) from the **main bracket**.{reason_str}",
             )
 
-        # Check substitute queue
         s_idx = next(
-            (i for i, s in enumerate(self.state.substitutes) if s.user_id == user_id),
+            (i for i, s in enumerate(state.substitutes) if s.user_id == user_id),
             None,
         )
         if s_idx is not None:
-            removed = self.state.substitutes.pop(s_idx)
-            self._persist()
+            removed = state.substitutes.pop(s_idx)
+            self._persist(guild_id)
             reason_str = f" Reason: *{reason}*" if reason else ""
             return (
                 True,
@@ -339,14 +396,15 @@ class TournamentService:
         weapon: str,
         region: str,
         as_sub: bool = False,
+        guild_id: int = 0,
     ) -> tuple[bool, str, Participant]:
         """
         Allows tournament admins to manually slot a player into the main bracket or substitute queue.
         Bypasses standard registration open/closed states.
         """
-        # Remove from existing lists to prevent duplicates
-        self.state.participants = [p for p in self.state.participants if p.user_id != user_id]
-        self.state.substitutes = [s for s in self.state.substitutes if s.user_id != user_id]
+        state = self.get_state(guild_id)
+        state.participants = [p for p in state.participants if p.user_id != user_id]
+        state.substitutes = [s for s in state.substitutes if s.user_id != user_id]
 
         participant = Participant(
             user_id=user_id,
@@ -357,21 +415,21 @@ class TournamentService:
         )
 
         if as_sub:
-            self.state.substitutes.append(participant)
-            queue_pos = len(self.state.substitutes)
-            self._persist()
+            state.substitutes.append(participant)
+            queue_pos = len(state.substitutes)
+            self._persist(guild_id)
             return (
                 True,
                 f"👑 Admin force-registered **{participant.ign}** ({participant.user_mention}) into the **substitute queue** at position #{queue_pos}.",
                 participant,
             )
         else:
-            self.state.participants.append(participant)
-            slots_now = len(self.state.participants)
-            self._persist()
+            state.participants.append(participant)
+            slots_now = len(state.participants)
+            self._persist(guild_id)
             return (
                 True,
-                f"👑 Admin force-registered **{participant.ign}** ({participant.user_mention}) into the **main bracket** ({slots_now}/{self.state.max_slots}).",
+                f"👑 Admin force-registered **{participant.ign}** ({participant.user_mention}) into the **main bracket** ({slots_now}/{state.max_slots}).",
                 participant,
             )
 
@@ -385,34 +443,36 @@ class TournamentService:
         ign: str,
         weapon: str,
         region: str,
+        guild_id: int = 0,
     ) -> tuple[bool, str, Participant | None]:
         """Signs up a user for the main bracket."""
-        if not self.state.main_open:
+        state = self.get_state(guild_id)
+        if not state.main_open:
             return False, "Main bracket submissions are currently closed.", None
 
-        if any(p.user_id == user_id for p in self.state.participants):
+        if any(p.user_id == user_id for p in state.participants):
             return False, "You are already registered in the main bracket.", None
 
-        if any(s.user_id == user_id for s in self.state.substitutes):
+        if any(s.user_id == user_id for s in state.substitutes):
             return (
                 False,
                 "You are already in the standby substitute queue. Unregister first if you wish to join the main bracket.",
                 None,
             )
 
-        if len(self.state.participants) >= self.state.max_slots:
+        if len(state.participants) >= state.max_slots:
             sub_hint = (
                 " You can sign up as a standby substitute with `/tournament-sub-register`."
-                if self.state.subs_open
+                if state.subs_open
                 else ""
             )
             return (
                 False,
-                f"The main bracket is currently full ({len(self.state.participants)}/{self.state.max_slots} registered).{sub_hint}",
+                f"The main bracket is currently full ({len(state.participants)}/{state.max_slots} registered).{sub_hint}",
                 None,
             )
 
-        allowed, err_msg = self.is_region_allowed(region)
+        allowed, err_msg = self.is_region_allowed(region, guild_id=guild_id)
         if not allowed:
             return False, err_msg, None
 
@@ -423,22 +483,23 @@ class TournamentService:
             weapon=weapon.strip(),
             region=region.strip().upper(),
         )
-        self.state.participants.append(participant)
-        self._persist()
+        state.participants.append(participant)
+        self._persist(guild_id)
 
         return True, "Successfully registered for the main bracket!", participant
 
-    def unregister_participant(self, user_id: int) -> tuple[bool, str]:
+    def unregister_participant(self, user_id: int, guild_id: int = 0) -> tuple[bool, str]:
         """Withdraws a user from the main bracket."""
+        state = self.get_state(guild_id)
         idx = next(
-            (i for i, p in enumerate(self.state.participants) if p.user_id == user_id),
+            (i for i, p in enumerate(state.participants) if p.user_id == user_id),
             None,
         )
         if idx is None:
             return False, "You are not currently registered in the main bracket."
 
-        removed = self.state.participants.pop(idx)
-        self._persist()
+        removed = state.participants.pop(idx)
+        self._persist(guild_id)
         return True, f"Withdrew **{removed.ign}** ({removed.user_mention}) from the main bracket."
 
     def register_substitute(
@@ -448,18 +509,20 @@ class TournamentService:
         ign: str,
         weapon: str,
         region: str,
+        guild_id: int = 0,
     ) -> tuple[bool, str, Participant | None]:
         """Signs up a user for the standby substitute queue."""
-        if not self.state.subs_open:
+        state = self.get_state(guild_id)
+        if not state.subs_open:
             return False, "Substitute signups are currently closed.", None
 
-        if any(p.user_id == user_id for p in self.state.participants):
+        if any(p.user_id == user_id for p in state.participants):
             return False, "You are already registered in the main bracket.", None
 
-        if any(s.user_id == user_id for s in self.state.substitutes):
+        if any(s.user_id == user_id for s in state.substitutes):
             return False, "You are already registered in the standby substitute queue.", None
 
-        allowed, err_msg = self.is_region_allowed(region)
+        allowed, err_msg = self.is_region_allowed(region, guild_id=guild_id)
         if not allowed:
             return False, err_msg, None
 
@@ -470,27 +533,28 @@ class TournamentService:
             weapon=weapon.strip(),
             region=region.strip().upper(),
         )
-        self.state.substitutes.append(sub)
-        self._persist()
+        state.substitutes.append(sub)
+        self._persist(guild_id)
 
-        queue_position = len(self.state.substitutes)
+        queue_position = len(state.substitutes)
         return (
             True,
             f"Successfully entered the standby substitute queue at position #{queue_position}!",
             sub,
         )
 
-    def unregister_substitute(self, user_id: int) -> tuple[bool, str]:
+    def unregister_substitute(self, user_id: int, guild_id: int = 0) -> tuple[bool, str]:
         """Withdraws a user from the substitute queue."""
+        state = self.get_state(guild_id)
         idx = next(
-            (i for i, s in enumerate(self.state.substitutes) if s.user_id == user_id),
+            (i for i, s in enumerate(state.substitutes) if s.user_id == user_id),
             None,
         )
         if idx is None:
             return False, "You are not currently in the standby substitute queue."
 
-        removed = self.state.substitutes.pop(idx)
-        self._persist()
+        removed = state.substitutes.pop(idx)
+        self._persist(guild_id)
         return True, f"Withdrew **{removed.ign}** ({removed.user_mention}) from the substitute queue."
 
     def edit_entry(
@@ -499,19 +563,21 @@ class TournamentService:
         weapon: str | None = None,
         ign: str | None = None,
         region: str | None = None,
+        guild_id: int = 0,
     ) -> tuple[bool, str, Participant | None]:
         """
         Allows a player in the main bracket or substitute queue to update their declaration
         without losing their slot.
         """
+        state = self.get_state(guild_id)
         target = next(
-            (p for p in self.state.participants if p.user_id == user_id),
+            (p for p in state.participants if p.user_id == user_id),
             None,
         )
         is_sub = False
         if not target:
             target = next(
-                (s for s in self.state.substitutes if s.user_id == user_id),
+                (s for s in state.substitutes if s.user_id == user_id),
                 None,
             )
             is_sub = True
@@ -520,7 +586,7 @@ class TournamentService:
             return False, "You are not currently registered in the tournament or substitute queue.", None
 
         if region is not None:
-            allowed, err_msg = self.is_region_allowed(region)
+            allowed, err_msg = self.is_region_allowed(region, guild_id=guild_id)
             if not allowed:
                 return False, err_msg, None
             target.region = region.strip().upper()
@@ -531,7 +597,7 @@ class TournamentService:
         if ign is not None and ign.strip():
             target.ign = ign.strip()
 
-        self._persist()
+        self._persist(guild_id)
         role_label = "Standby Substitute" if is_sub else "Main Bracket"
         return (
             True,
@@ -549,16 +615,18 @@ class TournamentService:
         self,
         substitute_user_id: int | None = None,
         replace_user_id: int | None = None,
+        guild_id: int = 0,
     ) -> tuple[bool, str, Participant | None]:
         """
         Promotes a substitute into the main bracket, optionally replacing a specific no-show player.
         """
-        if not self.state.substitutes:
+        state = self.get_state(guild_id)
+        if not state.substitutes:
             return False, "There are no substitutes currently waiting on deck.", None
 
         if substitute_user_id is not None:
             sub_idx = next(
-                (i for i, s in enumerate(self.state.substitutes) if s.user_id == substitute_user_id),
+                (i for i, s in enumerate(state.substitutes) if s.user_id == substitute_user_id),
                 None,
             )
             if sub_idx is None:
@@ -566,11 +634,11 @@ class TournamentService:
         else:
             sub_idx = 0
 
-        sub_to_promote = self.state.substitutes[sub_idx]
+        sub_to_promote = state.substitutes[sub_idx]
 
         if replace_user_id is not None:
             rep_idx = next(
-                (i for i, p in enumerate(self.state.participants) if p.user_id == replace_user_id),
+                (i for i, p in enumerate(state.participants) if p.user_id == replace_user_id),
                 None,
             )
             if rep_idx is None:
@@ -579,10 +647,10 @@ class TournamentService:
                     f"Target player to replace (<@{replace_user_id}>) was not found in the main bracket.",
                     None,
                 )
-            replaced_player = self.state.participants[rep_idx]
-            self.state.participants[rep_idx] = sub_to_promote
-            self.state.substitutes.pop(sub_idx)
-            self._persist()
+            replaced_player = state.participants[rep_idx]
+            state.participants[rep_idx] = sub_to_promote
+            state.substitutes.pop(sub_idx)
+            self._persist(guild_id)
 
             return (
                 True,
@@ -591,17 +659,17 @@ class TournamentService:
                 sub_to_promote,
             )
 
-        if len(self.state.participants) >= self.state.max_slots:
+        if len(state.participants) >= state.max_slots:
             return (
                 False,
-                f"Main bracket is full ({len(self.state.participants)}/{self.state.max_slots}). "
+                f"Main bracket is full ({len(state.participants)}/{state.max_slots}). "
                 "Specify a player to replace (`replace:<user>`) or expand slot capacity with `/tournament-set-limit`.",
                 None,
             )
 
-        self.state.substitutes.pop(sub_idx)
-        self.state.participants.append(sub_to_promote)
-        self._persist()
+        state.substitutes.pop(sub_idx)
+        state.participants.append(sub_to_promote)
+        self._persist(guild_id)
 
         return (
             True,
@@ -612,89 +680,91 @@ class TournamentService:
     # ---------------------------------------------------------
     # Tournament Day Flow: Check-In System
     # ---------------------------------------------------------
-    def open_checkin(self) -> str:
+    def open_checkin(self, guild_id: int = 0) -> str:
         """Opens check-in for registered participants."""
-        self.state.checkin_open = True
-        self._persist()
+        state = self.get_state(guild_id)
+        state.checkin_open = True
+        self._persist(guild_id)
         return (
-            f"📢 **Tournament Check-In is now OPEN for {self.state.name}!**\n"
+            f"📢 **Tournament Check-In is now OPEN for {state.name}!**\n"
             "All registered main bracket participants must run `/tournament-checkin` to secure their tournament spot."
         )
 
-    def close_checkin(self) -> str:
+    def close_checkin(self, guild_id: int = 0) -> str:
         """Closes check-in."""
-        self.state.checkin_open = False
-        self._persist()
-        checked_count = sum(1 for p in self.state.participants if p.checked_in)
-        total = len(self.state.participants)
+        state = self.get_state(guild_id)
+        state.checkin_open = False
+        self._persist(guild_id)
+        checked_count = sum(1 for p in state.participants if p.checked_in)
+        total = len(state.participants)
         return f"🔒 Tournament Check-In is now **CLOSED**. (`{checked_count} / {total}` checked in)."
 
-    def checkin_user(self, user_id: int) -> tuple[bool, str]:
+    def checkin_user(self, user_id: int, guild_id: int = 0) -> tuple[bool, str]:
         """Records participant check-in."""
-        if not self.state.checkin_open:
+        state = self.get_state(guild_id)
+        if not state.checkin_open:
             return False, "Tournament check-in is not currently open."
 
-        # Find in main participants
-        p = next((p for p in self.state.participants if p.user_id == user_id), None)
+        p = next((p for p in state.participants if p.user_id == user_id), None)
         if p:
             if p.checked_in:
-                return False, f"You are already checked in for **{self.state.name}**!"
+                return False, f"You are already checked in for **{state.name}**!"
             p.checked_in = True
-            self._persist()
+            self._persist(guild_id)
             return True, f"✅ Check-in confirmed for **{p.ign}** ({p.user_mention})!"
 
-        # If in substitutes, they can also mark presence so admins know they are active
-        s = next((s for s in self.state.substitutes if s.user_id == user_id), None)
+        s = next((s for s in state.substitutes if s.user_id == user_id), None)
         if s:
             if s.checked_in:
                 return False, f"You are already checked in as an active substitute!"
             s.checked_in = True
-            self._persist()
+            self._persist(guild_id)
             return True, f"✅ Standby substitute check-in confirmed for **{s.ign}** ({s.user_mention})!"
 
         return False, "You are not registered in the tournament roster or substitute queue."
 
-    def get_unconfirmed_participants(self) -> list[Participant]:
+    def get_unconfirmed_participants(self, guild_id: int = 0) -> list[Participant]:
         """Returns main bracket participants who haven't checked in yet."""
-        return [p for p in self.state.participants if not p.checked_in]
+        state = self.get_state(guild_id)
+        return [p for p in state.participants if not p.checked_in]
 
     # ---------------------------------------------------------
     # Exporting Roster for External Brackets (Challonge/Start.gg)
     # ---------------------------------------------------------
-    def export_roster(self, format_type: str = "csv") -> tuple[str, str]:
+    def export_roster(self, format_type: str = "csv", guild_id: int = 0) -> tuple[str, str]:
         """
         Exports the tournament roster formatted for Challonge, Start.gg, or spreadsheets.
         Returns (filename, content_string).
         """
+        state = self.get_state(guild_id)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
         format_norm = format_type.lower().strip()
 
         if format_norm == "challonge":
-            # Challonge accepts plain text list of participant names (one per line)
-            lines = [p.ign for p in self.state.participants]
+            lines = [p.ign for p in state.participants]
             filename = f"challonge_roster_{timestamp}.txt"
             return filename, "\n".join(lines)
 
         if format_norm == "text":
-            lines = [f"=== {self.state.name} Roster ==="]
-            lines.append(f"Main Bracket ({len(self.state.participants)}/{self.state.max_slots}):")
-            for i, p in enumerate(self.state.participants, 1):
+            lines = [f"=== {state.name} Roster ==="]
+            lines.append(f"Main Bracket ({len(state.participants)}/{state.max_slots}):")
+            for i, p in enumerate(state.participants, 1):
                 status = "Checked In" if p.checked_in else "Pending"
                 lines.append(f"{i}. {p.ign} (Discord: {p.user_id}) - {p.weapon} | {p.region} [{status}]")
             lines.append("")
-            lines.append(f"Standby Substitutes ({len(self.state.substitutes)}):")
-            for i, s in enumerate(self.state.substitutes, 1):
+            lines.append(f"Standby Substitutes ({len(state.substitutes)}):")
+            for i, s in enumerate(state.substitutes, 1):
                 status = "Checked In" if s.checked_in else "Pending"
                 lines.append(f"{i}. {s.ign} (Discord: {s.user_id}) - {s.weapon} | {s.region} [{status}]")
             filename = f"tournament_roster_{timestamp}.txt"
             return filename, "\n".join(lines)
 
-        # Default: CSV format (compatible with Excel, Google Sheets, Battlefy, Start.gg)
+        # Default: CSV format
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow(["Seed", "IGN", "Discord_ID", "Weapon", "Region", "Checked_In", "Role"])
 
-        for seed, p in enumerate(self.state.participants, 1):
+        for seed, p in enumerate(state.participants, 1):
             writer.writerow([
                 seed,
                 p.ign,
@@ -705,7 +775,7 @@ class TournamentService:
                 "Main Bracket",
             ])
 
-        for seed, s in enumerate(self.state.substitutes, 1):
+        for seed, s in enumerate(state.substitutes, 1):
             writer.writerow([
                 seed,
                 s.ign,

@@ -314,3 +314,40 @@ def test_admin_set_admin_role_and_clear(service: TournamentService):
     clear_msg = service.clear_tournament()
     assert "wiped clean" in clear_msg.lower()
     assert len(service.get_state().participants) == 0
+
+
+def test_multi_server_isolation(tmp_path: Path):
+    """Verifies that Server A and Server B rosters are completely isolated."""
+    service = TournamentService(data_dir=tmp_path)
+    guild_test = 111111111
+    guild_main = 222222222
+
+    # Open tournament on test server with 4 slots
+    service.open_tournament(name="Test Cup", slots=4, guild_id=guild_test)
+    # Open tournament on main server with 16 slots
+    service.open_tournament(name="Official IDO", slots=16, guild_id=guild_main)
+
+    # Register in test server
+    service.register_participant(1, "<@1>", "Tester", "Katana", "NA", guild_id=guild_test)
+
+    # Register in main server
+    service.register_participant(2, "<@2>", "Champion", "Naginata", "EU", guild_id=guild_main)
+
+    # Check test server state
+    test_state = service.get_state(guild_test)
+    assert test_state.name == "Test Cup"
+    assert test_state.max_slots == 4
+    assert len(test_state.participants) == 1
+    assert test_state.participants[0].ign == "Tester"
+
+    # Check main server state
+    main_state = service.get_state(guild_main)
+    assert main_state.name == "Official IDO"
+    assert main_state.max_slots == 16
+    assert len(main_state.participants) == 1
+    assert main_state.participants[0].ign == "Champion"
+
+    # Wiping test server does not touch main server
+    service.clear_tournament(guild_id=guild_test)
+    assert len(service.get_state(guild_test).participants) == 0
+    assert len(service.get_state(guild_main).participants) == 1

@@ -1,5 +1,6 @@
 """
 Discord Cog implementing all IDO Tournament slash commands, check-in flow, help manual, and admin tools.
+Fully supports isolated per-server (multi-guild) tournaments.
 """
 
 from __future__ import annotations
@@ -57,24 +58,22 @@ def is_tournament_admin():
         if interaction.guild is None:
             return False
 
-        # Server owner always has full authority
         if interaction.user.id == interaction.guild.owner_id:
             return True
 
-        # Server administrator permission
         if interaction.permissions.administrator:
             return True
 
         if not isinstance(interaction.user, discord.Member):
             return False
 
-        # Get threshold role info from service state or config
         cog = interaction.client.get_cog("TournamentCog")
         target_role_id = None
         target_role_name = config.admin_role_name
         if cog and hasattr(cog, "service"):
-            target_role_id = cog.service.state.admin_role_id or config.admin_role_id
-            target_role_name = cog.service.state.admin_role_name or config.admin_role_name
+            guild_state = cog.service.get_state(interaction.guild_id or 0)
+            target_role_id = guild_state.admin_role_id or config.admin_role_id
+            target_role_name = guild_state.admin_role_name or config.admin_role_name
         else:
             target_role_id = config.admin_role_id
 
@@ -90,7 +89,6 @@ def is_tournament_admin():
             )
 
         if threshold_role is not None:
-            # Check if user has this role or any higher role in the server's role hierarchy
             if interaction.user.top_role.position >= threshold_role.position:
                 return True
 
@@ -150,10 +148,8 @@ class TournamentCog(commands.Cog):
     ):
         """Global error handler for tournament cog commands."""
         if isinstance(error, app_commands.CheckFailure):
-            role_name = (
-                self.service.state.admin_role_name
-                or config.admin_role_name
-            )
+            guild_state = self.service.get_state(interaction.guild_id or 0)
+            role_name = guild_state.admin_role_name or config.admin_role_name
             msg = (
                 f"❌ **Permission Denied**: You need Administrator permissions or the "
                 f"`{role_name}` role (or higher in server role hierarchy) to run this command."
@@ -216,19 +212,21 @@ class TournamentCog(commands.Cog):
         weapon: app_commands.Choice[str],
         region: app_commands.Choice[str],
     ):
+        guild_id = interaction.guild_id or 0
         success, message, participant = self.service.register_participant(
             user_id=interaction.user.id,
             user_mention=interaction.user.mention,
             ign=ign,
             weapon=weapon.value,
             region=region.value,
+            guild_id=guild_id,
         )
 
         if not success:
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
 
-        state = self.service.get_state()
+        state = self.service.get_state(guild_id)
         embed = discord.Embed(
             title="✅ Registered for Main Bracket",
             description=(
@@ -247,12 +245,13 @@ class TournamentCog(commands.Cog):
         description="Withdraw from the main bracket (frees up slot for others).",
     )
     async def unregister(self, interaction: discord.Interaction):
-        success, message = self.service.unregister_participant(interaction.user.id)
+        guild_id = interaction.guild_id or 0
+        success, message = self.service.unregister_participant(interaction.user.id, guild_id=guild_id)
         if not success:
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
 
-        state = self.service.get_state()
+        state = self.service.get_state(guild_id)
         embed = discord.Embed(
             title="👋 Main Bracket Withdrawal",
             description=(
@@ -281,19 +280,21 @@ class TournamentCog(commands.Cog):
         weapon: app_commands.Choice[str],
         region: app_commands.Choice[str],
     ):
+        guild_id = interaction.guild_id or 0
         success, message, sub = self.service.register_substitute(
             user_id=interaction.user.id,
             user_mention=interaction.user.mention,
             ign=ign,
             weapon=weapon.value,
             region=region.value,
+            guild_id=guild_id,
         )
 
         if not success:
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
 
-        state = self.service.get_state()
+        state = self.service.get_state(guild_id)
         embed = discord.Embed(
             title="🛡️ Registered as Standby Substitute",
             description=(
@@ -312,12 +313,13 @@ class TournamentCog(commands.Cog):
         description="Withdraw from the substitute queue.",
     )
     async def sub_unregister(self, interaction: discord.Interaction):
-        success, message = self.service.unregister_substitute(interaction.user.id)
+        guild_id = interaction.guild_id or 0
+        success, message = self.service.unregister_substitute(interaction.user.id, guild_id=guild_id)
         if not success:
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
 
-        state = self.service.get_state()
+        state = self.service.get_state(guild_id)
         embed = discord.Embed(
             title="👋 Substitute Queue Withdrawal",
             description=(
@@ -353,11 +355,13 @@ class TournamentCog(commands.Cog):
             )
             return
 
+        guild_id = interaction.guild_id or 0
         success, msg, _ = self.service.edit_entry(
             user_id=interaction.user.id,
             weapon=weapon.value if weapon else None,
             ign=ign,
             region=region.value if region else None,
+            guild_id=guild_id,
         )
 
         if not success:
@@ -377,7 +381,8 @@ class TournamentCog(commands.Cog):
         description="Confirm your presence on tournament day during the check-in window.",
     )
     async def checkin(self, interaction: discord.Interaction):
-        success, msg = self.service.checkin_user(interaction.user.id)
+        guild_id = interaction.guild_id or 0
+        success, msg = self.service.checkin_user(interaction.user.id, guild_id=guild_id)
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
@@ -395,7 +400,8 @@ class TournamentCog(commands.Cog):
         description="View main & substitute status, slot counters, visual progress bar, and weapons.",
     )
     async def status(self, interaction: discord.Interaction):
-        state = self.service.get_state()
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
         embed = build_status_embed(state)
         await interaction.response.send_message(embed=embed)
 
@@ -404,7 +410,8 @@ class TournamentCog(commands.Cog):
         description="View registered main bracket roster and standby substitute list.",
     )
     async def roster(self, interaction: discord.Interaction):
-        state = self.service.get_state()
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
         embed = build_roster_embed(state)
         await interaction.response.send_message(embed=embed)
 
@@ -432,8 +439,9 @@ class TournamentCog(commands.Cog):
         open_subs: bool = False,
     ):
         try:
+            guild_id = interaction.guild_id or 0
             msg = self.service.open_tournament(
-                name=name, slots=slots, regions=regions, open_subs=open_subs
+                name=name, slots=slots, regions=regions, open_subs=open_subs, guild_id=guild_id
             )
             embed = discord.Embed(
                 title="🏆 Tournament Registrations Opened",
@@ -451,7 +459,8 @@ class TournamentCog(commands.Cog):
     )
     @is_tournament_admin()
     async def close_tournament(self, interaction: discord.Interaction):
-        msg = self.service.close_tournament()
+        guild_id = interaction.guild_id or 0
+        msg = self.service.close_tournament(guild_id=guild_id)
         embed = discord.Embed(
             title="🔒 Main Bracket Closed",
             description=msg,
@@ -466,7 +475,8 @@ class TournamentCog(commands.Cog):
     )
     @is_tournament_admin()
     async def open_subs(self, interaction: discord.Interaction):
-        msg = self.service.open_subs()
+        guild_id = interaction.guild_id or 0
+        msg = self.service.open_subs(guild_id=guild_id)
         embed = discord.Embed(
             title="🟢 Substitute Signups Opened",
             description=msg,
@@ -481,7 +491,8 @@ class TournamentCog(commands.Cog):
     )
     @is_tournament_admin()
     async def close_subs(self, interaction: discord.Interaction):
-        msg = self.service.close_subs()
+        guild_id = interaction.guild_id or 0
+        msg = self.service.close_subs(guild_id=guild_id)
         embed = discord.Embed(
             title="🔴 Substitute Signups Closed",
             description=msg,
@@ -496,7 +507,8 @@ class TournamentCog(commands.Cog):
     )
     @is_tournament_admin()
     async def open_checkin(self, interaction: discord.Interaction):
-        msg = self.service.open_checkin()
+        guild_id = interaction.guild_id or 0
+        msg = self.service.open_checkin(guild_id=guild_id)
         embed = discord.Embed(
             title="📢 Tournament Check-In Opened",
             description=msg,
@@ -511,7 +523,8 @@ class TournamentCog(commands.Cog):
     )
     @is_tournament_admin()
     async def close_checkin(self, interaction: discord.Interaction):
-        msg = self.service.close_checkin()
+        guild_id = interaction.guild_id or 0
+        msg = self.service.close_checkin(guild_id=guild_id)
         embed = discord.Embed(
             title="🔒 Tournament Check-In Closed",
             description=msg,
@@ -535,7 +548,8 @@ class TournamentCog(commands.Cog):
         user: discord.Member,
         reason: Optional[str] = None,
     ):
-        success, msg = self.service.kick_user(user.id, reason or "")
+        guild_id = interaction.guild_id or 0
+        success, msg = self.service.kick_user(user.id, reason or "", guild_id=guild_id)
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
@@ -570,6 +584,7 @@ class TournamentCog(commands.Cog):
         region: app_commands.Choice[str],
         as_sub: bool = False,
     ):
+        guild_id = interaction.guild_id or 0
         success, msg, _ = self.service.force_register(
             user_id=user.id,
             user_mention=user.mention,
@@ -577,6 +592,7 @@ class TournamentCog(commands.Cog):
             weapon=weapon.value,
             region=region.value,
             as_sub=as_sub,
+            guild_id=guild_id,
         )
 
         embed = discord.Embed(
@@ -602,12 +618,14 @@ class TournamentCog(commands.Cog):
         substitute: Optional[discord.Member] = None,
         replace: Optional[discord.Member] = None,
     ):
+        guild_id = interaction.guild_id or 0
         sub_id = substitute.id if substitute else None
         rep_id = replace.id if replace else None
 
         success, message, _ = self.service.promote_substitute(
             substitute_user_id=sub_id,
             replace_user_id=rep_id,
+            guild_id=guild_id,
         )
 
         if not success:
@@ -630,7 +648,8 @@ class TournamentCog(commands.Cog):
     @is_tournament_admin()
     async def set_limit(self, interaction: discord.Interaction, limit: int):
         try:
-            msg = self.service.set_limit(limit)
+            guild_id = interaction.guild_id or 0
+            msg = self.service.set_limit(limit, guild_id=guild_id)
             embed = discord.Embed(
                 title="📊 Capacity Limit Updated",
                 description=msg,
@@ -650,7 +669,8 @@ class TournamentCog(commands.Cog):
     )
     @is_tournament_admin()
     async def set_regions(self, interaction: discord.Interaction, regions: str):
-        msg = self.service.set_regions(regions)
+        guild_id = interaction.guild_id or 0
+        msg = self.service.set_regions(regions, guild_id=guild_id)
         embed = discord.Embed(
             title="🌍 Allowed Regions Updated",
             description=msg,
@@ -668,7 +688,8 @@ class TournamentCog(commands.Cog):
     )
     @is_tournament_admin()
     async def set_weapons(self, interaction: discord.Interaction, weapons: Optional[str] = None):
-        msg = self.service.set_approved_weapons(weapons or "")
+        guild_id = interaction.guild_id or 0
+        msg = self.service.set_approved_weapons(weapons or "", guild_id=guild_id)
         embed = discord.Embed(
             title="⚔️ Tournament Weapons Updated",
             description=msg,
@@ -686,7 +707,8 @@ class TournamentCog(commands.Cog):
     )
     @is_server_admin()
     async def set_admin_role_cmd(self, interaction: discord.Interaction, role: discord.Role):
-        msg = self.service.set_admin_role(role_id=role.id, role_name=role.name)
+        guild_id = interaction.guild_id or 0
+        msg = self.service.set_admin_role(role_id=role.id, role_name=role.name, guild_id=guild_id)
         embed = discord.Embed(
             title="🛡️ Tournament Admin Role Configured",
             description=(
@@ -704,8 +726,10 @@ class TournamentCog(commands.Cog):
         description="View which role is currently authorized to use tournament admin commands.",
     )
     async def view_admin_role_cmd(self, interaction: discord.Interaction):
-        role_id = self.service.state.admin_role_id or config.admin_role_id
-        role_name = self.service.state.admin_role_name or config.admin_role_name
+        guild_id = interaction.guild_id or 0
+        guild_state = self.service.get_state(guild_id)
+        role_id = guild_state.admin_role_id or config.admin_role_id
+        role_name = guild_state.admin_role_name or config.admin_role_name
 
         role = interaction.guild.get_role(role_id) if role_id and interaction.guild else None
         if not role and role_name and interaction.guild:
@@ -745,7 +769,8 @@ class TournamentCog(commands.Cog):
         target: Optional[app_commands.Choice[str]] = None,
     ):
         target_val = target.value if target else "main"
-        state = self.service.get_state()
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
 
         mentions = []
         if target_val in ("main", "all"):
@@ -782,12 +807,13 @@ class TournamentCog(commands.Cog):
         format: Optional[app_commands.Choice[str]] = None,
     ):
         fmt = format.value if format else "csv"
-        filename, content = self.service.export_roster(fmt)
+        guild_id = interaction.guild_id or 0
+        filename, content = self.service.export_roster(fmt, guild_id=guild_id)
         file_bytes = io.BytesIO(content.encode("utf-8"))
         discord_file = discord.File(file_bytes, filename=filename)
 
         format_name = format.name if format else "CSV"
-        state = self.service.get_state()
+        state = self.service.get_state(guild_id)
         await interaction.response.send_message(
             content=(
                 f"📁 **Roster Export Ready**\n"
@@ -805,7 +831,8 @@ class TournamentCog(commands.Cog):
     )
     @is_tournament_admin()
     async def clear_tournament(self, interaction: discord.Interaction):
-        msg = self.service.clear_tournament()
+        guild_id = interaction.guild_id or 0
+        msg = self.service.clear_tournament(guild_id=guild_id)
         embed = discord.Embed(
             title="🧹 Tournament Reset",
             description=msg,
@@ -821,7 +848,6 @@ async def setup(bot: commands.Bot):
     if not service:
         from utils.storage import StorageManager
         storage = StorageManager(config.tournament_file, config.backup_dir, config.max_backups)
-        service = TournamentService(storage)
+        service = TournamentService(storage=storage)
         bot.tournament_service = service
     await bot.add_cog(TournamentCog(bot, service))
-
