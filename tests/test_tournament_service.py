@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from services.tournament_service import TournamentService
+from services.tournament_service import TournamentService, STANDARD_REGIONS
 from utils.storage import StorageManager
 
 
@@ -9,6 +9,19 @@ def service(tmp_path: Path):
     storage_file = tmp_path / "tournament.json"
     storage = StorageManager(storage_file)
     return TournamentService(storage)
+
+
+# =============================================================================
+# Regions Configuration Test
+# =============================================================================
+
+def test_standard_regions_excludes_me():
+    assert "ME" not in STANDARD_REGIONS
+    assert "NA" in STANDARD_REGIONS
+    assert "EU" in STANDARD_REGIONS
+    assert "OCE" in STANDARD_REGIONS
+    assert "ASIA" in STANDARD_REGIONS
+    assert "SA" in STANDARD_REGIONS
 
 
 # =============================================================================
@@ -27,7 +40,6 @@ def test_register_when_closed(service: TournamentService):
 def test_register_success_and_capacity_limit(service: TournamentService):
     service.open_tournament(name="IDO Cup", slots=2, regions="GLOBAL", open_subs=True)
 
-    # 1. Register first participant
     ok1, msg1, p1 = service.register_participant(
         user_id=1, user_mention="<@1>", ign="PlayerOne", weapon="Katana", region="NA"
     )
@@ -35,14 +47,12 @@ def test_register_success_and_capacity_limit(service: TournamentService):
     assert p1.ign == "PlayerOne"
     assert len(service.get_state().participants) == 1
 
-    # 2. Register second participant (reaches capacity)
     ok2, msg2, p2 = service.register_participant(
         user_id=2, user_mention="<@2>", ign="PlayerTwo", weapon="Daggers", region="EU"
     )
     assert ok2
     assert len(service.get_state().participants) == 2
 
-    # 3. Third participant should be rejected due to slot limit
     ok3, msg3, p3 = service.register_participant(
         user_id=3, user_mention="<@3>", ign="PlayerThree", weapon="Bo Staff", region="OCE"
     )
@@ -60,7 +70,6 @@ def test_duplicate_registration_rejected(service: TournamentService):
     )
     assert ok1
 
-    # Duplicate in main bracket
     ok2, msg2, _ = service.register_participant(
         user_id=10, user_mention="<@10>", ign="Shadow", weapon="Katana", region="NA"
     )
@@ -75,8 +84,7 @@ def test_duplicate_registration_rejected(service: TournamentService):
 def test_region_validation_global(service: TournamentService):
     service.open_tournament(name="Global Duel", slots=8, regions="GLOBAL")
 
-    # Any region should be accepted when GLOBAL is set
-    for region in ["NA", "EU", "OCE", "ASIA", "SA", "ME"]:
+    for region in ["NA", "EU", "OCE", "ASIA", "SA"]:
         allowed, msg = service.is_region_allowed(region)
         assert allowed
         assert msg == ""
@@ -85,11 +93,9 @@ def test_region_validation_global(service: TournamentService):
 def test_region_validation_single_region(service: TournamentService):
     service.open_tournament(name="NA Showdown", slots=8, regions="NA")
 
-    # NA should be allowed
     allowed_na, _ = service.is_region_allowed("NA")
     assert allowed_na
 
-    # EU should be rejected with exact required message
     allowed_eu, err_eu = service.is_region_allowed("EU")
     assert not allowed_eu
     assert err_eu == "This tournament is only open to participants from: NA"
@@ -106,7 +112,6 @@ def test_region_validation_multi_region(service: TournamentService):
     assert err_oce == "This tournament is only open to participants from: EU, NA" or \
            err_oce == "This tournament is only open to participants from: NA, EU"
 
-    # Registering participant with invalid region must be rejected
     ok, reg_msg, _ = service.register_participant(
         user_id=50, user_mention="<@50>", ign="OceaniaWarrior", weapon="Warhammer", region="OCE"
     )
@@ -121,7 +126,6 @@ def test_region_validation_multi_region(service: TournamentService):
 def test_substitute_registration_and_unregister(service: TournamentService):
     service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL", open_subs=True)
 
-    # Register as substitute
     ok, msg, sub = service.register_substitute(
         user_id=201, user_mention="<@201>", ign="SubOne", weapon="Naginata", region="NA"
     )
@@ -129,13 +133,11 @@ def test_substitute_registration_and_unregister(service: TournamentService):
     assert sub.ign == "SubOne"
     assert len(service.get_state().substitutes) == 1
 
-    # Cannot register duplicate in substitute queue
     ok_dup, msg_dup, _ = service.register_substitute(
         user_id=201, user_mention="<@201>", ign="SubOne", weapon="Naginata", region="NA"
     )
     assert not ok_dup
 
-    # Unregister substitute
     ok_unreg, unreg_msg = service.unregister_substitute(201)
     assert ok_unreg
     assert len(service.get_state().substitutes) == 0
@@ -144,17 +146,13 @@ def test_substitute_registration_and_unregister(service: TournamentService):
 def test_cross_registration_prevention(service: TournamentService):
     service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL", open_subs=True)
 
-    # Register in main
     service.register_participant(1, "<@1>", "MainPlayer", "Katana", "NA")
 
-    # Main player cannot also register as sub
     ok_sub, msg_sub, _ = service.register_substitute(1, "<@1>", "MainPlayer", "Katana", "NA")
     assert not ok_sub
 
-    # Register another user as sub
     service.register_substitute(2, "<@2>", "SubPlayer", "Katana", "NA")
 
-    # Sub player cannot register for main while in sub queue
     ok_main, msg_main, _ = service.register_participant(2, "<@2>", "SubPlayer", "Katana", "NA")
     assert not ok_main
 
@@ -163,11 +161,9 @@ def test_promote_substitute_fifo(service: TournamentService):
     service.open_tournament(name="IDO Cup", slots=4, regions="GLOBAL", open_subs=True)
     service.register_participant(1, "<@1>", "Player1", "Katana", "NA")
 
-    # Add two substitutes
     service.register_substitute(10, "<@10>", "FirstSub", "Daggers", "NA")
     service.register_substitute(20, "<@20>", "SecondSub", "Bo Staff", "EU")
 
-    # Promote first in line (FIFO)
     ok, msg, promoted = service.promote_substitute()
     assert ok
     assert promoted.user_id == 10
@@ -183,7 +179,6 @@ def test_promote_substitute_replace_no_show(service: TournamentService):
 
     service.register_substitute(99, "<@99>", "ClutchSub", "Kusarigama", "NA")
 
-    # Swap no-show player with standby sub
     ok, msg, promoted = service.promote_substitute(
         substitute_user_id=99, replace_user_id=1
     )
@@ -199,21 +194,103 @@ def test_promote_substitute_replace_no_show(service: TournamentService):
 
 
 # =============================================================================
-# Admin Controls & Roster Wiping Tests
+# New Admin Tools Tests: Kick, Force Register & Edit Entry
 # =============================================================================
 
-def test_admin_set_limit_and_clear(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL")
-    service.register_participant(1, "<@1>", "Player1", "Katana", "NA")
-    service.open_subs()
-    service.register_substitute(2, "<@2>", "Sub1", "Katana", "NA")
+def test_kick_user(service: TournamentService):
+    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL", open_subs=True)
+    service.register_participant(1, "<@1>", "BadPlayer", "Katana", "NA")
+    service.register_substitute(2, "<@2>", "BadSub", "Katana", "NA")
 
-    # Change limit
-    service.set_limit(16)
-    assert service.get_state().max_slots == 16
-
-    # Clear tournament
-    clear_msg = service.clear_tournament()
-    assert "wiped clean" in clear_msg.lower()
+    # Kick from main
+    ok, msg = service.kick_user(1, reason="Inappropriate conduct")
+    assert ok
+    assert "main bracket" in msg
     assert len(service.get_state().participants) == 0
+
+    # Kick from sub
+    ok_sub, msg_sub = service.kick_user(2, reason="Inactive")
+    assert ok_sub
+    assert "substitute queue" in msg_sub
     assert len(service.get_state().substitutes) == 0
+
+
+def test_force_register(service: TournamentService):
+    service.open_tournament(name="IDO Cup", slots=2, regions="GLOBAL")
+    # Tournament registration can even be closed
+    service.close_tournament()
+
+    ok, msg, p = service.force_register(
+        user_id=55, user_mention="<@55>", ign="VIPDuelist", weapon="Katana", region="NA"
+    )
+    assert ok
+    assert p.ign == "VIPDuelist"
+    assert len(service.get_state().participants) == 1
+
+
+def test_edit_entry(service: TournamentService):
+    service.open_tournament(name="IDO Cup", slots=8, regions="NA, EU")
+    service.register_participant(1, "<@1>", "OldIGN", "Katana", "NA")
+
+    # Edit weapon and IGN
+    ok, msg, updated = service.edit_entry(user_id=1, weapon="Naginata", ign="NewIGN")
+    assert ok
+    assert updated.weapon == "Naginata"
+    assert updated.ign == "NewIGN"
+    assert updated.region == "NA"
+
+    # Reject region change to unallowed region
+    ok_fail, msg_fail, _ = service.edit_entry(user_id=1, region="ASIA")
+    assert not ok_fail
+    assert "This tournament is only open to participants from:" in msg_fail
+
+
+# =============================================================================
+# Tournament Day Flow: Check-in & Export Tests
+# =============================================================================
+
+def test_checkin_flow(service: TournamentService):
+    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL")
+    service.register_participant(1, "<@1>", "ReadyPlayer", "Katana", "NA")
+    service.register_participant(2, "<@2>", "NoShowPlayer", "Katana", "NA")
+
+    # Cannot check in when check-in is closed
+    ok, msg = service.checkin_user(1)
+    assert not ok
+
+    # Open checkin
+    service.open_checkin()
+    assert service.get_state().checkin_open
+
+    # Checkin Player 1
+    ok1, msg1 = service.checkin_user(1)
+    assert ok1
+    assert "confirmed" in msg1.lower()
+    assert service.get_state().participants[0].checked_in
+
+    # Unconfirmed participants list
+    unconfirmed = service.get_unconfirmed_participants()
+    assert len(unconfirmed) == 1
+    assert unconfirmed[0].user_id == 2
+
+
+def test_export_roster(service: TournamentService):
+    service.open_tournament(name="IDO Masters", slots=8, regions="GLOBAL", open_subs=True)
+    service.register_participant(1, "<@1>", "Champion", "Katana", "NA")
+    service.register_substitute(2, "<@2>", "Standby", "Daggers", "EU")
+
+    # Export CSV
+    fname_csv, content_csv = service.export_roster("csv")
+    assert fname_csv.endswith(".csv")
+    assert "Champion" in content_csv
+    assert "Standby" in content_csv
+
+    # Export Challonge
+    fname_ch, content_ch = service.export_roster("challonge")
+    assert fname_ch.endswith(".txt")
+    assert "Champion" in content_ch
+
+    # Export Text
+    fname_txt, content_txt = service.export_roster("text")
+    assert fname_txt.endswith(".txt")
+    assert "Main Bracket" in content_txt

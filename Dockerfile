@@ -25,3 +25,4 @@ USER appuser
 VOLUME ["/app/data"]
 
 CMD ["python", "bot.py"]
+

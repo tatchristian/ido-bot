@@ -35,13 +35,14 @@ def generate_progress_bar(
     return f"[`{blocks}`] {pct}%"
 
 
-def format_participant_line(index: int, p: Participant) -> str:
+def format_participant_line(index: int, p: Participant, show_checkin: bool = False) -> str:
     """
     Formats a single participant entry:
-    `#01` **IGN** (<@user_id>) — `Weapon` | *Region*
+    `#01` **IGN** (<@user_id>) [✅] — `Weapon` | *Region*
     """
     num_str = f"#{index:02d}"
-    return f"`{num_str}` **{p.ign}** ({p.user_mention}) — `{p.weapon}` | *{p.region}*"
+    checkin_badge = " `[✅]`" if (show_checkin and p.checked_in) else (" `[⏳]`" if show_checkin else "")
+    return f"`{num_str}` **{p.ign}** ({p.user_mention}){checkin_badge} — `{p.weapon}` | *{p.region}*"
 
 
 def build_status_embed(
@@ -57,6 +58,7 @@ def build_status_embed(
 
     main_status = "🟢 **OPEN**" if state.main_open else "🔴 **CLOSED**"
     subs_status = "🟢 **OPEN**" if state.subs_open else "🔴 **CLOSED**"
+    checkin_status = "🟢 **OPEN**" if state.checkin_open else "🔴 **CLOSED**"
     cur_slots = len(state.participants)
     max_slots = state.max_slots
     bar = generate_progress_bar(cur_slots, max_slots, bar_length=8)
@@ -66,6 +68,7 @@ def build_status_embed(
     desc_lines = [
         f"**Main Bracket Submissions:** {main_status}",
         f"**Substitute Signups:** {subs_status}",
+        f"**Tournament Check-In:** {checkin_status}",
         "",
         f"📊 **Main Slots:** `{cur_slots} / {max_slots}` registered",
         f"{bar}",
@@ -92,7 +95,8 @@ def build_status_embed(
     commands_text = (
         "• `/tournament-register` — Enter main bracket\n"
         "• `/tournament-sub-register` — Enter as substitute\n"
-        "• `/tournament-roster` — View full roster"
+        "• `/tournament-roster` — View full roster\n"
+        "• `/tournament-checkin` — Confirm tournament day check-in"
     )
     embed.add_field(
         name="Quick Commands",
@@ -118,33 +122,42 @@ def build_roster_embed(
     cur_slots = len(state.participants)
     max_slots = state.max_slots
     bar = generate_progress_bar(cur_slots, max_slots, bar_length=8)
+    show_checkin = state.checkin_open or any(p.checked_in for p in state.participants)
 
+    checkin_note = " *(Legend: `[✅]` Checked In, `[⏳]` Pending)*\n" if show_checkin else ""
     desc_lines = [
         f"**Main Slots:** `{cur_slots} / {max_slots}`",
         f"{bar}",
+        checkin_note,
     ]
 
     embed = discord.Embed(
         title=f"📋 {state.name} — Tournament Roster",
-        description="\n".join(desc_lines),
+        description="\n".join(line for line in desc_lines if line),
         color=embed_color,
     )
 
     # Main bracket field
     if state.participants:
         main_lines = [
-            format_participant_line(i + 1, p)
+            format_participant_line(i + 1, p, show_checkin=show_checkin)
             for i, p in enumerate(state.participants)
         ]
-        # Chunk if exceeds Discord 1024-char field limit
         main_text = "\n".join(main_lines)
         if len(main_text) > 1024:
             main_text = main_text[:1020] + "..."
     else:
         main_text = "*No participants registered yet.*"
 
+    checked_in_count = sum(1 for p in state.participants if p.checked_in)
+    bracket_title = (
+        f"⚔️ Main Bracket ({cur_slots} registered • {checked_in_count} checked in)"
+        if show_checkin
+        else f"⚔️ Main Bracket ({cur_slots})"
+    )
+
     embed.add_field(
-        name=f"⚔️ Main Bracket ({cur_slots})",
+        name=bracket_title,
         value=main_text,
         inline=False,
     )
@@ -153,7 +166,7 @@ def build_roster_embed(
     sub_count = len(state.substitutes)
     if state.substitutes:
         sub_lines = [
-            format_participant_line(i + 1, s)
+            format_participant_line(i + 1, s, show_checkin=show_checkin)
             for i, s in enumerate(state.substitutes)
         ]
         sub_text = "\n".join(sub_lines)

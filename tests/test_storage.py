@@ -63,3 +63,4 @@ def test_storage_load_missing_file_with_default(tmp_path: Path):
 
     loaded = manager.load(default_factory=lambda: {"default": True})
     assert loaded == {"default": True}
+
