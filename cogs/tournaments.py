@@ -961,6 +961,11 @@ class TournamentCog(commands.Cog):
         # Retroactively grant to already-registered participants
         assigned_count = 0
         if interaction.guild and interaction.guild.me.guild_permissions.manage_roles and role < interaction.guild.me.top_role:
+            if not role.mentionable:
+                try:
+                    await role.edit(mentionable=True, reason="Enable mentions for tournament announcements")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
             state = self.service.get_state(guild_id)
             for p in state.participants:
                 mem = interaction.guild.get_member(p.user_id)
@@ -1072,7 +1077,10 @@ class TournamentCog(commands.Cog):
         )
         embed.set_footer(text=f"Announced by {interaction.user.display_name} • {config.organization_name}")
 
-        await interaction.response.send_message(content=mentions_text, embed=embed)
+        allowed = discord.AllowedMentions(roles=True, users=True)
+        await interaction.response.send_message(
+            content=mentions_text, embed=embed, allowed_mentions=allowed
+        )
 
     @app_commands.command(
         name="tournament-export",
