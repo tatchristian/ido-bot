@@ -67,6 +67,8 @@ A dedicated, high-reliability Discord Tournament and Roster Management Bot desig
 | `/tournament-set-limit` | `[Admin] /tournament-set-limit limit:<number>` | Adjust the maximum participant limit counter (e.g. 8, 16, 32, 64). |
 | `/tournament-set-regions`| `[Admin] /tournament-set-regions regions:<regions>` | Update the allowed regions filter (e.g. `GLOBAL`, `NA`, or `NA, EU`). |
 | `/tournament-set-weapons`| `[Admin] /tournament-set-weapons [weapons:<text>]` | Set approved weapon classes for the event (e.g. Katana only, or custom list). |
+| `/tournament-set-admin-role`| `[Admin] /tournament-set-admin-role role:<role>` | Select which role (and higher) can manage tournaments. |
+| `/tournament-view-admin-role`| `/tournament-view-admin-role` | View the currently configured tournament admin role. |
 | `/tournament-announce` | `[Admin] /tournament-announce message:<text> [target:<group>]` | Ping registered main players, substitutes, or everyone with an announcement. |
 | `/tournament-export` | `[Admin] /tournament-export [format:<choice>]` | Download a roster export formatted for **Challonge**, **Start.gg / Battlefy (CSV)**, or Text. |
 | `/tournament-clear` | `[Admin] /tournament-clear` | Wipe both main roster and substitute list for a fresh event. |

@@ -99,6 +99,18 @@ def is_tournament_admin():
     return app_commands.check(predicate)
 
 
+def is_server_admin():
+    """Strict check: requires Server Administrator permission or Server Ownership."""
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if interaction.guild is None:
+            return False
+        if interaction.user.id == interaction.guild.owner_id:
+            return True
+        return interaction.permissions.administrator
+
+    return app_commands.check(predicate)
+
+
 class HelpView(discord.ui.View):
     """Interactive navigation buttons for the /tournament-help command."""
 
@@ -667,16 +679,16 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="tournament-set-admin-role",
-        description="[Admin] Set the minimum role required to manage tournaments (that role or higher).",
+        description="[Server Admin] Select which role (and any higher role) can use tournament admin commands.",
     )
     @app_commands.describe(
-        role="The threshold role. Members with this role or higher in server settings can use admin commands."
+        role="The threshold role. Any member with this role or higher in server settings can use tournament commands."
     )
-    @is_tournament_admin()
+    @is_server_admin()
     async def set_admin_role_cmd(self, interaction: discord.Interaction, role: discord.Role):
         msg = self.service.set_admin_role(role_id=role.id, role_name=role.name)
         embed = discord.Embed(
-            title="🛡️ Admin Role Hierarchy Configured",
+            title="🛡️ Tournament Admin Role Configured",
             description=(
                 f"{msg}\n\n"
                 f"Members with **{role.mention}** or any role positioned higher in your server's role list "
@@ -686,6 +698,35 @@ class TournamentCog(commands.Cog):
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="tournament-view-admin-role",
+        description="View which role is currently authorized to use tournament admin commands.",
+    )
+    async def view_admin_role_cmd(self, interaction: discord.Interaction):
+        role_id = self.service.state.admin_role_id or config.admin_role_id
+        role_name = self.service.state.admin_role_name or config.admin_role_name
+
+        role = interaction.guild.get_role(role_id) if role_id and interaction.guild else None
+        if not role and role_name and interaction.guild:
+            role = discord.utils.find(
+                lambda r: r.name.lower() == role_name.lower(),
+                interaction.guild.roles,
+            )
+
+        role_display = role.mention if role else (f"`{role_name}`" if role_name else "*None configured (Server Administrators only)*")
+
+        embed = discord.Embed(
+            title="🛡️ Current Tournament Admin Role",
+            description=(
+                f"**Configured Role:** {role_display}\n\n"
+                f"Members with this role or any role positioned higher in the server role list "
+                f"have full access to all tournament admin commands."
+            ),
+            color=0xF1C40F,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-announce",
