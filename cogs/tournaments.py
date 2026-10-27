@@ -1,5 +1,5 @@
 """
-Discord Cog implementing all IDO Tournament slash commands, check-in flow, and admin tools.
+Discord Cog implementing all IDO Tournament slash commands, check-in flow, help manual, and admin tools.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from services.tournament_service import (
     STANDARD_REGIONS,
     TournamentService,
 )
-from utils.ui import build_roster_embed, build_status_embed
+from utils.ui import build_help_embed, build_roster_embed, build_status_embed
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,13 @@ ANNOUNCE_TARGET_CHOICES = [
     app_commands.Choice(name="Everyone (Main + Subs)", value="all"),
 ]
 
+HELP_SECTION_CHOICES = [
+    app_commands.Choice(name="Overview (All Commands)", value="all"),
+    app_commands.Choice(name="Participant Commands", value="participants"),
+    app_commands.Choice(name="Admin Controls", value="admin"),
+    app_commands.Choice(name="Weapons, Regions & Rules", value="weapons_regions"),
+]
+
 
 def is_tournament_admin():
     """Custom check for administrator permission or designated Tournament Admin role."""
@@ -64,6 +71,33 @@ def is_tournament_admin():
         return False
 
     return app_commands.check(predicate)
+
+
+class HelpView(discord.ui.View):
+    """Interactive navigation buttons for the /tournament-help command."""
+
+    def __init__(self, timeout: float = 180.0):
+        super().__init__(timeout=timeout)
+
+    @discord.ui.button(label="👥 Participants", style=discord.ButtonStyle.primary, custom_id="help_participants")
+    async def participant_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_help_embed("participants")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="🛠️ Admins", style=discord.ButtonStyle.secondary, custom_id="help_admin")
+    async def admin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_help_embed("admin")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⚔️ Rules & Weapons", style=discord.ButtonStyle.secondary, custom_id="help_weapons")
+    async def weapons_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_help_embed("weapons_regions")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="📖 View All", style=discord.ButtonStyle.success, custom_id="help_all")
+    async def all_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_help_embed("all")
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 class TournamentCog(commands.Cog):
@@ -94,6 +128,30 @@ class TournamentCog(commands.Cog):
             await interaction.followup.send(err_msg, ephemeral=True)
         else:
             await interaction.response.send_message(err_msg, ephemeral=True)
+
+    # =========================================================================
+    # Help & Guidance
+    # =========================================================================
+
+    @app_commands.command(
+        name="tournament-help",
+        description="Interactive guide and command manual for the IDO Tournament Bot.",
+    )
+    @app_commands.describe(
+        section="Jump directly to a specific guide category",
+        ephemeral="Whether the help message is only visible to you (default: True)",
+    )
+    @app_commands.choices(section=HELP_SECTION_CHOICES)
+    async def help_command(
+        self,
+        interaction: discord.Interaction,
+        section: Optional[app_commands.Choice[str]] = None,
+        ephemeral: bool = True,
+    ):
+        sec = section.value if section else "all"
+        embed = build_help_embed(sec)
+        view = HelpView()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
 
     # =========================================================================
     # Participant Commands

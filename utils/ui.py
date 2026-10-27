@@ -1,13 +1,13 @@
 """
 Discord Embed and Visual Progress Bar UI Formatters for IDO Tournament Bot.
-Matches the official IDO aesthetic and tournament status/roster layouts.
+Matches the official IDO aesthetic, tournament status/roster layouts, and help guides.
 """
 
 from __future__ import annotations
 
 import discord
 from config import config
-from services.tournament_service import Participant, TournamentState
+from services.tournament_service import DEFAULT_WEAPONS, STANDARD_REGIONS, Participant, TournamentState
 
 
 def generate_progress_bar(
@@ -83,7 +83,6 @@ def build_status_embed(
         color=embed_color,
     )
 
-    # Approved weapons field
     weapons_text = "\n".join(f"• `{w}`" for w in state.approved_weapons)
     embed.add_field(
         name="Approved Weapons",
@@ -91,7 +90,6 @@ def build_status_embed(
         inline=True,
     )
 
-    # Quick commands field
     commands_text = (
         "• `/tournament-register` — Enter main bracket\n"
         "• `/tournament-sub-register` — Enter as substitute\n"
@@ -137,7 +135,6 @@ def build_roster_embed(
         color=embed_color,
     )
 
-    # Main bracket field
     if state.participants:
         main_lines = [
             format_participant_line(i + 1, p, show_checkin=show_checkin)
@@ -162,7 +159,6 @@ def build_roster_embed(
         inline=False,
     )
 
-    # Substitutes field
     sub_count = len(state.substitutes)
     if state.substitutes:
         sub_lines = [
@@ -180,6 +176,85 @@ def build_roster_embed(
         value=sub_text,
         inline=False,
     )
+
+    embed.set_footer(text=f"{org} • International Dueling Organization")
+    return embed
+
+
+def build_help_embed(
+    section: str = "all",
+    org_name: str | None = None,
+    color: int | None = None,
+) -> discord.Embed:
+    """
+    Builds the /tournament-help command manual.
+    Sections: 'all', 'participants', 'admin', 'weapons_regions'.
+    """
+    org = org_name or config.organization_name
+    embed_color = color or config.embed_color
+
+    embed = discord.Embed(
+        title=f"📖 {org} Tournament Bot — Command Manual",
+        description=(
+            "Welcome to the official **International Dueling Organization (IDO)** Tournament Bot.\n"
+            "Use the command reference below or switch categories using the buttons below."
+        ),
+        color=embed_color,
+    )
+
+    if section in ("all", "participants"):
+        participant_cmds = (
+            "• `/tournament-register` — Enter the main tournament bracket.\n"
+            "• `/tournament-unregister` — Withdraw and free up your bracket slot.\n"
+            "• `/tournament-sub-register` — Join standby substitute queue.\n"
+            "• `/tournament-sub-unregister` — Withdraw from substitute queue.\n"
+            "• `/tournament-edit-entry` — Update weapon, IGN, or region without losing slot.\n"
+            "• `/tournament-checkin` — Confirm presence during tournament check-in.\n"
+            "• `/tournament-status` — View registration status, slots & progress bar.\n"
+            "• `/tournament-roster` — View full player list and check-in status."
+        )
+        embed.add_field(
+            name="👥 Participant Commands",
+            value=participant_cmds,
+            inline=False,
+        )
+
+    if section in ("all", "admin"):
+        admin_cmds = (
+            "• `/tournament-open` — Open bracket, set capacity & region filters.\n"
+            "• `/tournament-close` — Close main bracket registrations.\n"
+            "• `/tournament-open-subs` / `/tournament-close-subs` — Toggle substitute signups.\n"
+            "• `/tournament-open-checkin` / `/tournament-close-checkin` — Run check-in window.\n"
+            "• `/tournament-promote-sub` — Swap a no-show player with standby sub.\n"
+            "• `/tournament-kick` — Remove specific player from main or sub queue.\n"
+            "• `/tournament-force-register` — Manually add a participant or VIP.\n"
+            "• `/tournament-set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
+            "• `/tournament-set-regions` — Update allowed regions filter.\n"
+            "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
+            "• `/tournament-announce` — Broadcast announcement to players.\n"
+            "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster.\n"
+            "• `/tournament-clear` — Wipe roster clean for next event."
+        )
+        embed.add_field(
+            name="🛠️ Tournament Admin Controls",
+            value=admin_cmds,
+            inline=False,
+        )
+
+    if section in ("all", "weapons_regions"):
+        weapons_str = ", ".join(f"`{w}`" for w in DEFAULT_WEAPONS)
+        regions_str = ", ".join(f"`{r}`" for r in STANDARD_REGIONS)
+        rules_text = (
+            f"**Approved Weapons:** {weapons_str}\n"
+            f"**Supported Regions:** {regions_str} *(or `GLOBAL`)*\n"
+            f"**Region Validation:** If a tournament is locked (e.g. `NA, EU`), "
+            "players from other regions are prevented from registering automatically."
+        )
+        embed.add_field(
+            name="⚔️ Weapons, Regions & Rules",
+            value=rules_text,
+            inline=False,
+        )
 
     embed.set_footer(text=f"{org} • International Dueling Organization")
     return embed

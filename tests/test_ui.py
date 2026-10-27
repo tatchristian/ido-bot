@@ -1,6 +1,6 @@
 import pytest
 from services.tournament_service import Participant, TournamentState
-from utils.ui import build_roster_embed, build_status_embed, generate_progress_bar
+from utils.ui import build_help_embed, build_roster_embed, build_status_embed, generate_progress_bar
 
 
 def test_progress_bar_empty():
@@ -9,13 +9,11 @@ def test_progress_bar_empty():
 
 
 def test_progress_bar_twelve_percent():
-    # 1/8 is 12.5% -> 12%
     bar = generate_progress_bar(current=1, total=8, bar_length=8)
     assert "[`█░░░░░░░`] 12%" == bar
 
 
 def test_progress_bar_half():
-    # 4/8 is 50%
     bar = generate_progress_bar(current=4, total=8, bar_length=8)
     assert "[`████░░░░`] 50%" == bar
 
@@ -69,3 +67,22 @@ def test_build_roster_embed():
     sub_field = next(f for f in embed.fields if "Standby Substitutes" in f.name)
     assert "#01" in sub_field.value
     assert "Backup" in sub_field.value
+
+
+def test_build_help_embed():
+    # Test all section
+    embed_all = build_help_embed("all", org_name="IDO")
+    field_names = [f.name for f in embed_all.fields]
+    assert any("Participant Commands" in name for name in field_names)
+    assert any("Tournament Admin Controls" in name for name in field_names)
+    assert any("Weapons, Regions & Rules" in name for name in field_names)
+
+    # Test participant only section
+    embed_part = build_help_embed("participants")
+    assert len(embed_part.fields) == 1
+    assert "Participant Commands" in embed_part.fields[0].name
+
+    # Test admin only section
+    embed_admin = build_help_embed("admin")
+    assert len(embed_admin.fields) == 1
+    assert "Tournament Admin Controls" in embed_admin.fields[0].name
