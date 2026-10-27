@@ -119,6 +119,23 @@ def test_region_validation_multi_region(service: TournamentService):
     assert "This tournament is only open to participants from:" in reg_msg
 
 
+def test_region_parsing_strips_quotes_and_brackets(service: TournamentService):
+    """Ensures quotes in user inputs (e.g. \"'NA, EU, OCE'\") are cleanly sanitized."""
+    parsed = service.parse_regions("'NA, EU, OCE'")
+    assert "NA" in parsed
+    assert "EU" in parsed
+    assert "OCE" in parsed
+    assert "'NA" not in parsed
+
+    service.open_tournament(name="Quoted Regions Event", slots=8, regions="'NA, EU, OCE'")
+    allowed, _ = service.is_region_allowed("NA")
+    assert allowed
+    allowed_eu, _ = service.is_region_allowed("EU")
+    assert allowed_eu
+    allowed_oce, _ = service.is_region_allowed("OCE")
+    assert allowed_oce
+
+
 # =============================================================================
 # Substitute Queue & Promotion Tests
 # =============================================================================

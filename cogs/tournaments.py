@@ -32,6 +32,15 @@ REGION_CHOICES = [
     app_commands.Choice(name=r, value=r) for r in STANDARD_REGIONS
 ]
 
+REGION_FILTER_CHOICES = [
+    app_commands.Choice(name="GLOBAL (All Regions Allowed)", value="GLOBAL"),
+    app_commands.Choice(name="NA (North America)", value="NA"),
+    app_commands.Choice(name="EU (Europe)", value="EU"),
+    app_commands.Choice(name="OCE (Oceania)", value="OCE"),
+    app_commands.Choice(name="ASIA (Asia)", value="ASIA"),
+    app_commands.Choice(name="SA (South America)", value="SA"),
+]
+
 EXPORT_FORMAT_CHOICES = [
     app_commands.Choice(name="CSV (Excel / Start.gg / Battlefy)", value="csv"),
     app_commands.Choice(name="Challonge (Player Name List)", value="challonge"),
@@ -172,7 +181,7 @@ class TournamentCog(commands.Cog):
     # =========================================================================
 
     @app_commands.command(
-        name="tournament-help",
+        name="help",
         description="Interactive guide and command manual for the IDO Tournament Bot.",
     )
     @app_commands.describe(
@@ -183,6 +192,30 @@ class TournamentCog(commands.Cog):
     async def help_command(
         self,
         interaction: discord.Interaction,
+        section: Optional[app_commands.Choice[str]] = None,
+        ephemeral: bool = True,
+    ):
+        sec = section.value if section else "all"
+        embed = build_help_embed(sec)
+        view = HelpView()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
+
+    @app_commands.command(
+        name="tournament-help",
+        description="Interactive guide and command manual for the IDO Tournament Bot (alias for /help).",
+    )
+    @app_commands.describe(
+        section="Jump directly to a specific guide category",
+        ephemeral="Whether the help message is only visible to you (default: True)",
+    )
+    @app_commands.choices(section=HELP_SECTION_CHOICES)
+    async def tournament_help_alias(
+        self,
+        interaction: discord.Interaction,
+        section: Optional[app_commands.Choice[str]] = None,
+        ephemeral: bool = True,
+    ):
+        await self.help_command(interaction, section=section, ephemeral=ephemeral)
         section: Optional[app_commands.Choice[str]] = None,
         ephemeral: bool = True,
     ):
@@ -426,8 +459,16 @@ class TournamentCog(commands.Cog):
     @app_commands.describe(
         name="Tournament title / event name",
         slots="Maximum participant capacity (e.g. 8, 16, 32, 64)",
-        regions="Allowed regions filter (e.g. 'GLOBAL', 'NA', 'EU', or 'NA, EU')",
+        region_1="Primary allowed region tag (e.g. GLOBAL, NA, EU)",
+        region_2="Additional allowed region tag",
+        region_3="Additional allowed region tag",
+        custom_regions="Optional: Type custom comma-separated regions if not using tags",
         open_subs="Whether to open substitute signups immediately (default: False)",
+    )
+    @app_commands.choices(
+        region_1=REGION_FILTER_CHOICES,
+        region_2=REGION_CHOICES,
+        region_3=REGION_CHOICES,
     )
     @is_tournament_admin()
     async def open_tournament(
@@ -435,13 +476,22 @@ class TournamentCog(commands.Cog):
         interaction: discord.Interaction,
         name: Optional[str] = None,
         slots: Optional[int] = None,
-        regions: Optional[str] = None,
+        region_1: Optional[app_commands.Choice[str]] = None,
+        region_2: Optional[app_commands.Choice[str]] = None,
+        region_3: Optional[app_commands.Choice[str]] = None,
+        custom_regions: Optional[str] = None,
         open_subs: bool = False,
     ):
+        selected_regions: list[str] | None = None
+        tag_list = [r.value for r in (region_1, region_2, region_3) if r]
+        if tag_list or custom_regions:
+            selected_regions = list(tag_list)
+            if custom_regions:
+                selected_regions.extend(self.service.parse_regions(custom_regions))
         try:
             guild_id = interaction.guild_id or 0
             msg = self.service.open_tournament(
-                name=name, slots=slots, regions=regions, open_subs=open_subs, guild_id=guild_id
+                name=name, slots=slots, regions=selected_regions, open_subs=open_subs, guild_id=guild_id
             )
             embed = discord.Embed(
                 title="🏆 Tournament Registrations Opened",
@@ -662,15 +712,51 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="tournament-set-regions",
-        description="[Admin] Adjust the allowed competition regions filter.",
+        description="[Admin] Set allowed tournament regions using dedicated tags or custom text.",
     )
     @app_commands.describe(
-        regions="Allowed regions (e.g. 'GLOBAL', 'NA', 'EU', or 'NA, EU, OCE')"
+        region_1="Primary allowed region (or choose GLOBAL to allow all)",
+        region_2="Additional allowed region tag",
+        region_3="Additional allowed region tag",
+        region_4="Additional allowed region tag",
+        region_5="Additional allowed region tag",
+        custom_regions="Optional: Type custom comma-separated regions if not using tags",
+    )
+    @app_commands.choices(
+        region_1=REGION_FILTER_CHOICES,
+        region_2=REGION_CHOICES,
+        region_3=REGION_CHOICES,
+        region_4=REGION_CHOICES,
+        region_5=REGION_CHOICES,
     )
     @is_tournament_admin()
-    async def set_regions(self, interaction: discord.Interaction, regions: str):
+    async def set_regions(
+        self,
+        interaction: discord.Interaction,
+        region_1: Optional[app_commands.Choice[str]] = None,
+        region_2: Optional[app_commands.Choice[str]] = None,
+        region_3: Optional[app_commands.Choice[str]] = None,
+        region_4: Optional[app_commands.Choice[str]] = None,
+        region_5: Optional[app_commands.Choice[str]] = None,
+        custom_regions: Optional[str] = None,
+    ):
+        selected_regions: list[str] = []
+        for r_choice in (region_1, region_2, region_3, region_4, region_5):
+            if r_choice:
+                selected_regions.append(r_choice.value)
+
+        if custom_regions:
+            selected_regions.extend(self.service.parse_regions(custom_regions))
+
+        if not selected_regions:
+            await interaction.response.send_message(
+                "❌ Please specify at least one region tag (e.g. `region_1: NA`) or type in `custom_regions`.",
+                ephemeral=True,
+            )
+            return
+
         guild_id = interaction.guild_id or 0
-        msg = self.service.set_regions(regions, guild_id=guild_id)
+        msg = self.service.set_regions(selected_regions, guild_id=guild_id)
         embed = discord.Embed(
             title="🌍 Allowed Regions Updated",
             description=msg,

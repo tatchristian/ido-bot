@@ -94,7 +94,8 @@ def build_status_embed(
         "• `/tournament-register` — Enter main bracket\n"
         "• `/tournament-sub-register` — Enter as substitute\n"
         "• `/tournament-roster` — View full roster\n"
-        "• `/tournament-checkin` — Confirm tournament day check-in"
+        "• `/tournament-checkin` — Confirm tournament day check-in\n"
+        "• `/help` — View interactive command manual"
     )
     embed.add_field(
         name="Quick Commands",

@@ -39,7 +39,7 @@ A dedicated, high-reliability Discord Tournament and Roster Management Bot desig
 
 | Command | Usage | Description |
 | :--- | :--- | :--- |
-| `/tournament-help` | `/tournament-help [section:<category>] [ephemeral:<bool>]` | Interactive guide & command manual with quick-filter navigation buttons. |
+| `/help` | `/help [section:<category>] [ephemeral:<bool>]` | Interactive guide & command manual with quick-filter navigation buttons. |
 | `/tournament-register` | `/tournament-register ign:<name> weapon:<choice> region:<choice>` | Sign up for the main tournament bracket. Increases live slot counter. |
 | `/tournament-unregister` | `/tournament-unregister` | Withdraw from the main bracket (frees up slot for others). |
 | `/tournament-sub-register` | `/tournament-sub-register ign:<name> weapon:<choice> region:<choice>` | Sign up for the standby substitute queue. |

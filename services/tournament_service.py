@@ -203,15 +203,20 @@ class TournamentService:
     # Region Validation
     # ---------------------------------------------------------
     def parse_regions(self, regions_input: str | list[str]) -> list[str]:
-        """Normalizes comma or space separated regions into an uppercase list."""
+        """Normalizes comma, space, or list separated regions into a cleaned uppercase list."""
         if isinstance(regions_input, str):
+            cleaned = regions_input.replace("/", ",").replace(";", ",")
             raw_tokens = [
-                r.strip().upper()
-                for r in regions_input.replace("/", ",").split(",")
-                if r.strip()
+                r.strip(" '\"`[](){}").upper()
+                for r in cleaned.split(",")
+                if r.strip(" '\"`[](){}")
             ]
         else:
-            raw_tokens = [r.strip().upper() for r in regions_input if r.strip()]
+            raw_tokens = [
+                r.strip(" '\"`[](){}").upper()
+                for r in regions_input
+                if r.strip(" '\"`[](){}")
+            ]
 
         if not raw_tokens:
             return ["GLOBAL"]
@@ -227,12 +232,12 @@ class TournamentService:
         Returns (is_allowed, error_message_if_not).
         """
         state = self.get_state(guild_id)
-        cleaned_user = user_region.strip().upper()
+        cleaned_user = user_region.strip(" '\"`[](){}").upper()
 
         if "GLOBAL" in state.allowed_regions:
             return True, ""
 
-        allowed_upper = [r.upper() for r in state.allowed_regions]
+        allowed_upper = [r.strip(" '\"`[](){}").upper() for r in state.allowed_regions]
 
         for allowed in allowed_upper:
             if (
