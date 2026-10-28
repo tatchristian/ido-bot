@@ -172,30 +172,18 @@ docker compose down
 
 ---
 
-## 🏛️ Automated Server Layout Builder
+## 🏆 Automated Tournament Section Builder
 
-If recreating or configuring an official IDO tournament community server, you can automatically build the complete category and channel architecture with built-in rate-limit throttling (1.2s delay) and automatic 3v3 filtering:
+You can automatically construct the complete tournament categories, text channels, and voice arenas in your Discord server:
 
-### Option A: Standalone Python Script
-```bash
-# Using TARGET_GUILD_ID from .env:
-python build_ido_server.py
-
-# Or target a specific server directly:
-python build_ido_server.py --guild-id 123456789012345678
-
-# Safely undo/delete template channels and categories:
-python build_ido_server.py --undo --guild-id 123456789012345678
-```
-
-### Option B: Interactive & Hidden Administrator Commands
-- **Interactive Undo Button:** When `/build-ido-template` runs, the response embed includes a red **Undo Layout (Delete Added Channels)** button that an administrator can click to immediately purge the created layout.
-- **Slash Commands:**
-  - Build: `/build-ido-template confirm:True`
-  - Undo: `/undo-ido-template confirm:True`
-- **Hidden Prefix Commands:**
-  - Build: `!build-ido-template yes`
-  - Undo: `!undo-ido-template yes`
+### Commands
+- **Build Section & Link Channels:** `/tournament-setup-section confirm:True`
+  - Constructs `🏆 TOURNAMENT HUB 🏆`, `⚔️ MATCH ARENAS ⚔️`, and `🔒 TOURNAMENT OPERATIONS`.
+  - Automatically links `#tournament-announcements`, `#tournament-checkin`, and `#substitutes-bench` to the bot.
+  - Automatically sets permissions (read-only for announcements & rules, private for staff).
+  - Includes an interactive **Undo Tournament Section** button on the response embed.
+- **Remove Tournament Section:** `/tournament-remove-section confirm:True`
+  - Safely deletes the tournament categories and channels without touching any of your server's community channels.
 
 
 ---

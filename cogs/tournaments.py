@@ -15,9 +15,9 @@ from discord.ext import commands
 
 from config import config
 from services.server_builder import (
-    UndoLayoutView,
-    build_server_layout,
-    delete_server_layout,
+    UndoTournamentSectionView,
+    build_tournament_section,
+    delete_tournament_section,
 )
 from services.tournament_service import (
     DEFAULT_WEAPONS,
@@ -1426,15 +1426,15 @@ class TournamentCog(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
-        name="build-ido-template",
-        description="[Admin] Construct the official IDO server category and channel layout.",
+        name="tournament-setup-section",
+        description="[Admin] Construct the official tournament categories, channels, and arenas.",
     )
     @app_commands.describe(
-        confirm="Set to True to confirm building the layout structure.",
+        confirm="Set to True to build the tournament section and link bot channels.",
     )
     @app_commands.default_permissions(administrator=True)
     @is_tournament_admin()
-    async def build_template(self, interaction: discord.Interaction, confirm: bool = False):
+    async def setup_tournament_section(self, interaction: discord.Interaction, confirm: bool = False):
         if not interaction.guild:
             await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
             return
@@ -1442,14 +1442,15 @@ class TournamentCog(commands.Cog):
         if not confirm:
             await interaction.response.send_message(
                 "⚠️ **Safety Confirmation Required**:\n"
-                "This command constructs the official IDO category and channel layout.\n"
+                "This will build the official tournament categories (Tournament Hub, Match Arenas, Operations) "
+                "and link announcements, check-in, and substitute channels to the bot.\n"
                 "Please rerun with `confirm: True` to proceed.",
                 ephemeral=True,
             )
             return
 
         bot_member = interaction.guild.me
-        if not bot_member.guild_permissions.manage_channels:
+        if not bot_member or not bot_member.guild_permissions.manage_channels:
             await interaction.response.send_message(
                 "❌ The bot is missing the **Manage Channels** permission required to create categories and channels.",
                 ephemeral=True,
@@ -1458,11 +1459,25 @@ class TournamentCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        results = await build_server_layout(interaction.guild)
+        results = await build_tournament_section(interaction.guild)
+        guild_id = interaction.guild_id or 0
+
+        # Automatically link created channels to tournament service
+        cmap = results.get("channel_map", {})
+        if cmap:
+            self.service.set_channels(
+                announcement_channel_id=cmap.get("announcements"),
+                checkin_channel_id=cmap.get("checkin"),
+                subs_channel_id=cmap.get("subs"),
+                guild_id=guild_id,
+            )
 
         embed = discord.Embed(
-            title="🏛️ IDO Server Layout Built",
-            description=f"Successfully processed official IDO server layout in **{interaction.guild.name}**.",
+            title="🏆 Tournament Section Built & Linked",
+            description=(
+                f"Successfully built the tournament section in **{interaction.guild.name}**!\n"
+                f"Bot channel routing has been automatically configured."
+            ),
             color=0x2ECC71 if not results["errors"] else 0xF39C12,
         )
         embed.add_field(
@@ -1471,15 +1486,22 @@ class TournamentCog(commands.Cog):
             inline=True,
         )
         embed.add_field(
-            name="💬 Channels",
+            name="💬 Channels & Arenas",
             value=f"• Created: `{results['channels_created']}`\n• Existing: `{results['channels_existing']}`",
             inline=True,
         )
-        if results["channels_skipped_filter"] > 0:
+        if cmap:
+            ann_mention = f"<#{cmap['announcements']}>" if "announcements" in cmap else "*Not set*"
+            chk_mention = f"<#{cmap['checkin']}>" if "checkin" in cmap else "*Not set*"
+            sub_mention = f"<#{cmap['subs']}>" if "subs" in cmap else "*Not set*"
             embed.add_field(
-                name="🛡️ 3v3 Filtered",
-                value=f"`{results['channels_skipped_filter']}` item(s) safely excluded.",
-                inline=True,
+                name="🔗 Linked Bot Channels",
+                value=(
+                    f"• Announcements: {ann_mention}\n"
+                    f"• Check-in: {chk_mention}\n"
+                    f"• Substitutes: {sub_mention}"
+                ),
+                inline=False,
             )
         if results["errors"]:
             embed.add_field(
@@ -1487,21 +1509,21 @@ class TournamentCog(commands.Cog):
                 value="\n".join(f"• {e[:100]}" for e in results["errors"][:5]),
                 inline=False,
             )
-        embed.set_footer(text=f"{config.organization_name} • Automated Server Builder")
+        embed.set_footer(text=f"{config.organization_name} • Tournament Section Builder")
 
-        view = UndoLayoutView(interaction.user.id)
+        view = UndoTournamentSectionView(interaction.user.id)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
     @app_commands.command(
-        name="undo-ido-template",
-        description="[Admin] Safely remove all IDO template categories and channels.",
+        name="tournament-remove-section",
+        description="[Admin] Safely remove the tournament categories and match arenas.",
     )
     @app_commands.describe(
-        confirm="Set to True to confirm undoing/deleting template categories and channels.",
+        confirm="Set to True to confirm removing tournament categories and channels.",
     )
     @app_commands.default_permissions(administrator=True)
     @is_tournament_admin()
-    async def undo_template(self, interaction: discord.Interaction, confirm: bool = False):
+    async def remove_tournament_section(self, interaction: discord.Interaction, confirm: bool = False):
         if not interaction.guild:
             await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
             return
@@ -1509,7 +1531,7 @@ class TournamentCog(commands.Cog):
         if not confirm:
             await interaction.response.send_message(
                 "⚠️ **Safety Confirmation Required**:\n"
-                "This will delete all categories and channels matching the IDO layout template.\n"
+                "This will delete all categories and channels under the Tournament Hub, Match Arenas, and Tournament Operations.\n"
                 "Please rerun with `confirm: True` to proceed.",
                 ephemeral=True,
             )
@@ -1525,11 +1547,13 @@ class TournamentCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=True)
 
-        results = await delete_server_layout(interaction.guild)
+        guild_id = interaction.guild_id or 0
+        self.service.clear_channels(guild_id)
+        results = await delete_tournament_section(interaction.guild)
 
         embed = discord.Embed(
-            title="🧹 IDO Server Layout Undone",
-            description=f"Successfully purged template categories and channels in **{interaction.guild.name}**.",
+            title="🧹 Tournament Section Removed",
+            description=f"Cleaned up tournament categories and channels in **{interaction.guild.name}**.",
             color=0xE74C3C,
         )
         embed.add_field(
@@ -1548,64 +1572,10 @@ class TournamentCog(commands.Cog):
                 value="\n".join(f"• {e[:100]}" for e in results["errors"][:5]),
                 inline=False,
             )
-        embed.set_footer(text=f"{config.organization_name} • Server Layout Undo")
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
-    @commands.command(name="undo-ido-template", hidden=True)
-    @commands.has_permissions(administrator=True)
-    async def prefix_undo_template(self, ctx: commands.Context, confirm: str = "no"):
-        """Hidden prefix command to undo/delete server template."""
-        if confirm.lower() not in ("yes", "true", "confirm"):
-            await ctx.reply(
-                "⚠️ **Safety Confirmation Required**:\n"
-                "Type `!undo-ido-template yes` to delete all template categories and channels."
-            )
-            return
-
-        bot_member = ctx.guild.me if ctx.guild else None
-        if not bot_member or not bot_member.guild_permissions.manage_channels:
-            await ctx.reply("❌ The bot is missing the **Manage Channels** permission in this server.")
-            return
-
-        msg = await ctx.reply("🧹 Purging template channels and categories (throttling at 1.2s per deletion)...")
-        results = await delete_server_layout(ctx.guild)
-        await msg.edit(
-            content=(
-                f"🧹 **Server Layout Undo Complete!**\n"
-                f"• Categories Deleted: `{results['categories_deleted']}`\n"
-                f"• Channels Deleted: `{results['channels_deleted']}`\n"
-                f"• Errors: `{len(results['errors'])}`"
-            )
-        )
-
-    @commands.command(name="build-ido-template", hidden=True)
-    @commands.has_permissions(administrator=True)
-    async def prefix_build_template(self, ctx: commands.Context, confirm: str = "no"):
-        """Hidden prefix command to build server template."""
-        if confirm.lower() not in ("yes", "true", "confirm"):
-            await ctx.reply(
-                "⚠️ **Safety Confirmation Required**:\n"
-                "Type `!build-ido-template yes` to construct the official IDO category and channel layout."
-            )
-            return
-
-        bot_member = ctx.guild.me if ctx.guild else None
-        if not bot_member or not bot_member.guild_permissions.manage_channels:
-            await ctx.reply("❌ The bot is missing the **Manage Channels** permission in this server.")
-            return
-
-        msg = await ctx.reply("🏗️ Initializing server layout builder (throttling at 1.2s per API call)...")
-        results = await build_server_layout(ctx.guild)
-        await msg.edit(
-            content=(
-                f"✅ **Server Layout Construction Complete!**\n"
-                f"• Categories: `{results['categories_created']}` created, `{results['categories_existing']}` existing\n"
-                f"• Channels: `{results['channels_created']}` created, `{results['channels_existing']}` existing\n"
-                f"• Filtered: `{results['channels_skipped_filter']}` excluded\n"
-                f"• Errors: `{len(results['errors'])}`"
-            )
-        )
 
 
 
