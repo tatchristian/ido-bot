@@ -32,6 +32,16 @@ class Config:
         else None
     )
     admin_role_name: str = os.getenv("ADMIN_ROLE_NAME", "Tournament Admin")
+    showcase_channel_id: int | None = (
+        int(os.getenv("SHOWCASE_CHANNEL_ID"))
+        if os.getenv("SHOWCASE_CHANNEL_ID") and os.getenv("SHOWCASE_CHANNEL_ID").strip().isdigit()
+        else None
+    )
+    staff_review_channel_id: int | None = (
+        int(os.getenv("STAFF_REVIEW_CHANNEL_ID"))
+        if os.getenv("STAFF_REVIEW_CHANNEL_ID") and os.getenv("STAFF_REVIEW_CHANNEL_ID").strip().isdigit()
+        else None
+    )
     data_dir: Path = Path(os.getenv("DATA_DIR", "data"))
     max_backups: int = int(os.getenv("MAX_BACKUPS", "20"))
     organization_name: str = os.getenv("ORGANIZATION_NAME", "IDO")
@@ -40,6 +50,10 @@ class Config:
     @property
     def tournament_file(self) -> Path:
         return self.data_dir / "tournament.json"
+
+    @property
+    def clan_submissions_file(self) -> Path:
+        return self.data_dir / "clan_submissions.json"
 
     @property
     def backup_dir(self) -> Path:

@@ -75,6 +75,7 @@ class IDOTournamentBot(commands.Bot):
         logger.info("Initializing bot services and loading extensions...")
         await start_health_server()
         await self.load_extension("cogs.tournaments")
+        await self.load_extension("cogs.clan_showcase")
 
         # Slash command tree synchronization
         if config.guild_id:
