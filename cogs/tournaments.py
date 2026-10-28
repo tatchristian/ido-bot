@@ -69,6 +69,7 @@ HELP_SECTION_CHOICES = [
     app_commands.Choice(name="Participant Commands", value="participants"),
     app_commands.Choice(name="Admin Controls", value="admin"),
     app_commands.Choice(name="Weapons, Regions & Rules", value="weapons_regions"),
+    app_commands.Choice(name="Clan Showcase & Submissions", value="clans"),
 ]
 
 
@@ -148,6 +149,11 @@ class HelpView(discord.ui.View):
     @discord.ui.button(label="⚔️ Rules & Weapons", style=discord.ButtonStyle.secondary, custom_id="help_weapons")
     async def weapons_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = build_help_embed("weapons_regions")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="🏛️ Clan Showcase", style=discord.ButtonStyle.secondary, custom_id="help_clans")
+    async def clans_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_help_embed("clans")
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="📖 View All", style=discord.ButtonStyle.success, custom_id="help_all")

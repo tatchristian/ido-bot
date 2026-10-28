@@ -185,6 +185,23 @@ def test_clan_showcase_service_lifecycle():
         assert rejected.status == "rejected"
         assert rejected.reject_reason == "Invalid logo image format."
 
+        # 7. Search and Update flow (Admin editing)
+        found_by_name = fresh_service.search_submission(999, "yume")
+        assert found_by_name is not None
+        assert found_by_name.id == sub.id
+
+        updated = fresh_service.update_submission(
+            sub_id=sub.id,
+            clan_name="Yume Reborn",
+            color_hex="#ff0055",
+            color_int=0xFF0055,
+            metadata_text="Region: Global\nStatus: Elite",
+        )
+        assert updated is not None
+        assert updated.clan_name == "Yume Reborn"
+        assert updated.color_hex == "#ff0055"
+        assert updated.metadata_text == "Region: Global\nStatus: Elite"
+
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 

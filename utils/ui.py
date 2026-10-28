@@ -298,6 +298,22 @@ def build_help_embed(
             inline=False,
         )
 
+    if section in ("all", "clans"):
+        clan_cmds = (
+            "• `/post-clan-submission-panel` (or `!post_clan_submission_panel`) — Post interactive submission panel with persistent button.\n"
+            "• `/clan-showcase-channels` — Configure target showcase and staff review channels.\n"
+            "• `/clan-showcase-view-channels` — View current configured channels for submissions.\n"
+            "• `/clan-showcase-edit` — Edit any existing clan profile live (updates database & published embed).\n"
+            "• `/clan-showcase-preview` — Test embed rendering with custom colors and artwork.\n"
+            "• **Clan Intake Flow:** Leaders click **`📋 Submit Clan Profile`** to open the 5-field modal form.\n"
+            "• **Staff Workflow:** Review submissions with **`Approve & Publish`** or **`Reject`** (with custom reason prompt)."
+        )
+        embed.add_field(
+            name="🏛️ Clan Profile Showcase Portal",
+            value=clan_cmds,
+            inline=False,
+        )
+
     embed.set_footer(text=f"{org} • International Dueling Organization")
     return embed
 

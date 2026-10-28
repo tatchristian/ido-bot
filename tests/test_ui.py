@@ -86,4 +86,10 @@ def test_build_help_embed():
     embed_admin = build_help_embed("admin")
     assert len(embed_admin.fields) == 2
     assert all("Tournament Admin Controls" in f.name for f in embed_admin.fields)
+    # Test clans only section
+    embed_clans = build_help_embed("clans")
+    assert len(embed_clans.fields) == 1
+    assert "Clan Profile Showcase Portal" in embed_clans.fields[0].name
+    assert "/clan-showcase-edit" in embed_clans.fields[0].value
+
     assert all(len(f.value) <= 1024 for f in embed_all.fields)

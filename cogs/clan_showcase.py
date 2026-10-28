@@ -93,8 +93,8 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     """
 
     clan_name_color = discord.ui.TextInput(
-        label="Clan Name & Embed Color (Optional)",
-        placeholder="Clan Name (or Clan Name | #HexColor)",
+        label="Clan Name (Color is Optional)",
+        placeholder="Enter Clan Name (or Clan Name | #hex for custom color)",
         style=discord.TextStyle.short,
         max_length=100,
         required=True,
@@ -102,10 +102,10 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     metadata = discord.ui.TextInput(
         label="Clan Metadata (Region, Leaders, Status)",
         placeholder=(
-            "Region: [Your Region]\n"
-            "Founded: [Month / Year]\n"
-            "Leader: @Leader\n"
-            "Co-leaders: @CoLeader1, @CoLeader2\n"
+            "Region: [Your Region, e.g. North America]\n"
+            "Founded: [Month / Year, e.g. July 2026]\n"
+            "Leader: [Leader Name / IGN]\n"
+            "Co-leaders: [Co-leader Names / IGNs]\n"
             "Status: Active"
         ),
         style=discord.TextStyle.paragraph,
@@ -317,6 +317,141 @@ class ClanRejectionModal(discord.ui.Modal, title="Reject Clan Submission"):
                     "Could not DM rejection notice to applicant %s (DMs closed)",
                     self.submission.applicant_id,
                 )
+
+
+class ClanEditModal(discord.ui.Modal):
+    """Modal allowing admins to edit an existing clan showcase profile live."""
+
+    def __init__(self, service: ClanShowcaseService, submission: ClanSubmission):
+        super().__init__(title=f"Edit Clan: {submission.clan_name[:30]}")
+        self.service = service
+        self.submission = submission
+
+        self.clan_name_color = discord.ui.TextInput(
+            label="Clan Name & Color",
+            default=f"{submission.clan_name} | {submission.color_hex}",
+            placeholder="Clan Name (or Clan Name | #hex)",
+            style=discord.TextStyle.short,
+            max_length=100,
+            required=True,
+        )
+        self.metadata = discord.ui.TextInput(
+            label="Clan Metadata",
+            default=submission.metadata_text,
+            style=discord.TextStyle.paragraph,
+            max_length=1000,
+            required=True,
+        )
+        self.description = discord.ui.TextInput(
+            label="Clan Description & Philosophy",
+            default=submission.description_text,
+            style=discord.TextStyle.paragraph,
+            max_length=1500,
+            required=True,
+        )
+        self.activities_motto = discord.ui.TextInput(
+            label="Activities & Motto",
+            default=submission.activities_motto,
+            style=discord.TextStyle.paragraph,
+            max_length=1000,
+            required=True,
+        )
+        self.logo_url = discord.ui.TextInput(
+            label="Logo / Emblem Direct Image URL",
+            default=submission.logo_url,
+            style=discord.TextStyle.short,
+            max_length=500,
+            required=True,
+        )
+
+        self.add_item(self.clan_name_color)
+        self.add_item(self.metadata)
+        self.add_item(self.description)
+        self.add_item(self.activities_motto)
+        self.add_item(self.logo_url)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        # 1. Validate Image URL
+        valid, err = validate_image_url(self.logo_url.value)
+        if not valid:
+            await interaction.response.send_message(
+                f"❌ **Invalid Logo URL:** {err}", ephemeral=True
+            )
+            return
+
+        # 2. Parse Name & Color
+        new_name, new_color_int, new_color_hex = parse_name_and_color(
+            self.clan_name_color.value
+        )
+
+        # 3. Update database record
+        sub = self.service.update_submission(
+            sub_id=self.submission.id,
+            clan_name=new_name,
+            color_hex=new_color_hex,
+            color_int=new_color_int,
+            metadata_text=self.metadata.value,
+            description_text=self.description.value,
+            activities_motto=self.activities_motto.value,
+            logo_url=self.logo_url.value,
+        )
+        if not sub:
+            await interaction.response.send_message(
+                "❌ Could not update submission in database.", ephemeral=True
+            )
+            return
+
+        # 4. If published, edit live message in showcase channel
+        guild = interaction.guild
+        edited_published = False
+        showcase_chan = None
+        if guild and sub.showcase_message_id:
+            showcase_chan_id, _ = self.service.get_guild_channels(guild.id)
+            if showcase_chan_id:
+                showcase_chan = guild.get_channel(showcase_chan_id)
+            if not showcase_chan:
+                for name in (
+                    "official-clan-list",
+                    "official-clan_x_alliances-list",
+                    "clan-showcase",
+                    "clans",
+                ):
+                    cand = discord.utils.get(guild.text_channels, name=name)
+                    if cand:
+                        showcase_chan = cand
+                        break
+            if showcase_chan and isinstance(showcase_chan, discord.TextChannel):
+                try:
+                    target_msg = await showcase_chan.fetch_message(sub.showcase_message_id)
+                    await target_msg.edit(embed=sub.to_embed())
+                    edited_published = True
+                except Exception as exc:
+                    logger.warning("Could not edit live showcase message: %s", exc)
+
+        # 5. If staff review message exists, update its embed as well
+        if guild and sub.staff_message_id:
+            _, review_chan_id = self.service.get_guild_channels(guild.id)
+            review_chan = guild.get_channel(review_chan_id) if review_chan_id else None
+            if review_chan and isinstance(review_chan, discord.TextChannel):
+                try:
+                    staff_msg = await review_chan.fetch_message(sub.staff_message_id)
+                    preview_embed = sub.to_embed()
+                    preview_embed.set_footer(
+                        text=f"{config.organization_name} • Clan Showcase • Submission ID: {sub.id}"
+                    )
+                    await staff_msg.edit(embed=preview_embed)
+                except Exception:
+                    pass
+
+        status_msg = f"✅ **Successfully updated clan profile for {sub.clan_name}!**"
+        if edited_published and showcase_chan:
+            status_msg += f"\nLive embed in {showcase_chan.mention} has been updated."
+        elif sub.showcase_message_id:
+            status_msg += "\nUpdated in database (could not reach original Discord message)."
+        else:
+            status_msg += "\nUpdated in database (pending staff approval to publish)."
+
+        await interaction.response.send_message(status_msg, ephemeral=True)
 
 
 class ClanReviewButtonsView(discord.ui.View):
@@ -581,12 +716,13 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 f"Welcome to the official **{config.organization_name}** Clan Showcase submission system!\n\n"
                 "Are you a clan leader looking to represent your roster in our server's official showcase? "
                 "Click the button below to submit your clan's profile for staff review.\n\n"
-                "**Submission Guidelines:**\n"
-                "• Must be an official Clan Leader or authorized representative.\n"
-                "• Provide accurate metadata (Region, Founded Date, Leaders, Status).\n"
-                "• Provide a valid direct image URL for your clan emblem / logo.\n"
-                "• Submissions are reviewed by staff before being published to the showcase.\n\n"
-                "Click **📋 Submit Clan Profile** below to open the submission form!"
+                "**Form Guidelines & Tips:**\n"
+                "• **Clan Name:** Just enter your clan's name. *(Optional: if you have a custom team color, enter `Clan Name | #hex`, e.g. `Shadow | #ff0033`. Otherwise it automatically uses official IDO sky-blue!)*\n"
+                "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
+                "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
+                "• **Logo URL:** Must be a direct image link (Discord upload, Imgur, PNG, or JPG).\n"
+                "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
+                "Click **📋 Submit Clan Profile** below to begin!"
             ),
             color=DEFAULT_CLAN_COLOR,
         )
@@ -626,12 +762,13 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 f"Welcome to the official **{config.organization_name}** Clan Showcase submission system!\n\n"
                 "Are you a clan leader looking to represent your roster in our server's official showcase? "
                 "Click the button below to submit your clan's profile for staff review.\n\n"
-                "**Submission Guidelines:**\n"
-                "• Must be an official Clan Leader or authorized representative.\n"
-                "• Provide accurate metadata (Region, Founded Date, Leaders, Status).\n"
-                "• Provide a valid direct image URL for your clan emblem / logo.\n"
-                "• Submissions are reviewed by staff before being published to the showcase.\n\n"
-                "Click **📋 Submit Clan Profile** below to open the submission form!"
+                "**Form Guidelines & Tips:**\n"
+                "• **Clan Name:** Just enter your clan's name. *(Optional: if you have a custom team color, enter `Clan Name | #hex`, e.g. `Shadow | #ff0033`. Otherwise it automatically uses official IDO sky-blue!)*\n"
+                "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
+                "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
+                "• **Logo URL:** Must be a direct image link (Discord upload, Imgur, PNG, or JPG).\n"
+                "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
+                "Click **📋 Submit Clan Profile** below to begin!"
             ),
             color=DEFAULT_CLAN_COLOR,
         )
@@ -733,6 +870,79 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             text="Use /clan-showcase-channels to update target channels anytime."
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-showcase-edit and !clan_edit
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-showcase-edit",
+        description="Admin: Edit an existing clan showcase profile live in Discord.",
+    )
+    @app_commands.describe(
+        clan="Clan name or submission ID to edit"
+    )
+    async def edit_clan_showcase(
+        self, interaction: discord.Interaction, clan: str
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message(
+                "❌ You must be an administrator or tournament staff to edit clan profiles.",
+                ephemeral=True,
+            )
+            return
+
+        sub = self.service.search_submission(interaction.guild.id, clan)
+        if not sub:
+            await interaction.response.send_message(
+                f"❌ Could not find any clan profile matching `{clan}`. "
+                "Please verify the clan name or ID and try again.",
+                ephemeral=True,
+            )
+            return
+
+        modal = ClanEditModal(self.service, sub)
+        await interaction.response.send_modal(modal)
+
+    @edit_clan_showcase.autocomplete("clan")
+    async def clan_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if not interaction.guild:
+            return []
+        guild_subs = self.service.get_guild_submissions(interaction.guild.id)
+        choices: list[app_commands.Choice[str]] = []
+        cur_lower = current.strip().lower()
+        for s in guild_subs:
+            label = f"{s.clan_name} ({s.status})"
+            if not cur_lower or cur_lower in s.clan_name.lower() or cur_lower in s.id.lower():
+                choices.append(app_commands.Choice(name=label[:100], value=s.id))
+            if len(choices) >= 25:
+                break
+        return choices
+
+    @commands.command(name="clan_edit")
+    async def edit_clan_prefix(self, ctx: commands.Context, *, clan: str):
+        """Prefix fallback command (!clan_edit <clan_name_or_id>)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not is_staff_user(ctx.author, ctx.guild):
+            await ctx.send("❌ You must be an administrator or tournament staff to edit clan profiles.")
+            return
+
+        sub = self.service.search_submission(ctx.guild.id, clan)
+        if not sub:
+            await ctx.send(f"❌ Could not find any clan profile matching `{clan}`.")
+            return
+
+        await ctx.send(
+            f"ℹ️ To open the interactive edit form for **{sub.clan_name}**, please use the slash command: `/clan-showcase-edit clan:{sub.clan_name}`"
+        )
 
     # -------------------------------------------------------------------------
     # Command: /clan-showcase-preview

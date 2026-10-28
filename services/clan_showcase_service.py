@@ -337,3 +337,59 @@ class ClanShowcaseService:
         sub.updated_at = datetime.now(timezone.utc).isoformat()
         self._persist()
         return sub
+
+    def get_guild_submissions(self, guild_id: int) -> list[ClanSubmission]:
+        """Returns all submissions for a guild."""
+        return [s for s in self._submissions.values() if s.guild_id == guild_id]
+
+    def search_submission(self, guild_id: int, query: str) -> Optional[ClanSubmission]:
+        """Finds a submission in the guild by ID or clan name."""
+        q = query.strip().lower()
+        if query in self._submissions:
+            sub = self._submissions[query]
+            if sub.guild_id == guild_id:
+                return sub
+
+        guild_subs = [s for s in self._submissions.values() if s.guild_id == guild_id]
+        for s in guild_subs:
+            if s.clan_name.lower() == q or s.id.lower() == q:
+                return s
+
+        for s in guild_subs:
+            if q in s.clan_name.lower() or q in s.id.lower():
+                return s
+
+        return None
+
+    def update_submission(
+        self,
+        sub_id: str,
+        clan_name: Optional[str] = None,
+        color_hex: Optional[str] = None,
+        color_int: Optional[int] = None,
+        metadata_text: Optional[str] = None,
+        description_text: Optional[str] = None,
+        activities_motto: Optional[str] = None,
+        logo_url: Optional[str] = None,
+    ) -> Optional[ClanSubmission]:
+        """Updates fields of an existing submission and saves to disk."""
+        sub = self._submissions.get(sub_id)
+        if not sub:
+            return None
+        if clan_name is not None:
+            sub.clan_name = clan_name
+        if color_hex is not None:
+            sub.color_hex = color_hex
+        if color_int is not None:
+            sub.color_int = color_int
+        if metadata_text is not None:
+            sub.metadata_text = metadata_text.strip()
+        if description_text is not None:
+            sub.description_text = description_text.strip()
+        if activities_motto is not None:
+            sub.activities_motto = activities_motto.strip()
+        if logo_url is not None:
+            sub.logo_url = logo_url.strip()
+        sub.updated_at = datetime.now(timezone.utc).isoformat()
+        self._persist()
+        return sub
