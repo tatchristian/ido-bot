@@ -684,11 +684,12 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
     # -------------------------------------------------------------------------
     @app_commands.command(
         name="post-clan-submission-panel",
-        description="Drop the interactive Clan Profile Submission panel with persistent button.",
+        description="Admin: Drop the interactive Clan Profile Submission panel with persistent button.",
     )
     @app_commands.describe(
         channel="Channel to post the submission panel in (defaults to current channel)"
     )
+    @app_commands.default_permissions(manage_guild=True)
     async def post_clan_submission_panel_slash(
         self,
         interaction: discord.Interaction,
@@ -785,12 +786,13 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
     # -------------------------------------------------------------------------
     @app_commands.command(
         name="clan-showcase-channels",
-        description="Configure target showcase and staff review channels for this server.",
+        description="Admin: Configure target showcase and staff review channels for this server.",
     )
     @app_commands.describe(
         showcase_channel="Public channel where approved clan embeds will be published",
         staff_review_channel="Private channel where staff review new clan submissions",
     )
+    @app_commands.default_permissions(manage_guild=True)
     async def set_clan_channels(
         self,
         interaction: discord.Interaction,
@@ -844,11 +846,19 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
     # -------------------------------------------------------------------------
     @app_commands.command(
         name="clan-showcase-view-channels",
-        description="View current showcase and staff review channels for this server.",
+        description="Admin: View current showcase and staff review channels for this server.",
     )
+    @app_commands.default_permissions(manage_guild=True)
     async def view_clan_channels(self, interaction: discord.Interaction):
         if not interaction.guild:
             await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message(
+                "❌ You must be an administrator or tournament staff to view channel settings.",
+                ephemeral=True,
+            )
             return
 
         s_id, r_id = self.service.get_guild_channels(interaction.guild.id)
@@ -881,6 +891,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
     @app_commands.describe(
         clan="Clan name or submission ID to edit"
     )
+    @app_commands.default_permissions(manage_guild=True)
     async def edit_clan_showcase(
         self, interaction: discord.Interaction, clan: str
     ):
