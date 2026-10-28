@@ -46,6 +46,7 @@ A dedicated, high-reliability Discord Tournament and Roster Management Bot desig
 | `/tournament-sub-unregister`| `/tournament-sub-unregister` | Withdraw from the substitute queue. |
 | `/tournament-edit-entry` | `/tournament-edit-entry [weapon:<choice>] [ign:<name>] [region:<choice>]` | Update your weapon, IGN, or region without losing your bracket slot. |
 | `/tournament-checkin` | `/tournament-checkin` | Confirm your presence on tournament day during the check-in window. |
+| `/tournament-sub-checkin` | `/tournament-sub-checkin` | Confirm your active standby availability as a substitute on tournament day. |
 | `/tournament-status` | `/tournament-status` | View main & substitute status, slot counters, visual progress bar, check-in status, allowed regions, and weapons. |
 | `/tournament-roster` | `/tournament-roster` | View registered main bracket roster, check-in indicators, and standby substitute list. |
 

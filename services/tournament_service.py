@@ -705,7 +705,9 @@ class TournamentService:
             if sub_idx is None:
                 return False, f"User <@{substitute_user_id}> was not found in the substitute queue.", None
         else:
-            sub_idx = 0
+            # If any substitutes have checked in, prioritize the first verified/checked-in sub in queue order
+            checked_in_idx = next((i for i, s in enumerate(state.substitutes) if s.checked_in), None)
+            sub_idx = checked_in_idx if checked_in_idx is not None else 0
 
         sub_to_promote = state.substitutes[sub_idx]
 
@@ -754,7 +756,7 @@ class TournamentService:
     # Tournament Day Flow: Check-In System
     # ---------------------------------------------------------
     def open_checkin(self, checkin_channel_id: int | None = None, guild_id: int = 0) -> str:
-        """Opens check-in for registered participants."""
+        """Opens check-in for registered participants and standby substitutes."""
         state = self.get_state(guild_id)
         state.checkin_open = True
         if checkin_channel_id is not None:
@@ -762,7 +764,7 @@ class TournamentService:
         self._persist(guild_id)
         return (
             f"📢 **Tournament Check-In is now OPEN for {state.name}!**\n"
-            "All registered main bracket participants must run `/tournament-checkin` to secure their tournament spot."
+            "All registered main bracket participants and standby substitutes must check in to secure their spot."
         )
 
     def close_checkin(self, guild_id: int = 0) -> str:
@@ -770,12 +772,18 @@ class TournamentService:
         state = self.get_state(guild_id)
         state.checkin_open = False
         self._persist(guild_id)
-        checked_count = sum(1 for p in state.participants if p.checked_in)
-        total = len(state.participants)
-        return f"🔒 Tournament Check-In is now **CLOSED**. (`{checked_count} / {total}` checked in)."
+        main_checked = sum(1 for p in state.participants if p.checked_in)
+        main_total = len(state.participants)
+        sub_checked = sum(1 for s in state.substitutes if s.checked_in)
+        sub_total = len(state.substitutes)
+        return (
+            f"🔒 Tournament Check-In is now **CLOSED**.\n"
+            f"• Main Bracket: `{main_checked} / {main_total}` confirmed\n"
+            f"• Standby Substitutes: `{sub_checked} / {sub_total}` ready for call-up"
+        )
 
     def checkin_user(self, user_id: int, guild_id: int = 0) -> tuple[bool, str]:
-        """Records participant check-in."""
+        """Records participant or substitute check-in."""
         state = self.get_state(guild_id)
         if not state.checkin_open:
             return False, "Tournament check-in is not currently open."
@@ -791,10 +799,10 @@ class TournamentService:
         s = next((s for s in state.substitutes if s.user_id == user_id), None)
         if s:
             if s.checked_in:
-                return False, f"You are already checked in as an active substitute!"
+                return False, f"You are already checked in as an active standby substitute!"
             s.checked_in = True
             self._persist(guild_id)
-            return True, f"✅ Standby substitute check-in confirmed for **{s.ign}** ({s.user_mention})!"
+            return True, f"🛡️ Standby substitute check-in confirmed for **{s.ign}** ({s.user_mention})! You are verified as available for call-up."
 
         return False, "You are not registered in the tournament roster or substitute queue."
 

@@ -581,6 +581,43 @@ class TournamentCog(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(
+        name="tournament-sub-checkin",
+        description="Confirm your standby availability as a substitute on tournament day.",
+    )
+    async def sub_checkin(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        success, msg = self.service.checkin_user(interaction.user.id, guild_id=guild_id)
+        if not success:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+
+        embed = discord.Embed(
+            title="🛡️ Substitute Check-In Confirmed",
+            description=msg,
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+
+        state = self.service.get_state(guild_id)
+        target_ch_id = state.subs_channel_id or state.checkin_channel_id
+        target_ch = (
+            interaction.guild.get_channel(target_ch_id)
+            if (interaction.guild and target_ch_id)
+            else None
+        )
+        if target_ch and target_ch != interaction.channel:
+            perms = target_ch.permissions_for(interaction.guild.me)
+            if perms.send_messages and perms.embed_links:
+                await target_ch.send(embed=embed)
+                await interaction.response.send_message(
+                    f"{msg}\n💡 *Logged into {target_ch.mention} to keep this chat clean.*",
+                    ephemeral=True,
+                )
+                return
+
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
         name="tournament-status",
         description="View main & substitute status, slot counters, visual progress bar, and weapons.",
     )
@@ -770,27 +807,45 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="tournament-open-checkin",
-        description="[Admin] Open tournament day check-in for participants.",
+        description="[Admin] Open tournament day check-in for participants and standby substitutes.",
+    )
+    @app_commands.describe(
+        channel="Optional channel to broadcast check-in into (defaults to current or configured checkin channel)"
     )
     @is_tournament_admin()
-    async def open_checkin(self, interaction: discord.Interaction):
+    async def open_checkin(
+        self, interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None
+    ):
         guild_id = interaction.guild_id or 0
-        msg = self.service.open_checkin(guild_id=guild_id)
+        state = self.service.get_state(guild_id)
+        msg = self.service.open_checkin(checkin_channel_id=channel.id if channel else None, guild_id=guild_id)
         embed = discord.Embed(
             title="📢 Tournament Check-In Opened",
             description=msg,
             color=0x2ECC71,
         )
         embed.add_field(
-            name="⏰ Required Action for Registered Players",
+            name="⏰ Required Action for Players & Substitutes",
             value=(
-                "• All registered main bracket participants must type `/tournament-checkin`.\n"
-                "• Unconfirmed players may be replaced by standby substitutes!"
+                "• Main bracket players: use `/tournament-checkin` to confirm your attendance.\n"
+                "• Standby substitutes: use `/tournament-sub-checkin` to confirm you are online and ready for call-ups.\n"
+                "• Unconfirmed main players may be replaced by verified substitutes!"
             ),
             inline=False,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+
+        target_dest = channel or (
+            interaction.guild.get_channel(state.checkin_channel_id)
+            if (interaction.guild and state.checkin_channel_id)
+            else None
+        )
+        await self._send_or_dispatch(
+            interaction=interaction,
+            channel=target_dest,
+            embed=embed,
+            confirm_message="📢 Check-in window opened in",
+        )
 
     @app_commands.command(
         name="tournament-close-checkin",

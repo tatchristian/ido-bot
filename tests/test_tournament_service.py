@@ -210,6 +210,34 @@ def test_promote_substitute_replace_no_show(service: TournamentService):
     assert len(service.get_state().substitutes) == 0
 
 
+def test_promote_substitute_prioritizes_checked_in(service: TournamentService):
+    service.open_tournament(name="IDO Cup", slots=2, regions="GLOBAL", open_subs=True)
+    service.register_participant(1, "<@1>", "Player1", "Katana", "NA")
+    service.register_participant(2, "<@2>", "Player2", "Katana", "NA")
+
+    # Sub 1 registered first, but does NOT check in
+    service.register_substitute(10, "<@10>", "SubFirst", "Katana", "NA")
+    # Sub 2 registered second, and DOES check in
+    service.register_substitute(20, "<@20>", "SubSecondReady", "Daggers", "NA")
+
+    service.open_checkin()
+    ok_sub, msg_sub = service.checkin_user(20)
+    assert ok_sub
+    assert "Standby substitute check-in confirmed" in msg_sub
+    assert service.get_state().substitutes[1].checked_in
+
+    # Automatic promote without specific ID should prioritize checked-in Sub 2 (id 20) over Sub 1 (id 10)
+    ok, msg, promoted = service.promote_substitute(replace_user_id=1)
+    assert ok
+    assert promoted.user_id == 20
+    assert promoted.ign == "SubSecondReady"
+
+    # Remaining sub should be Sub 1 (id 10)
+    assert len(service.get_state().substitutes) == 1
+    assert service.get_state().substitutes[0].user_id == 10
+
+
+
 # =============================================================================
 # New Admin Tools Tests: Kick, Force Register & Edit Entry
 # =============================================================================

@@ -76,6 +76,10 @@ def build_status_embed(
         f"🛡️ **Substitutes on Deck:** `{sub_count}` standby players",
         f"🌍 **Allowed Regions:** `{regions_str}`",
     ]
+    if state.checkin_open:
+        main_checked = sum(1 for p in state.participants if p.checked_in)
+        sub_checked = sum(1 for s in state.substitutes if s.checked_in)
+        desc_lines.append(f"🎟️ **Check-In Readiness:** `{main_checked}/{cur_slots}` main • `{sub_checked}/{sub_count}` subs ready")
     if state.participant_role_name:
         desc_lines.append(f"🏷️ **Participant Role:** `@{state.participant_role_name}`")
     if state.announcement_channel_id or state.checkin_channel_id or state.subs_channel_id:
@@ -172,6 +176,7 @@ def build_roster_embed(
     )
 
     sub_count = len(state.substitutes)
+    sub_checked_count = sum(1 for s in state.substitutes if s.checked_in)
     if state.substitutes:
         sub_lines = [
             format_participant_line(i + 1, s, show_checkin=show_checkin)
@@ -183,8 +188,14 @@ def build_roster_embed(
     else:
         sub_text = "*No substitutes on deck.*"
 
+    sub_title = (
+        f"🛡️ Standby Substitutes ({sub_count} standby • {sub_checked_count} ready [✅])"
+        if show_checkin
+        else f"🛡️ Standby Substitutes ({sub_count})"
+    )
+
     embed.add_field(
-        name=f"🛡️ Standby Substitutes ({sub_count})",
+        name=sub_title,
         value=sub_text,
         inline=False,
     )
@@ -222,6 +233,7 @@ def build_help_embed(
             "• `/tournament-sub-unregister` — Withdraw from substitute queue.\n"
             "• `/tournament-edit-entry` — Update weapon, IGN, or region without losing slot.\n"
             "• `/tournament-checkin` — Confirm presence during tournament check-in.\n"
+            "• `/tournament-sub-checkin` — Confirm availability as a standby substitute.\n"
             "• `/tournament-status` — View registration status, slots & progress bar.\n"
             "• `/tournament-roster` — View full player list and check-in status."
         )
