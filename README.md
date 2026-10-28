@@ -183,11 +183,19 @@ python build_ido_server.py
 
 # Or target a specific server directly:
 python build_ido_server.py --guild-id 123456789012345678
+
+# Safely undo/delete template channels and categories:
+python build_ido_server.py --undo --guild-id 123456789012345678
 ```
 
-### Option B: Hidden Administrator Commands
-- **Slash Command:** `/build-ido-template confirm:True` (Requires Administrator permissions; only visible to admins).
-- **Prefix Command:** `!build-ido-template yes` (Hidden prefix command that does not appear in autocomplete).
+### Option B: Interactive & Hidden Administrator Commands
+- **Interactive Undo Button:** When `/build-ido-template` runs, the response embed includes a red **Undo Layout (Delete Added Channels)** button that an administrator can click to immediately purge the created layout.
+- **Slash Commands:**
+  - Build: `/build-ido-template confirm:True`
+  - Undo: `/undo-ido-template confirm:True`
+- **Hidden Prefix Commands:**
+  - Build: `!build-ido-template yes`
+  - Undo: `!undo-ido-template yes`
 
 
 ---

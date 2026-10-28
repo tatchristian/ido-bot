@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import discord
 from config import config
-from services.server_builder import build_server_layout
+from services.server_builder import build_server_layout, delete_server_layout
 
 load_dotenv()
 
@@ -48,16 +48,22 @@ def parse_args():
         default=1.2,
         help="Delay in seconds between Discord API creation calls (default: 1.2s).",
     )
+    parser.add_argument(
+        "--undo",
+        action="store_true",
+        help="Safely undo/delete the IDO template channels and categories from the server.",
+    )
     return parser.parse_args()
 
 
 class LayoutBuilderClient(discord.Client):
-    def __init__(self, target_guild_id: int | None, delay: float):
+    def __init__(self, target_guild_id: int | None, delay: float, undo: bool = False):
         intents = discord.Intents.default()
         intents.guilds = True
         super().__init__(intents=intents)
         self.target_guild_id = target_guild_id
         self.delay = delay
+        self.undo = undo
 
     async def on_ready(self):
         print("=" * 60)
@@ -98,8 +104,29 @@ class LayoutBuilderClient(discord.Client):
                 return
 
         print(f"\n🚀 Target Server: '{guild.name}' (ID: {guild.id})")
-        print(f"⏱️ Rate Limit Throttling: {self.delay}s per Discord creation call")
+        print(f"⏱️ Rate Limit Throttling: {self.delay}s per Discord API call")
         print("-" * 60)
+
+        if self.undo:
+            print("⚠️ UNDO MODE: Purging template categories and channels...")
+            results = await delete_server_layout(
+                guild=guild,
+                log_callback=lambda msg: print(msg),
+                delay=self.delay,
+            )
+            print("-" * 60)
+            print("📊 Undo Summary:")
+            print(f"  • Categories Deleted:  {results['categories_deleted']}")
+            print(f"  • Channels Deleted:    {results['channels_deleted']}")
+            if results["errors"]:
+                print(f"  • Errors Encountered:  {len(results['errors'])}")
+                for err in results["errors"]:
+                    print(f"    - {err}")
+            else:
+                print("  • Errors:              0 (All steps succeeded smoothly!)")
+            print("=" * 60)
+            await self.close()
+            return
 
         # Run layout builder
         results = await build_server_layout(
@@ -136,7 +163,7 @@ async def main():
         print("👉 Please set DISCORD_TOKEN in your .env file or pass --token <BOT_TOKEN>.")
         sys.exit(1)
 
-    client = LayoutBuilderClient(target_guild_id=args.guild_id, delay=args.delay)
+    client = LayoutBuilderClient(target_guild_id=args.guild_id, delay=args.delay, undo=args.undo)
 
     try:
         await client.start(token)

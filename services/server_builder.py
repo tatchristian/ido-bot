@@ -264,3 +264,151 @@ async def build_server_layout(
         f"{results['channels_existing']} channels already existed)."
     )
     return results
+
+
+async def delete_server_layout(
+    guild: discord.Guild,
+    log_callback: Optional[Callable[[str], None]] = None,
+    delay: float = RATE_LIMIT_DELAY,
+) -> Dict[str, Any]:
+    """
+    Safely removes all categories and channels defined in LAYOUT_SPEC from the guild.
+    Ensures safe, rate-limit throttled execution.
+    """
+    def log(msg: str):
+        logger.info(msg)
+        if log_callback:
+            try:
+                log_callback(msg)
+            except Exception as e:
+                logger.debug("Error in log callback: %s", e)
+
+    results = {
+        "categories_deleted": 0,
+        "channels_deleted": 0,
+        "errors": [],
+    }
+
+    bot_member = guild.me
+    if not bot_member or not bot_member.guild_permissions.manage_channels:
+        err = "Bot is missing 'Manage Channels' permission in target guild."
+        log(f"❌ {err}")
+        results["errors"].append(err)
+        return results
+
+    # Normalize spec category and channel names for matching
+    spec_category_names = {
+        group["category"].strip().lower()
+        for group in LAYOUT_SPEC
+        if group.get("category")
+    }
+
+    spec_channel_names = set()
+    for group in LAYOUT_SPEC:
+        for ch in group.get("channels", []):
+            spec_channel_names.add(ch["name"].strip().lower())
+
+    # 1. Delete matching categories and their contained channels
+    for cat in list(guild.categories):
+        if cat.name.strip().lower() in spec_category_names:
+            # Delete channels inside category first
+            for ch in list(cat.channels):
+                try:
+                    await ch.delete(reason="Undo IDO Server Template")
+                    results["channels_deleted"] += 1
+                    log(f"  🗑️ Deleted channel in '{cat.name}': '{ch.name}'")
+                    await asyncio.sleep(delay)
+                except Exception as e:
+                    err = f"Failed to delete channel '{ch.name}': {e}"
+                    log(f"  ❌ {err}")
+                    results["errors"].append(err)
+
+            # Delete the category itself
+            try:
+                await cat.delete(reason="Undo IDO Server Template")
+                results["categories_deleted"] += 1
+                log(f"🗑️ Deleted category: '{cat.name}'")
+                await asyncio.sleep(delay)
+            except Exception as e:
+                err = f"Failed to delete category '{cat.name}': {e}"
+                log(f"❌ {err}")
+                results["errors"].append(err)
+
+    # 2. Delete root channels defined in spec
+    for ch in list(guild.channels):
+        if ch.category is None and ch.name.strip().lower() in spec_channel_names:
+            try:
+                await ch.delete(reason="Undo IDO Server Template")
+                results["channels_deleted"] += 1
+                log(f"🗑️ Deleted root channel: '{ch.name}'")
+                await asyncio.sleep(delay)
+            except Exception as e:
+                err = f"Failed to delete root channel '{ch.name}': {e}"
+                log(f"❌ {err}")
+                results["errors"].append(err)
+
+    log(
+        f"🏁 Undo complete: Deleted {results['categories_deleted']} categories and "
+        f"{results['channels_deleted']} channels."
+    )
+    return results
+
+
+class UndoLayoutView(discord.ui.View):
+    """
+    Interactive View that renders an Undo button on layout creation responses.
+    Allows administrators to safely purge created channels if anything needs reversal.
+    """
+    def __init__(self, author_id: int):
+        super().__init__(timeout=900)  # Active for 15 minutes
+        self.author_id = author_id
+
+    @discord.ui.button(
+        label="Undo Layout (Delete Added Channels)",
+        style=discord.ButtonStyle.danger,
+        emoji="↩️",
+    )
+    async def undo_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
+        is_admin = False
+        if isinstance(interaction.user, discord.Member):
+            is_admin = interaction.user.guild_permissions.administrator
+
+        if interaction.user.id != self.author_id and not is_admin:
+            await interaction.response.send_message(
+                "❌ Only administrators can undo the server layout.",
+                ephemeral=True,
+            )
+            return
+
+        button.disabled = True
+        button.label = "Undoing layout in progress..."
+        await interaction.response.edit_message(view=self)
+
+        results = await delete_server_layout(interaction.guild)
+
+        embed = discord.Embed(
+            title="🧹 IDO Server Layout Undone",
+            description=f"Cleaned up template categories and channels in **{interaction.guild.name}**.",
+            color=0xE74C3C,
+        )
+        embed.add_field(
+            name="📊 Channels Removed",
+            value=f"`{results['channels_deleted']}`",
+            inline=True,
+        )
+        embed.add_field(
+            name="📁 Categories Removed",
+            value=f"`{results['categories_deleted']}`",
+            inline=True,
+        )
+        if results["errors"]:
+            embed.add_field(
+                name="⚠️ Notices / Errors",
+                value="\n".join(f"• {e[:100]}" for e in results["errors"][:5]),
+                inline=False,
+            )
+        embed.set_footer(text="IDO • Server Layout Undo")
+
+        button.label = "Layout Undone"
+        await interaction.edit_original_response(embed=embed, view=self)
+

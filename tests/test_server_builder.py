@@ -15,6 +15,7 @@ from services.server_builder import (
     LAYOUT_SPEC,
     is_3v3_reference,
     build_server_layout,
+    delete_server_layout,
 )
 
 
@@ -137,4 +138,61 @@ def test_build_server_layout_success_and_idempotency():
     guild.create_category.assert_not_called()
     guild.create_text_channel.assert_not_called()
     guild.create_voice_channel.assert_not_called()
+
+
+def test_delete_server_layout_success():
+    guild = MagicMock()
+    bot_member = MagicMock()
+    bot_member.guild_permissions.manage_channels = True
+    guild.me = bot_member
+
+    # Create matching IDO category with channels
+    ido_cat = MagicMock()
+    ido_cat.name = "🏛 ⭒-(I.D.O) ORGANIZATION HUB-⭒"
+    ido_ch1 = MagicMock()
+    ido_ch1.name = "📜❖┊rules"
+    ido_ch1.delete = AsyncMock()
+    ido_cat.channels = [ido_ch1]
+    ido_cat.delete = AsyncMock()
+
+    # Create unrelated category that should NOT be deleted
+    unrelated_cat = MagicMock()
+    unrelated_cat.name = "Custom Gaming Area"
+    unrelated_ch = MagicMock()
+    unrelated_ch.name = "minecraft-chat"
+    unrelated_ch.delete = AsyncMock()
+    unrelated_cat.channels = [unrelated_ch]
+    unrelated_cat.delete = AsyncMock()
+
+    guild.categories = [ido_cat, unrelated_cat]
+
+    # Root channels
+    ido_root = MagicMock()
+    ido_root.name = "👋｜welcome"
+    ido_root.category = None
+    ido_root.delete = AsyncMock()
+
+    unrelated_root = MagicMock()
+    unrelated_root.name = "general"
+    unrelated_root.category = None
+    unrelated_root.delete = AsyncMock()
+
+    guild.channels = [ido_ch1, unrelated_ch, ido_root, unrelated_root]
+
+    results = run_async(delete_server_layout(guild, delay=0))
+
+    assert results["categories_deleted"] == 1
+    assert results["channels_deleted"] == 2  # ido_ch1 and ido_root
+    assert len(results["errors"]) == 0
+
+    # IDO channels/category were deleted
+    ido_ch1.delete.assert_called_once()
+    ido_cat.delete.assert_called_once()
+    ido_root.delete.assert_called_once()
+
+    # Unrelated channels/category were NOT deleted
+    unrelated_cat.delete.assert_not_called()
+    unrelated_ch.delete.assert_not_called()
+    unrelated_root.delete.assert_not_called()
+
 

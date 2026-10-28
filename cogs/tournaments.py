@@ -14,7 +14,11 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import config
-from services.server_builder import build_server_layout
+from services.server_builder import (
+    UndoLayoutView,
+    build_server_layout,
+    delete_server_layout,
+)
 from services.tournament_service import (
     DEFAULT_WEAPONS,
     STANDARD_REGIONS,
@@ -1485,7 +1489,95 @@ class TournamentCog(commands.Cog):
             )
         embed.set_footer(text=f"{config.organization_name} • Automated Server Builder")
 
+        view = UndoLayoutView(interaction.user.id)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    @app_commands.command(
+        name="undo-ido-template",
+        description="[Admin] Safely remove all IDO template categories and channels.",
+    )
+    @app_commands.describe(
+        confirm="Set to True to confirm undoing/deleting template categories and channels.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @is_tournament_admin()
+    async def undo_template(self, interaction: discord.Interaction, confirm: bool = False):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
+            return
+
+        if not confirm:
+            await interaction.response.send_message(
+                "⚠️ **Safety Confirmation Required**:\n"
+                "This will delete all categories and channels matching the IDO layout template.\n"
+                "Please rerun with `confirm: True` to proceed.",
+                ephemeral=True,
+            )
+            return
+
+        bot_member = interaction.guild.me
+        if not bot_member or not bot_member.guild_permissions.manage_channels:
+            await interaction.response.send_message(
+                "❌ The bot is missing the **Manage Channels** permission in this server.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        results = await delete_server_layout(interaction.guild)
+
+        embed = discord.Embed(
+            title="🧹 IDO Server Layout Undone",
+            description=f"Successfully purged template categories and channels in **{interaction.guild.name}**.",
+            color=0xE74C3C,
+        )
+        embed.add_field(
+            name="📊 Channels Removed",
+            value=f"`{results['channels_deleted']}`",
+            inline=True,
+        )
+        embed.add_field(
+            name="📁 Categories Removed",
+            value=f"`{results['categories_deleted']}`",
+            inline=True,
+        )
+        if results["errors"]:
+            embed.add_field(
+                name="⚠️ Notices / Errors",
+                value="\n".join(f"• {e[:100]}" for e in results["errors"][:5]),
+                inline=False,
+            )
+        embed.set_footer(text=f"{config.organization_name} • Server Layout Undo")
+
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @commands.command(name="undo-ido-template", hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def prefix_undo_template(self, ctx: commands.Context, confirm: str = "no"):
+        """Hidden prefix command to undo/delete server template."""
+        if confirm.lower() not in ("yes", "true", "confirm"):
+            await ctx.reply(
+                "⚠️ **Safety Confirmation Required**:\n"
+                "Type `!undo-ido-template yes` to delete all template categories and channels."
+            )
+            return
+
+        bot_member = ctx.guild.me if ctx.guild else None
+        if not bot_member or not bot_member.guild_permissions.manage_channels:
+            await ctx.reply("❌ The bot is missing the **Manage Channels** permission in this server.")
+            return
+
+        msg = await ctx.reply("🧹 Purging template channels and categories (throttling at 1.2s per deletion)...")
+        results = await delete_server_layout(ctx.guild)
+        await msg.edit(
+            content=(
+                f"🧹 **Server Layout Undo Complete!**\n"
+                f"• Categories Deleted: `{results['categories_deleted']}`\n"
+                f"• Channels Deleted: `{results['channels_deleted']}`\n"
+                f"• Errors: `{len(results['errors'])}`"
+            )
+        )
 
     @commands.command(name="build-ido-template", hidden=True)
     @commands.has_permissions(administrator=True)
