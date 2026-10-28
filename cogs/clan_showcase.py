@@ -112,10 +112,10 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         self.metadata = discord.ui.TextInput(
             label="Clan Metadata (Region, Leaders, Status)",
             placeholder=(
-                "Region: [Your Region, e.g. North America]\n"
-                "Founded: [Month / Year, e.g. July 2026]\n"
-                "Leader: [Leader Name / IGN]\n"
-                "Co-leaders: [Co-leader Names / IGNs]\n"
+                "Region: [Region]\n"
+                "Founded: [Date]\n"
+                "Leader: [Leader IGN]\n"
+                "Co-leaders: [Co-leaders]\n"
                 "Status: Active"
             ),
             default=self.initial_data.get("metadata", ""),
@@ -798,26 +798,33 @@ class ClanSubmissionPanelView(discord.ui.View):
     async def submit_clan_profile_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        initial_data = {}
-        if interaction.guild:
-            # 1. Check if user has an unconfirmed draft to restore
-            draft = self.service.get_draft(interaction.guild.id, interaction.user.id)
-            if draft:
-                initial_data = draft
-            else:
-                # 2. Check if user has an existing/pending submission to pre-fill
-                prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
-                if prev:
-                    initial_data = {
-                        "clan_name_color": f"{prev.clan_name} | {prev.color_hex}",
-                        "metadata": prev.metadata_text,
-                        "description": prev.description_text,
-                        "activities_motto": prev.activities_motto,
-                        "logo_url": prev.logo_url,
-                    }
+        try:
+            initial_data = {}
+            if interaction.guild:
+                # 1. Check if user has an unconfirmed draft to restore
+                draft = self.service.get_draft(interaction.guild.id, interaction.user.id)
+                if draft:
+                    initial_data = draft
+                else:
+                    # 2. Check if user has an existing/pending submission to pre-fill
+                    prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
+                    if prev:
+                        initial_data = {
+                            "clan_name_color": f"{prev.clan_name} | {prev.color_hex}",
+                            "metadata": prev.metadata_text,
+                            "description": prev.description_text,
+                            "activities_motto": prev.activities_motto,
+                            "logo_url": prev.logo_url,
+                        }
 
-        modal = ClanSubmissionModal(self.service, initial_data=initial_data)
-        await interaction.response.send_modal(modal)
+            modal = ClanSubmissionModal(self.service, initial_data=initial_data)
+            await interaction.response.send_modal(modal)
+        except Exception as exc:
+            logger.error("Failed to open clan submission modal: %s", exc, exc_info=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"⚠️ An error occurred while opening the form: {exc}", ephemeral=True
+                )
 
 
 class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
