@@ -88,60 +88,76 @@ def get_submission_from_message(
 
 class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     """
-    5-field modal form for clan leaders to submit their clan profile.
-    Respects Discord's 5-component limit.
+    5-field modal form for clan leaders to submit or draft their clan profile.
+    Pre-fills previous inputs or drafts so users never lose their work if they close out.
     """
 
-    clan_name_color = discord.ui.TextInput(
-        label="Clan Name (Color is Optional)",
-        placeholder="Enter Clan Name (or Clan Name | #hex for custom color)",
-        style=discord.TextStyle.short,
-        max_length=100,
-        required=True,
-    )
-    metadata = discord.ui.TextInput(
-        label="Clan Metadata (Region, Leaders, Status)",
-        placeholder=(
-            "Region: [Your Region, e.g. North America]\n"
-            "Founded: [Month / Year, e.g. July 2026]\n"
-            "Leader: [Leader Name / IGN]\n"
-            "Co-leaders: [Co-leader Names / IGNs]\n"
-            "Status: Active"
-        ),
-        style=discord.TextStyle.paragraph,
-        max_length=1000,
-        required=True,
-    )
-    description = discord.ui.TextInput(
-        label="Clan Description & Philosophy",
-        placeholder="Describe your clan's backstory, vision, philosophy, and goals...",
-        style=discord.TextStyle.paragraph,
-        max_length=1500,
-        required=True,
-    )
-    activities_motto = discord.ui.TextInput(
-        label="Activities & Motto",
-        placeholder=(
-            "• Activity 1\n"
-            "• Activity 2\n"
-            "• Activity 3\n\n"
-            'Motto: "Your clan motto here"'
-        ),
-        style=discord.TextStyle.paragraph,
-        max_length=1000,
-        required=True,
-    )
-    logo_url = discord.ui.TextInput(
-        label="Clan Logo / Emblem Direct Image URL",
-        placeholder="https://... (Direct link to PNG, JPG, or Discord image)",
-        style=discord.TextStyle.short,
-        max_length=500,
-        required=True,
-    )
-
-    def __init__(self, service: ClanShowcaseService):
+    def __init__(
+        self,
+        service: ClanShowcaseService,
+        initial_data: Optional[dict[str, str]] = None,
+    ):
         super().__init__()
         self.service = service
+        self.initial_data = initial_data or {}
+
+        self.clan_name_color = discord.ui.TextInput(
+            label="Clan Name (Color is Optional)",
+            placeholder="Enter Clan Name (or Clan Name | #hex for custom color)",
+            default=self.initial_data.get("clan_name_color", ""),
+            style=discord.TextStyle.short,
+            max_length=100,
+            required=True,
+        )
+        self.metadata = discord.ui.TextInput(
+            label="Clan Metadata (Region, Leaders, Status)",
+            placeholder=(
+                "Region: [Your Region, e.g. North America]\n"
+                "Founded: [Month / Year, e.g. July 2026]\n"
+                "Leader: [Leader Name / IGN]\n"
+                "Co-leaders: [Co-leader Names / IGNs]\n"
+                "Status: Active"
+            ),
+            default=self.initial_data.get("metadata", ""),
+            style=discord.TextStyle.paragraph,
+            max_length=1000,
+            required=True,
+        )
+        self.description = discord.ui.TextInput(
+            label="Clan Description & Philosophy",
+            placeholder="Describe your clan's backstory, vision, philosophy, and goals...",
+            default=self.initial_data.get("description", ""),
+            style=discord.TextStyle.paragraph,
+            max_length=1500,
+            required=True,
+        )
+        self.activities_motto = discord.ui.TextInput(
+            label="Activities & Motto",
+            placeholder=(
+                "• Activity 1\n"
+                "• Activity 2\n"
+                "• Activity 3\n\n"
+                'Motto: "Your clan motto here"'
+            ),
+            default=self.initial_data.get("activities_motto", ""),
+            style=discord.TextStyle.paragraph,
+            max_length=1000,
+            required=True,
+        )
+        self.logo_url = discord.ui.TextInput(
+            label="Clan Logo / Emblem Direct Image URL",
+            placeholder="https://... (Direct link to PNG, JPG, or Discord image)",
+            default=self.initial_data.get("logo_url", ""),
+            style=discord.TextStyle.short,
+            max_length=500,
+            required=True,
+        )
+
+        self.add_item(self.clan_name_color)
+        self.add_item(self.metadata)
+        self.add_item(self.description)
+        self.add_item(self.activities_motto)
+        self.add_item(self.logo_url)
 
     async def on_submit(self, interaction: discord.Interaction):
         guild = interaction.guild
@@ -161,13 +177,75 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             )
             return
 
-        # 2. Locate Staff Review Channel
+        # 2. Save draft so the user can re-open or edit anytime without losing text
+        draft = {
+            "clan_name_color": self.clan_name_color.value,
+            "metadata": self.metadata.value,
+            "description": self.description.value,
+            "activities_motto": self.activities_motto.value,
+            "logo_url": self.logo_url.value,
+        }
+        self.service.save_draft(guild.id, interaction.user.id, draft)
+
+        # 3. Build Preview Embed
+        clan_name, color_int, color_hex = parse_name_and_color(self.clan_name_color.value)
+        preview_embed = build_clan_showcase_embed(
+            clan_name=clan_name,
+            color_int=color_int,
+            metadata_text=self.metadata.value,
+            description_text=self.description.value,
+            activities_motto_text=self.activities_motto.value,
+            logo_url=self.logo_url.value,
+        )
+        preview_embed.set_footer(
+            text=f"{config.organization_name} • Clan Showcase Draft Preview"
+        )
+
+        # 4. Show ephemeral preview with Confirm, Edit, and Discard buttons
+        confirm_view = ClanDraftConfirmationView(self.service, draft)
+        await interaction.response.send_message(
+            content=(
+                "🔍 **Clan Profile Draft Preview**\n"
+                "Review how your showcase looks below. **Your submission is NOT final until you click Confirm & Send to Staff.**\n"
+                "If you need to make adjustments or fix a typo, click **Edit Draft** below:"
+            ),
+            embed=preview_embed,
+            view=confirm_view,
+            ephemeral=True,
+        )
+
+
+class ClanDraftConfirmationView(discord.ui.View):
+    """
+    Interactive ephemeral view allowing applicants to review their preview embed,
+    edit their draft, or confirm official submission to staff.
+    """
+
+    def __init__(self, service: ClanShowcaseService, draft: dict[str, str]):
+        super().__init__(timeout=600)
+        self.service = service
+        self.draft = draft
+
+    @discord.ui.button(
+        label="Confirm & Send to Staff",
+        style=discord.ButtonStyle.success,
+        emoji="🚀",
+        custom_id="btn_confirm_clan_draft",
+    )
+    async def confirm_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        # 1. Locate Staff Review Channel
         _, review_chan_id = self.service.get_guild_channels(guild.id)
         review_channel = None
         if review_chan_id:
             review_channel = guild.get_channel(review_chan_id)
 
-        # Fallback search if channel id was not set
         if not review_channel:
             for cand_name in (
                 "clan-review",
@@ -189,54 +267,117 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             )
             return
 
-        # 3. Create Persistent Submission Record
-        sub = self.service.create_submission(
-            guild_id=guild.id,
-            applicant_id=interaction.user.id,
-            applicant_name=str(interaction.user),
-            clan_name_color_raw=self.clan_name_color.value,
-            metadata_text=self.metadata.value,
-            description_text=self.description.value,
-            activities_motto=self.activities_motto.value,
-            logo_url=self.logo_url.value,
-        )
+        clan_name, color_int, color_hex = parse_name_and_color(self.draft["clan_name_color"])
+        existing_pending = self.service.get_applicant_pending_submission(guild.id, interaction.user.id)
 
-        # 4. Immediate Ephemeral Confirmation
-        await interaction.response.send_message(
-            "✅ **Submission received! Sent to staff for review.**\n"
-            f"Your submission ID is `{sub.id}`. You will receive a direct message once staff approves or reviews your clan showcase.",
-            ephemeral=True,
-        )
-
-        # 5. Post Preview Embed & Action Buttons to Staff Review Channel
-        preview_embed = sub.to_embed()
-        # Add submission ID into the footer for staff reference & persistence fallback
-        preview_embed.set_footer(
-            text=f"{config.organization_name} • Clan Showcase • Submission ID: {sub.id}"
-        )
-
-        review_view = ClanReviewButtonsView(self.service)
-        try:
-            review_msg = await review_channel.send(
-                content=(
-                    f"📋 **New Clan Showcase Submission**\n"
-                    f"• **Clan Name:** **{sub.clan_name}** ({sub.color_hex})\n"
-                    f"• **Applicant:** {interaction.user.mention} (`{interaction.user.id}`)\n"
-                    f"• **Submission ID:** `{sub.id}`\n\n"
-                    f"Review the preview below and choose an action:"
-                ),
-                embed=preview_embed,
-                view=review_view,
+        if existing_pending:
+            # Update existing pending submission to avoid duplicate clutter
+            sub = self.service.update_submission(
+                sub_id=existing_pending.id,
+                clan_name=clan_name,
+                color_hex=color_hex,
+                color_int=color_int,
+                metadata_text=self.draft["metadata"],
+                description_text=self.draft["description"],
+                activities_motto=self.draft["activities_motto"],
+                logo_url=self.draft["logo_url"],
             )
-            self.service.link_staff_message(sub.id, review_msg.id)
-            logger.info(
-                "Posted clan submission %s by user %s to staff channel %s",
-                sub.id,
-                interaction.user.id,
-                review_channel.id,
+            if sub and sub.staff_message_id:
+                try:
+                    staff_msg = await review_channel.fetch_message(sub.staff_message_id)
+                    preview_embed = sub.to_embed()
+                    preview_embed.set_footer(
+                        text=f"{config.organization_name} • Clan Showcase • Submission ID: {sub.id}"
+                    )
+                    await staff_msg.edit(
+                        content=(
+                            f"📋 **Clan Showcase Submission (Updated by Applicant)**\n"
+                            f"• **Clan Name:** **{sub.clan_name}** ({sub.color_hex})\n"
+                            f"• **Applicant:** {interaction.user.mention} (`{interaction.user.id}`)\n"
+                            f"• **Submission ID:** `{sub.id}`\n\n"
+                            f"Review the updated preview below and choose an action:"
+                        ),
+                        embed=preview_embed,
+                    )
+                except Exception as exc:
+                    logger.warning("Could not update staff review message: %s", exc)
+        else:
+            # Create fresh submission record
+            sub = self.service.create_submission(
+                guild_id=guild.id,
+                applicant_id=interaction.user.id,
+                applicant_name=str(interaction.user),
+                clan_name_color_raw=self.draft["clan_name_color"],
+                metadata_text=self.draft["metadata"],
+                description_text=self.draft["description"],
+                activities_motto=self.draft["activities_motto"],
+                logo_url=self.draft["logo_url"],
             )
-        except Exception as exc:
-            logger.error("Failed to post clan submission to staff review channel: %s", exc)
+            preview_embed = sub.to_embed()
+            preview_embed.set_footer(
+                text=f"{config.organization_name} • Clan Showcase • Submission ID: {sub.id}"
+            )
+            review_view = ClanReviewButtonsView(self.service)
+            try:
+                review_msg = await review_channel.send(
+                    content=(
+                        f"📋 **New Clan Showcase Submission**\n"
+                        f"• **Clan Name:** **{sub.clan_name}** ({sub.color_hex})\n"
+                        f"• **Applicant:** {interaction.user.mention} (`{interaction.user.id}`)\n"
+                        f"• **Submission ID:** `{sub.id}`\n\n"
+                        f"Review the preview below and choose an action:"
+                    ),
+                    embed=preview_embed,
+                    view=review_view,
+                )
+                self.service.link_staff_message(sub.id, review_msg.id)
+            except Exception as exc:
+                logger.error("Failed to post clan submission to staff review channel: %s", exc)
+
+        # Clear draft after official confirmation
+        self.service.clear_draft(guild.id, interaction.user.id)
+
+        await interaction.response.edit_message(
+            content=(
+                f"🎉 **Your clan profile for {sub.clan_name} has been officially submitted to staff!**\n"
+                f"• **Submission ID:** `{sub.id}`\n"
+                f"• Staff will review your profile shortly. You will receive a direct message once approved!"
+            ),
+            embed=None,
+            view=None,
+        )
+
+    @discord.ui.button(
+        label="Edit Draft",
+        style=discord.ButtonStyle.primary,
+        emoji="✏️",
+        custom_id="btn_edit_clan_draft",
+    )
+    async def edit_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        modal = ClanSubmissionModal(self.service, initial_data=self.draft)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="Discard Draft",
+        style=discord.ButtonStyle.secondary,
+        emoji="🗑️",
+        custom_id="btn_discard_clan_draft",
+    )
+    async def discard_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        if interaction.guild:
+            self.service.clear_draft(interaction.guild.id, interaction.user.id)
+        await interaction.response.edit_message(
+            content=(
+                "🗑️ **Draft Discarded.** Nothing was sent to staff.\n"
+                "You can click **📋 Submit Clan Profile** whenever you're ready to submit!"
+            ),
+            embed=None,
+            view=None,
+        )
 
 
 class ClanRejectionModal(discord.ui.Modal, title="Reject Clan Submission"):
@@ -657,7 +798,25 @@ class ClanSubmissionPanelView(discord.ui.View):
     async def submit_clan_profile_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
-        modal = ClanSubmissionModal(self.service)
+        initial_data = {}
+        if interaction.guild:
+            # 1. Check if user has an unconfirmed draft to restore
+            draft = self.service.get_draft(interaction.guild.id, interaction.user.id)
+            if draft:
+                initial_data = draft
+            else:
+                # 2. Check if user has an existing/pending submission to pre-fill
+                prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
+                if prev:
+                    initial_data = {
+                        "clan_name_color": f"{prev.clan_name} | {prev.color_hex}",
+                        "metadata": prev.metadata_text,
+                        "description": prev.description_text,
+                        "activities_motto": prev.activities_motto,
+                        "logo_url": prev.logo_url,
+                    }
+
+        modal = ClanSubmissionModal(self.service, initial_data=initial_data)
         await interaction.response.send_modal(modal)
 
 

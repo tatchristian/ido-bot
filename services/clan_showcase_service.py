@@ -211,6 +211,7 @@ class ClanShowcaseService:
         self._guild_channels: Dict[int, Dict[str, int]] = {}
         self._submissions: Dict[str, ClanSubmission] = {}
         self._message_to_sub_id: Dict[int, str] = {}
+        self._drafts: Dict[Tuple[int, int], Dict[str, str]] = {}
         self._load()
 
     def _load(self):
@@ -393,3 +394,37 @@ class ClanShowcaseService:
         sub.updated_at = datetime.now(timezone.utc).isoformat()
         self._persist()
         return sub
+
+    def save_draft(self, guild_id: int, user_id: int, data: Dict[str, str]) -> None:
+        """Saves a user's unconfirmed draft."""
+        self._drafts[(guild_id, user_id)] = data
+
+    def get_draft(self, guild_id: int, user_id: int) -> Optional[Dict[str, str]]:
+        """Retrieves a user's unconfirmed draft if one exists."""
+        return self._drafts.get((guild_id, user_id))
+
+    def clear_draft(self, guild_id: int, user_id: int) -> None:
+        """Clears a user's unconfirmed draft."""
+        self._drafts.pop((guild_id, user_id), None)
+
+    def get_applicant_pending_submission(
+        self, guild_id: int, applicant_id: int
+    ) -> Optional[ClanSubmission]:
+        """Returns any active pending submission by an applicant in a guild."""
+        for sub in self._submissions.values():
+            if sub.guild_id == guild_id and sub.applicant_id == applicant_id and sub.status == "pending":
+                return sub
+        return None
+
+    def get_applicant_submission(
+        self, guild_id: int, applicant_id: int
+    ) -> Optional[ClanSubmission]:
+        """Returns the most recent submission by an applicant in a guild."""
+        subs = [
+            s for s in self._submissions.values()
+            if s.guild_id == guild_id and s.applicant_id == applicant_id
+        ]
+        if not subs:
+            return None
+        subs.sort(key=lambda s: s.created_at, reverse=True)
+        return subs[0]

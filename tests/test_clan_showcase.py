@@ -202,6 +202,20 @@ def test_clan_showcase_service_lifecycle():
         assert updated.color_hex == "#ff0055"
         assert updated.metadata_text == "Region: Global\nStatus: Elite"
 
+        # 8. User Draft Management
+        fresh_service.save_draft(999, 12345, {"clan_name_color": "DraftClan"})
+        draft = fresh_service.get_draft(999, 12345)
+        assert draft is not None
+        assert draft["clan_name_color"] == "DraftClan"
+
+        fresh_service.clear_draft(999, 12345)
+        assert fresh_service.get_draft(999, 12345) is None
+
+        # 9. Applicant Submissions Lookup
+        applicant_sub = fresh_service.get_applicant_submission(999, 12345)
+        assert applicant_sub is not None
+        assert applicant_sub.clan_name == "Yume Reborn"
+
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
