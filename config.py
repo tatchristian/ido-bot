@@ -21,6 +21,11 @@ class Config:
         if os.getenv("GUILD_ID") and os.getenv("GUILD_ID").strip().isdigit()
         else None
     )
+    target_guild_id: int | None = (
+        int(os.getenv("TARGET_GUILD_ID"))
+        if os.getenv("TARGET_GUILD_ID") and os.getenv("TARGET_GUILD_ID").strip().isdigit()
+        else None
+    )
     admin_role_id: int | None = (
         int(os.getenv("ADMIN_ROLE_ID"))
         if os.getenv("ADMIN_ROLE_ID") and os.getenv("ADMIN_ROLE_ID").strip().isdigit()

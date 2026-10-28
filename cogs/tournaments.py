@@ -14,6 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from config import config
+from services.server_builder import build_server_layout
 from services.tournament_service import (
     DEFAULT_WEAPONS,
     STANDARD_REGIONS,
@@ -1419,6 +1420,101 @@ class TournamentCog(commands.Cog):
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="build-ido-template",
+        description="[Admin] Construct the official IDO server category and channel layout.",
+    )
+    @app_commands.describe(
+        confirm="Set to True to confirm building the layout structure.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @is_tournament_admin()
+    async def build_template(self, interaction: discord.Interaction, confirm: bool = False):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
+            return
+
+        if not confirm:
+            await interaction.response.send_message(
+                "⚠️ **Safety Confirmation Required**:\n"
+                "This command constructs the official IDO category and channel layout.\n"
+                "Please rerun with `confirm: True` to proceed.",
+                ephemeral=True,
+            )
+            return
+
+        bot_member = interaction.guild.me
+        if not bot_member.guild_permissions.manage_channels:
+            await interaction.response.send_message(
+                "❌ The bot is missing the **Manage Channels** permission required to create categories and channels.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        results = await build_server_layout(interaction.guild)
+
+        embed = discord.Embed(
+            title="🏛️ IDO Server Layout Built",
+            description=f"Successfully processed official IDO server layout in **{interaction.guild.name}**.",
+            color=0x2ECC71 if not results["errors"] else 0xF39C12,
+        )
+        embed.add_field(
+            name="📊 Categories",
+            value=f"• Created: `{results['categories_created']}`\n• Existing: `{results['categories_existing']}`",
+            inline=True,
+        )
+        embed.add_field(
+            name="💬 Channels",
+            value=f"• Created: `{results['channels_created']}`\n• Existing: `{results['channels_existing']}`",
+            inline=True,
+        )
+        if results["channels_skipped_filter"] > 0:
+            embed.add_field(
+                name="🛡️ 3v3 Filtered",
+                value=f"`{results['channels_skipped_filter']}` item(s) safely excluded.",
+                inline=True,
+            )
+        if results["errors"]:
+            embed.add_field(
+                name="⚠️ Notices / Errors",
+                value="\n".join(f"• {e[:100]}" for e in results["errors"][:5]),
+                inline=False,
+            )
+        embed.set_footer(text=f"{config.organization_name} • Automated Server Builder")
+
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @commands.command(name="build-ido-template", hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def prefix_build_template(self, ctx: commands.Context, confirm: str = "no"):
+        """Hidden prefix command to build server template."""
+        if confirm.lower() not in ("yes", "true", "confirm"):
+            await ctx.reply(
+                "⚠️ **Safety Confirmation Required**:\n"
+                "Type `!build-ido-template yes` to construct the official IDO category and channel layout."
+            )
+            return
+
+        bot_member = ctx.guild.me if ctx.guild else None
+        if not bot_member or not bot_member.guild_permissions.manage_channels:
+            await ctx.reply("❌ The bot is missing the **Manage Channels** permission in this server.")
+            return
+
+        msg = await ctx.reply("🏗️ Initializing server layout builder (throttling at 1.2s per API call)...")
+        results = await build_server_layout(ctx.guild)
+        await msg.edit(
+            content=(
+                f"✅ **Server Layout Construction Complete!**\n"
+                f"• Categories: `{results['categories_created']}` created, `{results['categories_existing']}` existing\n"
+                f"• Channels: `{results['channels_created']}` created, `{results['channels_existing']}` existing\n"
+                f"• Filtered: `{results['channels_skipped_filter']}` excluded\n"
+                f"• Errors: `{len(results['errors'])}`"
+            )
+        )
+
 
 
 async def setup(bot: commands.Bot):

@@ -172,6 +172,26 @@ docker compose down
 
 ---
 
+## 🏛️ Automated Server Layout Builder
+
+If recreating or configuring an official IDO tournament community server, you can automatically build the complete category and channel architecture with built-in rate-limit throttling (1.2s delay) and automatic 3v3 filtering:
+
+### Option A: Standalone Python Script
+```bash
+# Using TARGET_GUILD_ID from .env:
+python build_ido_server.py
+
+# Or target a specific server directly:
+python build_ido_server.py --guild-id 123456789012345678
+```
+
+### Option B: Hidden Administrator Commands
+- **Slash Command:** `/build-ido-template confirm:True` (Requires Administrator permissions; only visible to admins).
+- **Prefix Command:** `!build-ido-template yes` (Hidden prefix command that does not appear in autocomplete).
+
+
+---
+
 ## ☁️ 24/7 Cloud Deployment on Koyeb
 
 1. **Push Code to GitHub**:
