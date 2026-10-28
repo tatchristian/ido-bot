@@ -262,6 +262,36 @@ class TournamentCog(commands.Cog):
                 content=content, embed=embed, allowed_mentions=allowed_mentions
             )
 
+    async def _update_channel_permission(
+        self,
+        guild: Optional[discord.Guild],
+        channel_id: Optional[int],
+        can_send: bool,
+        reason: str = "",
+    ) -> bool:
+        """
+        Dynamically grants or restricts @everyone's ability to send messages in a channel.
+        Keeps viewing active (view_channel=True).
+        """
+        if not guild or not channel_id:
+            return False
+        channel = guild.get_channel(channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return False
+        if not guild.me.guild_permissions.manage_channels:
+            return False
+        try:
+            await channel.set_permissions(
+                guild.default_role,
+                send_messages=can_send,
+                view_channel=True,
+                reason=reason,
+            )
+            return True
+        except Exception as e:
+            logger.warning("Failed to update permissions for channel %s: %s", channel_id, e)
+            return False
+
     # =========================================================================
     # Help & Guidance
     # =========================================================================
@@ -749,6 +779,24 @@ class TournamentCog(commands.Cog):
                 inline=False,
             )
             embed.set_footer(text=f"{config.organization_name} • Tournament System")
+
+            # Dynamically unlock registration channel (and subs channel if open_subs is True)
+            curr_state = self.service.get_state(guild_id)
+            if curr_state.registration_channel_id:
+                await self._update_channel_permission(
+                    interaction.guild,
+                    curr_state.registration_channel_id,
+                    can_send=True,
+                    reason=f"Registrations opened for {tourney_name}",
+                )
+            if open_subs and curr_state.subs_channel_id:
+                await self._update_channel_permission(
+                    interaction.guild,
+                    curr_state.subs_channel_id,
+                    can_send=True,
+                    reason=f"Substitutes opened for {tourney_name}",
+                )
+
             await interaction.response.send_message(embed=embed)
         except ValueError as e:
             await interaction.response.send_message(f"❌ {e}", ephemeral=True)
@@ -761,6 +809,17 @@ class TournamentCog(commands.Cog):
     async def close_tournament(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id or 0
         msg = self.service.close_tournament(guild_id=guild_id)
+
+        # Dynamically lock registration channel
+        curr_state = self.service.get_state(guild_id)
+        if curr_state.registration_channel_id:
+            await self._update_channel_permission(
+                interaction.guild,
+                curr_state.registration_channel_id,
+                can_send=False,
+                reason="Main bracket registrations closed",
+            )
+
         embed = discord.Embed(
             title="🔒 Main Bracket Closed",
             description=msg,
@@ -777,6 +836,17 @@ class TournamentCog(commands.Cog):
     async def open_subs(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id or 0
         msg = self.service.open_subs(guild_id=guild_id)
+
+        # Dynamically unlock substitutes channel
+        curr_state = self.service.get_state(guild_id)
+        if curr_state.subs_channel_id:
+            await self._update_channel_permission(
+                interaction.guild,
+                curr_state.subs_channel_id,
+                can_send=True,
+                reason="Substitute signups opened",
+            )
+
         embed = discord.Embed(
             title="🟢 Substitute Signups Opened",
             description=msg,
@@ -802,6 +872,17 @@ class TournamentCog(commands.Cog):
     async def close_subs(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id or 0
         msg = self.service.close_subs(guild_id=guild_id)
+
+        # Dynamically lock substitutes channel
+        curr_state = self.service.get_state(guild_id)
+        if curr_state.subs_channel_id:
+            await self._update_channel_permission(
+                interaction.guild,
+                curr_state.subs_channel_id,
+                can_send=False,
+                reason="Substitute signups closed",
+            )
+
         embed = discord.Embed(
             title="🔴 Substitute Signups Closed",
             description=msg,
@@ -845,6 +926,17 @@ class TournamentCog(commands.Cog):
             if (interaction.guild and state.checkin_channel_id)
             else None
         )
+
+        # Dynamically unlock check-in channel
+        target_checkin_id = channel.id if channel else state.checkin_channel_id
+        if target_checkin_id:
+            await self._update_channel_permission(
+                interaction.guild,
+                target_checkin_id,
+                can_send=True,
+                reason="Tournament check-in opened",
+            )
+
         await self._send_or_dispatch(
             interaction=interaction,
             channel=target_dest,
@@ -860,6 +952,17 @@ class TournamentCog(commands.Cog):
     async def close_checkin(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id or 0
         msg = self.service.close_checkin(guild_id=guild_id)
+
+        # Dynamically lock check-in channel
+        state = self.service.get_state(guild_id)
+        if state.checkin_channel_id:
+            await self._update_channel_permission(
+                interaction.guild,
+                state.checkin_channel_id,
+                can_send=False,
+                reason="Tournament check-in closed",
+            )
+
         embed = discord.Embed(
             title="🔒 Tournament Check-In Closed",
             description=msg,
@@ -1196,10 +1299,11 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="tournament-set-channels",
-        description="[Admin] Set dedicated channels for announcements, check-in, and substitutes.",
+        description="[Admin] Set dedicated channels for announcements, registrations, check-in, and substitutes.",
     )
     @app_commands.describe(
         announcements="Dedicated channel for tournament announcements and brackets",
+        registration="Dedicated channel for player registrations (/tournament-register)",
         checkin="Dedicated channel for tournament day check-ins",
         substitutes="Dedicated channel for standby substitute signups and queue",
     )
@@ -1208,11 +1312,12 @@ class TournamentCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         announcements: Optional[discord.TextChannel] = None,
+        registration: Optional[discord.TextChannel] = None,
         checkin: Optional[discord.TextChannel] = None,
         substitutes: Optional[discord.TextChannel] = None,
     ):
         guild_id = interaction.guild_id or 0
-        if not announcements and not checkin and not substitutes:
+        if not announcements and not registration and not checkin and not substitutes:
             await interaction.response.send_message(
                 "❌ Please specify at least one channel to configure.", ephemeral=True
             )
@@ -1220,6 +1325,7 @@ class TournamentCog(commands.Cog):
 
         self.service.set_channels(
             announcement_channel_id=announcements.id if announcements else None,
+            registration_channel_id=registration.id if registration else None,
             checkin_channel_id=checkin.id if checkin else None,
             subs_channel_id=substitutes.id if substitutes else None,
             guild_id=guild_id,
@@ -1228,10 +1334,11 @@ class TournamentCog(commands.Cog):
         state = self.service.get_state(guild_id)
         desc = [
             f"• **Announcements:** {interaction.guild.get_channel(state.announcement_channel_id).mention if (interaction.guild and state.announcement_channel_id) else '*None configured*'}",
+            f"• **Registration:** {interaction.guild.get_channel(state.registration_channel_id).mention if (interaction.guild and state.registration_channel_id) else '*None configured*'}",
             f"• **Check-In:** {interaction.guild.get_channel(state.checkin_channel_id).mention if (interaction.guild and state.checkin_channel_id) else '*None configured*'}",
             f"• **Substitutes:** {interaction.guild.get_channel(state.subs_channel_id).mention if (interaction.guild and state.subs_channel_id) else '*None configured*'}",
             "",
-            "💡 *Activity for check-ins and substitutes will automatically be routed to these channels to keep general chats uncluttered!*",
+            "💡 *Activity for registrations, check-ins, and substitutes will automatically be routed to these channels to keep general chats uncluttered!*",
         ]
         embed = discord.Embed(
             title="📁 Dedicated Tournament Channels Configured",
@@ -1250,6 +1357,7 @@ class TournamentCog(commands.Cog):
         state = self.service.get_state(guild_id)
         desc = [
             f"• **Announcements:** {interaction.guild.get_channel(state.announcement_channel_id).mention if (interaction.guild and state.announcement_channel_id) else '*None configured*'}",
+            f"• **Registration:** {interaction.guild.get_channel(state.registration_channel_id).mention if (interaction.guild and state.registration_channel_id) else '*None configured*'}",
             f"• **Check-In:** {interaction.guild.get_channel(state.checkin_channel_id).mention if (interaction.guild and state.checkin_channel_id) else '*None configured*'}",
             f"• **Substitutes:** {interaction.guild.get_channel(state.subs_channel_id).mention if (interaction.guild and state.subs_channel_id) else '*None configured*'}",
         ]
@@ -1469,6 +1577,7 @@ class TournamentCog(commands.Cog):
                 announcement_channel_id=cmap.get("announcements"),
                 checkin_channel_id=cmap.get("checkin"),
                 subs_channel_id=cmap.get("subs"),
+                registration_channel_id=cmap.get("registration"),
                 guild_id=guild_id,
             )
 
@@ -1492,14 +1601,16 @@ class TournamentCog(commands.Cog):
         )
         if cmap:
             ann_mention = f"<#{cmap['announcements']}>" if "announcements" in cmap else "*Not set*"
+            reg_mention = f"<#{cmap['registration']}>" if "registration" in cmap else "*Not set*"
             chk_mention = f"<#{cmap['checkin']}>" if "checkin" in cmap else "*Not set*"
             sub_mention = f"<#{cmap['subs']}>" if "subs" in cmap else "*Not set*"
             embed.add_field(
-                name="🔗 Linked Bot Channels",
+                name="🔗 Linked & Protected Channels",
                 value=(
-                    f"• Announcements: {ann_mention}\n"
-                    f"• Check-in: {chk_mention}\n"
-                    f"• Substitutes: {sub_mention}"
+                    f"• Announcements: {ann_mention} *(Read-only)*\n"
+                    f"• Registrations: {reg_mention} *(🔒 Locked until `/tournament-open`)*\n"
+                    f"• Substitutes: {sub_mention} *(🔒 Locked until `/tournament-open-subs`)*\n"
+                    f"• Check-in: {chk_mention} *(🔒 Locked until `/tournament-open-checkin`)*"
                 ),
                 inline=False,
             )

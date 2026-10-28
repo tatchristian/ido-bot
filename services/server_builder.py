@@ -35,15 +35,19 @@ TOURNAMENT_SECTION_SPEC: List[Dict[str, Any]] = [
             {
                 "name": "📝・tournament-registration",
                 "type": "text",
+                "read_only": True,
+                "role_key": "registration",
             },
             {
                 "name": "🛡️・substitutes-bench",
                 "type": "text",
+                "read_only": True,
                 "role_key": "subs",
             },
             {
                 "name": "✅・tournament-checkin",
                 "type": "text",
+                "read_only": True,
                 "role_key": "checkin",
             },
             {

@@ -423,10 +423,11 @@ def test_dedicated_channel_management(service: TournamentService):
     assert service.get_state().checkin_channel_id == 333
 
     # Set channels directly
-    msg = service.set_channels(announcement_channel_id=999)
+    msg = service.set_channels(announcement_channel_id=999, registration_channel_id=444)
     assert "updated" in msg.lower()
     assert service.get_state().announcement_channel_id == 999
     assert service.get_state().checkin_channel_id == 333
+    assert service.get_state().registration_channel_id == 444
 
     # Clear channels
     clear_msg = service.clear_channels()
@@ -434,6 +435,7 @@ def test_dedicated_channel_management(service: TournamentService):
     assert service.get_state().announcement_channel_id is None
     assert service.get_state().checkin_channel_id is None
     assert service.get_state().subs_channel_id is None
+    assert service.get_state().registration_channel_id is None
 
 
 def test_multi_server_isolation(tmp_path: Path):

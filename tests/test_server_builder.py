@@ -111,9 +111,10 @@ def test_build_tournament_section_success_and_channel_mapping():
     assert results["channels_existing"] == 0
     assert len(results["errors"]) == 0
 
-    # Verify channel map has announcements, checkin, and subs
+    # Verify channel map has announcements, registration, checkin, and subs
     cmap = results["channel_map"]
     assert "announcements" in cmap
+    assert "registration" in cmap
     assert "checkin" in cmap
     assert "subs" in cmap
 

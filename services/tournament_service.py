@@ -78,6 +78,7 @@ class TournamentState:
     announcement_channel_id: int | None = None
     checkin_channel_id: int | None = None
     subs_channel_id: int | None = None
+    registration_channel_id: int | None = None
     participants: list[Participant] = field(default_factory=list)
     substitutes: list[Participant] = field(default_factory=list)
     created_at: str = field(
@@ -104,6 +105,7 @@ class TournamentState:
             announcement_channel_id=int(data["announcement_channel_id"]) if data.get("announcement_channel_id") is not None else None,
             checkin_channel_id=int(data["checkin_channel_id"]) if data.get("checkin_channel_id") is not None else None,
             subs_channel_id=int(data["subs_channel_id"]) if data.get("subs_channel_id") is not None else None,
+            registration_channel_id=int(data["registration_channel_id"]) if data.get("registration_channel_id") is not None else None,
             participants=[
                 Participant.from_dict(p) for p in data.get("participants", [])
             ],
@@ -134,6 +136,7 @@ class TournamentState:
             "announcement_channel_id": self.announcement_channel_id,
             "checkin_channel_id": self.checkin_channel_id,
             "subs_channel_id": self.subs_channel_id,
+            "registration_channel_id": self.registration_channel_id,
             "participants": [p.to_dict() for p in self.participants],
             "substitutes": [s.to_dict() for s in self.substitutes],
             "created_at": self.created_at,
@@ -392,9 +395,10 @@ class TournamentService:
         announcement_channel_id: int | None = None,
         checkin_channel_id: int | None = None,
         subs_channel_id: int | None = None,
+        registration_channel_id: int | None = None,
         guild_id: int = 0,
     ) -> str:
-        """Sets dedicated Discord channel IDs for announcements, check-in, and substitutes."""
+        """Sets dedicated Discord channel IDs for announcements, check-in, substitutes, and registrations."""
         state = self.get_state(guild_id)
         if announcement_channel_id is not None:
             state.announcement_channel_id = announcement_channel_id
@@ -402,6 +406,8 @@ class TournamentService:
             state.checkin_channel_id = checkin_channel_id
         if subs_channel_id is not None:
             state.subs_channel_id = subs_channel_id
+        if registration_channel_id is not None:
+            state.registration_channel_id = registration_channel_id
         self._persist(guild_id)
         return "📁 Tournament dedicated channels updated."
 
@@ -411,6 +417,7 @@ class TournamentService:
         state.announcement_channel_id = None
         state.checkin_channel_id = None
         state.subs_channel_id = None
+        state.registration_channel_id = None
         self._persist(guild_id)
         return "📁 Tournament dedicated channels cleared."
 

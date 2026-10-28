@@ -82,10 +82,17 @@ def build_status_embed(
         desc_lines.append(f"🎟️ **Check-In Readiness:** `{main_checked}/{cur_slots}` main • `{sub_checked}/{sub_count}` subs ready")
     if state.participant_role_name:
         desc_lines.append(f"🏷️ **Participant Role:** `@{state.participant_role_name}`")
-    if state.announcement_channel_id or state.checkin_channel_id or state.subs_channel_id:
+    if (
+        state.announcement_channel_id
+        or state.checkin_channel_id
+        or state.subs_channel_id
+        or state.registration_channel_id
+    ):
         channels_str = []
         if state.announcement_channel_id:
             channels_str.append(f"Announce: <#{state.announcement_channel_id}>")
+        if state.registration_channel_id:
+            channels_str.append(f"Reg: <#{state.registration_channel_id}>")
         if state.checkin_channel_id:
             channels_str.append(f"Check-In: <#{state.checkin_channel_id}>")
         if state.subs_channel_id:
