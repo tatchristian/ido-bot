@@ -26,6 +26,7 @@ DEFAULT_WEAPONS = [
     "Curved Swords",
     "Warhammer",
     "Kusarigama",
+    "Gauntlets",
 ]
 
 DEFAULT_REGIONS = ["GLOBAL"]
