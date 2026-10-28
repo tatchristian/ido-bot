@@ -200,9 +200,9 @@ async def build_server_layout(
                 continue
 
             # Setup optional private overwrites (Staff / Admin channels)
-            overwrites = None
+            extra_kwargs: Dict[str, Any] = {}
             if is_private and guild.default_role:
-                overwrites = {
+                extra_kwargs["overwrites"] = {
                     guild.default_role: discord.PermissionOverwrite(view_channel=False),
                     guild.me: discord.PermissionOverwrite(view_channel=True, manage_channels=True),
                 }
@@ -213,7 +213,7 @@ async def build_server_layout(
                         name=ch_name,
                         category=target_category,
                         user_limit=user_limit,
-                        overwrites=overwrites,
+                        **extra_kwargs,
                     )
                     log(f"  🔊 Created Voice Channel: '{ch_name}' (limit: {user_limit or 'unlimited'})")
                 elif ch_type == "news":
@@ -224,7 +224,7 @@ async def build_server_layout(
                                 name=ch_name,
                                 category=target_category,
                                 news=True,
-                                overwrites=overwrites,
+                                **extra_kwargs,
                             )
                             log(f"  📣 Created Announcement Channel: '{ch_name}'")
                         except Exception as ne:
@@ -232,21 +232,21 @@ async def build_server_layout(
                             await guild.create_text_channel(
                                 name=ch_name,
                                 category=target_category,
-                                overwrites=overwrites,
+                                **extra_kwargs,
                             )
                             log(f"  💬 Created Text Channel (news fallback): '{ch_name}'")
                     else:
                         await guild.create_text_channel(
                             name=ch_name,
                             category=target_category,
-                            overwrites=overwrites,
+                            **extra_kwargs,
                         )
                         log(f"  💬 Created Text Channel: '{ch_name}'")
                 else:
                     await guild.create_text_channel(
                         name=ch_name,
                         category=target_category,
-                        overwrites=overwrites,
+                        **extra_kwargs,
                     )
                     log(f"  💬 Created Text Channel: '{ch_name}'")
 
