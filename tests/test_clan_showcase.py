@@ -187,3 +187,4 @@ def test_clan_showcase_service_lifecycle():
 
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
