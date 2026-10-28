@@ -93,8 +93,8 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     """
 
     clan_name_color = discord.ui.TextInput(
-        label="Clan Name & Hex Color",
-        placeholder="Clan Name | Hex Color (e.g. Yume | #38bdf8)",
+        label="Clan Name & Embed Color (Optional)",
+        placeholder="Clan Name (or Clan Name | #HexColor)",
         style=discord.TextStyle.short,
         max_length=100,
         required=True,
@@ -102,10 +102,10 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     metadata = discord.ui.TextInput(
         label="Clan Metadata (Region, Leaders, Status)",
         placeholder=(
-            "Region: Mumbai, India\n"
-            "Founded: 7 July\n"
-            "Leader: Ragnarok\n"
-            "Co-Leader: Aasri, Astral\n"
+            "Region: [Your Region]\n"
+            "Founded: [Month / Year]\n"
+            "Leader: @Leader\n"
+            "Co-leaders: @CoLeader1, @CoLeader2\n"
             "Status: Active"
         ),
         style=discord.TextStyle.paragraph,
@@ -114,7 +114,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     )
     description = discord.ui.TextInput(
         label="Clan Description & Philosophy",
-        placeholder="Clan philosophy, backstory, and goals...",
+        placeholder="Describe your clan's backstory, vision, philosophy, and goals...",
         style=discord.TextStyle.paragraph,
         max_length=1500,
         required=True,
@@ -122,10 +122,10 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     activities_motto = discord.ui.TextInput(
         label="Activities & Motto",
         placeholder=(
-            "• Tournaments\n"
-            "• Training Sessions\n"
-            "• Scrims\n\n"
-            'Motto: "Dream. Train. Dominate." 🌙'
+            "• Activity 1\n"
+            "• Activity 2\n"
+            "• Activity 3\n\n"
+            'Motto: "Your clan motto here"'
         ),
         style=discord.TextStyle.paragraph,
         max_length=1000,
@@ -133,7 +133,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     )
     logo_url = discord.ui.TextInput(
         label="Clan Logo / Emblem Direct Image URL",
-        placeholder="Direct image URL (https://...)",
+        placeholder="https://... (Direct link to PNG, JPG, or Discord image)",
         style=discord.TextStyle.short,
         max_length=500,
         required=True,
@@ -742,14 +742,14 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         description="Preview how a clan showcase embed will look before submitting.",
     )
     @app_commands.describe(
-        clan_name="Clan Name (e.g. Yume)",
-        hex_color="Hex color (e.g. #38bdf8)",
+        clan_name="Clan Name (e.g. Shadow Syndicate)",
+        hex_color="Hex color code (e.g. #38bdf8)",
         logo_url="Direct image link for clan logo and emblem banner",
     )
     async def preview_showcase_embed(
         self,
         interaction: discord.Interaction,
-        clan_name: str = "Yume",
+        clan_name: str = "Example Clan",
         hex_color: str = "#38bdf8",
         logo_url: str = "https://i.imgur.com/8Q9Z5yZ.png",
     ):
@@ -759,27 +759,23 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             clan_name=clan_name,
             color_int=color_int,
             metadata_text=(
-                "Region: Mumbai, India\n"
-                "Founded: 7 July\n"
-                "Leader: Ragnarok\n"
-                "Co-leader: Aasri, Astral, Nana, bread\n\n"
+                "Region: North America\n"
+                "Founded: January 2026\n"
+                "Leader: @Leader\n"
+                "Co-leader: @CoLeader1, @CoLeader2\n\n"
                 "Status: Active"
             ),
             description_text=(
-                f"{clan_name}, meaning \"Dream\" in Japanese, is a competitive clan built for players "
-                "who strive to improve and reach the highest level. Home to some of the strongest players "
-                "from the Mumbai server, we focus on discipline, teamwork, and constant growth. "
-                "Through structured training, competitive events, and a merit-based grading system, "
-                "every member has the opportunity to rise through the ranks and turn their dream into reality."
+                f"{clan_name} is a competitive community dedicated to teamwork, growth, "
+                "and tournament excellence. Through structured practices, scrimmages, and ranking systems, "
+                "members sharpen their mechanics and represent the clan on the battlefield."
             ),
             activities_motto_text=(
                 "• Competitive Clan Wars\n"
                 "• Training Sessions\n"
-                "• Player Development\n"
-                "• Grade & Ranking System\n"
-                "• Tournaments\n"
-                "• Community Events\n\n"
-                'Motto:\n"Dream. Train. Dominate." 🌙'
+                "• Scrims\n"
+                "• Tournaments\n\n"
+                'Motto:\n"United We Conquer." ⚔️'
             ),
             logo_url=logo_url,
         )
