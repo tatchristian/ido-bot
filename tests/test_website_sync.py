@@ -10,6 +10,8 @@ import pytest
 from services.website_sync_service import (
     TIMEZONE_OFFSETS,
     WebsiteSyncService,
+    parse_combined_event_datetime,
+    parse_duration_and_location,
     parse_event_datetime,
 )
 
@@ -105,3 +107,38 @@ def test_website_sync_payload_structures():
         ok, msg = exc.value
         assert ok is False
         assert "not configured" in msg.lower()
+
+
+def test_parse_combined_event_datetime():
+    future_year = datetime.now(timezone.utc).year + 1
+    raw = f"{future_year}-11-15 18:00 EST"
+    valid, dt, err = parse_combined_event_datetime(raw)
+    assert valid is True
+    assert dt is not None
+    assert dt.hour == 18
+    assert dt.minute == 0
+    assert dt.utcoffset() == timedelta(hours=-5)
+
+    raw_12hr = f"11/15/{future_year} 6:00 PM PST"
+    valid2, dt2, _ = parse_combined_event_datetime(raw_12hr)
+    assert valid2 is True
+    assert dt2 is not None
+    assert dt2.hour == 18
+    assert dt2.minute == 0
+    assert dt2.utcoffset() == timedelta(hours=-8)
+
+
+def test_parse_duration_and_location():
+    dur, loc = parse_duration_and_location("2 hours | Match Arena 1")
+    assert dur == 2.0
+    assert loc == "Match Arena 1"
+
+    dur2, loc2 = parse_duration_and_location("3.5 | Stream Booth")
+    assert dur2 == 3.5
+    assert loc2 == "Stream Booth"
+
+    dur3, loc3 = parse_duration_and_location("Tournament Hub")
+    assert dur3 == 2.0
+    assert loc3 == "Tournament Hub"
+
+

@@ -138,6 +138,87 @@ def parse_event_datetime(
     return True, local_dt, ""
 
 
+def parse_combined_event_datetime(raw_str: str) -> Tuple[bool, Optional[datetime], str]:
+    """
+    Parses a single combined string like '2026-11-15 18:00 EST' or '11/15/2026 6:00 PM EST'.
+    Detects timezone, time, and date automatically.
+    """
+    cleaned = raw_str.strip()
+    if not cleaned:
+        return False, None, "Date and time cannot be empty."
+
+    # Look for timezone abbreviation (e.g. EST, CST, PST, UTC, CET, IST)
+    tz_str = "EST"
+    for tz_candidate in TIMEZONE_OFFSETS.keys():
+        pattern = rf"\b{tz_candidate}\b"
+        if re.search(pattern, cleaned, re.IGNORECASE):
+            tz_str = tz_candidate.upper()
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+            break
+
+    # Clean filler words
+    cleaned = re.sub(r"\bat\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.replace(",", " ").strip()
+
+    # Look for time pattern
+    time_match = re.search(
+        r"(\d{1,2}:\d{2}\s*(?:AM|PM)?|\d{1,2}\s*(?:AM|PM))", cleaned, re.IGNORECASE
+    )
+    if not time_match:
+        return (
+            False,
+            None,
+            f"Could not find a valid time in `{raw_str}`. Example: `2026-11-15 18:00 EST` or `11/15/2026 6:00 PM EST`.",
+        )
+
+    time_part = time_match.group(1).strip()
+    # Date part is whatever is left after extracting the time
+    date_part = cleaned.replace(time_match.group(0), "").strip()
+
+    if not date_part:
+        return (
+            False,
+            None,
+            f"Could not find a valid date in `{raw_str}`. Example: `2026-11-15 18:00 EST`.",
+        )
+
+    return parse_event_datetime(date_part, time_part, tz_str)
+
+
+def parse_duration_and_location(raw_str: str) -> Tuple[float, str]:
+    """
+    Parses 'Duration & Location' field, e.g. '2 hours | UDA Tournament Hub' or '3 | Arena'.
+    Returns (duration_hours, location_string).
+    """
+    cleaned = raw_str.strip()
+    duration = 2.0
+    location = f"{config.organization_name} Tournament Hub"
+
+    if "|" in cleaned:
+        parts = cleaned.split("|", 1)
+        dur_str = parts[0].strip()
+        loc_str = parts[1].strip()
+        num_match = re.search(r"(\d+(?:\.\d+)?)", dur_str)
+        if num_match:
+            try:
+                duration = float(num_match.group(1))
+            except ValueError:
+                duration = 2.0
+        if loc_str:
+            location = loc_str
+    else:
+        num_match = re.match(r"^(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)?$", cleaned, re.IGNORECASE)
+        if num_match:
+            try:
+                duration = float(num_match.group(1))
+            except ValueError:
+                duration = 2.0
+        elif cleaned:
+            location = cleaned
+
+    return max(0.5, duration), location
+
+
 class WebsiteSyncService:
     """
     Manages REST API synchronization between the Discord Bot and https://unitedduelingamity.org.

@@ -25,7 +25,12 @@ from services.tournament_service import (
     STANDARD_REGIONS,
     TournamentService,
 )
-from services.website_sync_service import WebsiteSyncService, parse_event_datetime
+from services.website_sync_service import (
+    WebsiteSyncService,
+    parse_combined_event_datetime,
+    parse_duration_and_location,
+    parse_event_datetime,
+)
 from utils.ui import build_help_embed, build_roster_embed, build_status_embed
 
 logger = logging.getLogger(__name__)
@@ -182,6 +187,12 @@ class TournamentCog(commands.Cog):
     def __init__(self, bot: commands.Bot, service: TournamentService):
         self.bot = bot
         self.service = service
+
+    async def cog_load(self) -> None:
+        """Register persistent views so buttons work across bot restarts."""
+        panel_view = TournamentEventPanelView()
+        self.bot.add_view(panel_view)
+        logger.info("Registered persistent tournament event scheduler view.")
 
     async def cog_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -1967,6 +1978,291 @@ class TournamentCog(commands.Cog):
         else:
             await interaction.followup.send(
                 f"⚠️ **Website sync pending:** {msg}",
+                ephemeral=True,
+            )
+
+    # -------------------------------------------------------------------------
+    # Interactive Event Scheduling Panel (/post-event-scheduler-panel)
+    # -------------------------------------------------------------------------
+
+    @app_commands.command(
+        name="post-event-scheduler-panel",
+        description="Admin: Drop the interactive Tournament & Event Scheduler panel with 1-click modal button.",
+    )
+    @app_commands.describe(
+        channel="Channel to post the scheduler panel in (defaults to current channel)"
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    @is_tournament_admin()
+    async def post_event_scheduler_panel_slash(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        target_chan = channel or interaction.channel
+        if not isinstance(target_chan, discord.TextChannel):
+            await interaction.response.send_message("❌ Target must be a text channel.", ephemeral=True)
+            return
+
+        panel_embed = discord.Embed(
+            title="📅 Official Tournament & Event Scheduler",
+            description=(
+                f"Welcome to the official **{config.organization_name}** Tournament Event Scheduler!\n\n"
+                "Staff and Tournament Admins can click the button below to schedule an official event.\n\n"
+                "**What happens when you schedule an event:**\n"
+                "• **📌 Top of Server Banner:** Discord automatically creates the official event at the very top of the server so members can click **Interested** and get reminder pings.\n"
+                "• **🌐 Website Sync:** If enabled, the event is automatically pushed to **https://unitedduelingamity.org** so it appears on the live public schedule!\n\n"
+                "Click **📅 Schedule Tournament Event** below to open the form!"
+            ),
+            color=config.embed_color,
+        )
+        panel_embed.set_footer(
+            text=f"{config.organization_name} • Tournament Operations"
+        )
+
+        view = TournamentEventPanelView()
+        await target_chan.send(embed=panel_embed, view=view)
+
+        await interaction.response.send_message(
+            f"✅ Tournament event scheduler panel successfully posted in {target_chan.mention}!",
+            ephemeral=True,
+        )
+
+    @commands.command(name="post_event_scheduler_panel")
+    async def post_event_scheduler_panel_prefix(
+        self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None
+    ):
+        """Prefix command fallback (!post_event_scheduler_panel)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        target_chan = channel or ctx.channel
+        if not isinstance(target_chan, discord.TextChannel):
+            await ctx.send("❌ Target must be a text channel.")
+            return
+
+        panel_embed = discord.Embed(
+            title="📅 Official Tournament & Event Scheduler",
+            description=(
+                f"Welcome to the official **{config.organization_name}** Tournament Event Scheduler!\n\n"
+                "Staff and Tournament Admins can click the button below to schedule an official event.\n\n"
+                "**What happens when you schedule an event:**\n"
+                "• **📌 Top of Server Banner:** Discord automatically creates the official event at the very top of the server so members can click **Interested** and get reminder pings.\n"
+                "• **🌐 Website Sync:** If enabled, the event is automatically pushed to **https://unitedduelingamity.org** so it appears on the live public schedule!\n\n"
+                "Click **📅 Schedule Tournament Event** below to open the form!"
+            ),
+            color=config.embed_color,
+        )
+        panel_embed.set_footer(
+            text=f"{config.organization_name} • Tournament Operations"
+        )
+
+        view = TournamentEventPanelView()
+        await target_chan.send(embed=panel_embed, view=view)
+        await ctx.send(f"✅ Tournament event scheduler panel posted in {target_chan.mention}!")
+
+
+class TournamentEventModal(discord.ui.Modal, title="Schedule Tournament Event"):
+    """
+    Interactive modal popup for staff to schedule Discord events with website sync.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.event_title = discord.ui.TextInput(
+            label="Tournament / Event Title",
+            placeholder="e.g. UDA Winter Championship 2026",
+            style=discord.TextStyle.short,
+            max_length=100,
+            required=True,
+        )
+        self.date_time = discord.ui.TextInput(
+            label="Date & Time (with Timezone)",
+            placeholder="e.g. 2026-11-15 18:00 EST (or 6:00 PM EST)",
+            style=discord.TextStyle.short,
+            max_length=100,
+            required=True,
+        )
+        self.duration_location = discord.ui.TextInput(
+            label="Duration & Location",
+            placeholder="2 hours | UDA Tournament Hub (or 3 | Voice Arena)",
+            default=f"2 hours | {config.organization_name} Tournament Hub",
+            style=discord.TextStyle.short,
+            max_length=100,
+            required=False,
+        )
+        self.sync_website = discord.ui.TextInput(
+            label="Sync to Website? (yes / no)",
+            placeholder="yes (syncs to unitedduelingamity.org) or no",
+            default="yes",
+            style=discord.TextStyle.short,
+            max_length=20,
+            required=False,
+        )
+        self.description = discord.ui.TextInput(
+            label="Description, Rules & Format",
+            placeholder="Format, weapon rules, check-in instructions, prize info...",
+            style=discord.TextStyle.paragraph,
+            max_length=1000,
+            required=False,
+        )
+
+        self.add_item(self.event_title)
+        self.add_item(self.date_time)
+        self.add_item(self.duration_location)
+        self.add_item(self.sync_website)
+        self.add_item(self.description)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("❌ This form must be used within a server.", ephemeral=True)
+            return
+
+        bot_member = guild.me
+        if not bot_member or not bot_member.guild_permissions.manage_events:
+            await interaction.response.send_message(
+                "❌ The bot is missing the **Manage Events** permission to create Discord scheduled events.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=False)
+
+        # 1. Parse Combined Date & Time
+        valid, start_time, err = parse_combined_event_datetime(self.date_time.value)
+        if not valid or not start_time:
+            await interaction.followup.send(f"❌ {err}", ephemeral=True)
+            return
+
+        # 2. Parse Duration & Location
+        dur, loc_text = parse_duration_and_location(self.duration_location.value)
+        end_time = start_time + timedelta(hours=dur)
+
+        # 3. Create Discord Scheduled Event
+        event_name = self.event_title.value.strip()[:100]
+        event_desc = (self.description.value or f"Official {config.organization_name} Tournament Event").strip()[:1000]
+
+        try:
+            scheduled_event = await guild.create_scheduled_event(
+                name=event_name,
+                description=event_desc,
+                start_time=start_time,
+                end_time=end_time,
+                location=loc_text[:100],
+                entity_type=discord.EntityType.external,
+                privacy_level=discord.PrivacyLevel.guild_only,
+                reason=f"Scheduled by {interaction.user} via Tournament Event Modal",
+            )
+        except Exception as exc:
+            logger.error("Failed to create Discord scheduled event via modal: %s", exc, exc_info=True)
+            await interaction.followup.send(
+                f"❌ Failed to create Discord scheduled event: {exc}", ephemeral=True
+            )
+            return
+
+        # 4. Optional REST API Sync to Website
+        sync_choice = self.sync_website.value.strip().lower()
+        should_sync = sync_choice in ("yes", "y", "true", "1", "sync")
+        website_sync_status = "⏸️ **Skipped** (sync to website was set to 'no')"
+
+        if should_sync:
+            sync_service = WebsiteSyncService()
+            event_payload = {
+                "id": str(scheduled_event.id),
+                "name": scheduled_event.name,
+                "description": scheduled_event.description or "",
+                "start_time": scheduled_event.start_time.isoformat(),
+                "end_time": scheduled_event.end_time.isoformat() if scheduled_event.end_time else None,
+                "location": scheduled_event.location or "Discord",
+                "url": scheduled_event.url,
+                "image_url": str(scheduled_event.cover_image.url) if scheduled_event.cover_image else None,
+            }
+            sync_ok, sync_msg = await sync_service.sync_event(event_payload)
+            if sync_ok:
+                website_sync_status = f"✅ **Synced successfully to website!**\nIt will appear on the [Upcoming Events]({sync_service.api_url.replace('/api/sync', '')}) schedule."
+            else:
+                website_sync_status = f"⚠️ **Website sync pending:** {sync_msg}\n*(The Discord event is safely active at the top of the server)*"
+
+        # 5. Build Response Embed
+        embed = discord.Embed(
+            title="📅 Tournament Event Scheduled!",
+            description=(
+                f"**Event:** [{scheduled_event.name}]({scheduled_event.url})\n"
+                f"**Date & Time:** <t:{int(start_time.timestamp())}:F> (<t:{int(start_time.timestamp())}:R>)\n"
+                f"**Location:** 📍 `{loc_text}`\n\n"
+                f"{scheduled_event.description}"
+            ),
+            color=config.embed_color,
+        )
+        embed.add_field(
+            name="📌 Discord Event Banner",
+            value=f"Listed at the **top of the server**! Members can click **[Interested]({scheduled_event.url})** to receive Discord reminders before it starts.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🌐 Website Sync (unitedduelingamity.org)",
+            value=website_sync_status,
+            inline=False,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Event Operations")
+
+        await interaction.followup.send(embed=embed)
+
+
+class TournamentEventPanelView(discord.ui.View):
+    """
+    Persistent view with the 'Schedule Tournament Event' button and 'Website Sync Status' button.
+    Placed in staff or operations channels for 1-click popup form scheduling.
+    """
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="📅 Schedule Tournament Event",
+        style=discord.ButtonStyle.primary,
+        custom_id="btn_schedule_tournament_event",
+    )
+    async def schedule_event_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        modal = TournamentEventModal()
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="🌐 Website Sync Status",
+        style=discord.ButtonStyle.secondary,
+        emoji="📡",
+        custom_id="btn_check_website_sync",
+    )
+    async def check_website_sync_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.defer(ephemeral=True)
+        sync_service = WebsiteSyncService()
+        if not sync_service.is_configured():
+            await interaction.followup.send(
+                "⚠️ **Website API is not configured yet.**\n"
+                "Add `WEBSITE_API_KEY=your_key` to your `.env` file to enable automatic website syncing.",
+                ephemeral=True,
+            )
+            return
+
+        ok, msg = await sync_service.test_connection()
+        if ok:
+            await interaction.followup.send(
+                "✅ **Website REST API is Online & Connected!**\nUpdates to events, tournaments, and clans will sync directly to unitedduelingamity.org.",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"❌ **Connection Issue:** {msg}",
                 ephemeral=True,
             )
 
