@@ -25,6 +25,7 @@ from services.clan_showcase_service import (
     resolve_image_url,
     validate_image_url,
 )
+from services.website_sync_service import WebsiteSyncService
 
 logger = logging.getLogger("uda_bot.clan_showcase_cog")
 
@@ -712,6 +713,25 @@ class ClanReviewButtonsView(discord.ui.View):
         except Exception as exc:
             logger.warning("Could not edit staff review message: %s", exc)
 
+        # Optional background sync to unitedduelingamity.org
+        sync_service = WebsiteSyncService()
+        if sync_service.is_configured():
+            try:
+                await sync_service.sync_leaderboards(
+                    clans=[{
+                        "id": sub.id,
+                        "clan_name": sub.clan_name,
+                        "color_hex": sub.color_hex,
+                        "metadata": sub.metadata_text,
+                        "description": sub.description_text,
+                        "activities_motto": sub.activities_motto,
+                        "logo_url": sub.logo_url,
+                        "applicant_id": str(sub.applicant_id),
+                    }]
+                )
+            except Exception as sync_exc:
+                logger.debug("Automatic website sync on clan approval failed: %s", sync_exc)
+
         await interaction.response.send_message(
             f"✅ **{sub.clan_name}** profile published to {showcase_channel.mention}!",
             ephemeral=True,
@@ -1326,6 +1346,65 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             embed=demo_embed,
             ephemeral=True,
         )
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-showcase-sync-website
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-showcase-sync-website",
+        description="Admin: Push all approved clans from this server to unitedduelingamity.org directory.",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def sync_clans_website(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message(
+                "❌ You must be an administrator or tournament staff to run this command.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        subs = self.service.get_guild_submissions(interaction.guild.id)
+        approved = [s for s in subs if s.status == "approved"]
+
+        if not approved:
+            await interaction.followup.send(
+                "ℹ️ There are no approved clans on this server yet to sync.",
+                ephemeral=True,
+            )
+            return
+
+        sync_service = WebsiteSyncService()
+        clans_payload = [
+            {
+                "id": s.id,
+                "clan_name": s.clan_name,
+                "color_hex": s.color_hex,
+                "metadata": s.metadata_text,
+                "description": s.description_text,
+                "activities_motto": s.activities_motto,
+                "logo_url": s.logo_url,
+                "applicant_id": str(s.applicant_id),
+            }
+            for s in approved
+        ]
+
+        ok, msg = await sync_service.sync_leaderboards(clans=clans_payload)
+        if ok:
+            await interaction.followup.send(
+                f"✅ **Successfully synced `{len(approved)}` approved clans to unitedduelingamity.org!**",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"⚠️ **Website sync pending:** {msg}",
+                ephemeral=True,
+            )
 
 
 async def setup(bot: commands.Bot) -> None:

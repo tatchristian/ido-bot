@@ -49,6 +49,8 @@ class Config:
     embed_color: int = int(os.getenv("EMBED_COLOR", "0x10B981"), 16)  # Official UDA Emerald Green
     accent_gold: int = 0xD4AF37  # Official UDA Antique Gold
     primary_emerald: int = 0x10B981  # Official UDA Emerald Gemstone
+    website_api_url: str = os.getenv("WEBSITE_API_URL", "https://unitedduelingamity.org/api/sync")
+    website_api_key: str = os.getenv("WEBSITE_API_KEY", "")
 
     @property
     def tournament_file(self) -> Path:

@@ -145,10 +145,13 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 | `/tournament-set-channels` / `/tournament-view-channels` | Configure or view dedicated tournament channels. |
 | `/tournament-set-admin-role` / `/tournament-view-admin-role` | Select which role (and higher) can manage tournaments. |
 | `/tournament-announce` | Ping registered main players, substitutes, or everyone with an announcement. |
+| `/tournament-schedule-event` | Schedule an official Discord server event (displayed at the top of the server) with an optional `sync_to_website` flag to automatically push to `unitedduelingamity.org`. |
 | `/tournament-export` | Download a roster export formatted for **Challonge**, **Start.gg / Battlefy (CSV)**, or Text. |
 | `/tournament-clear` | Wipe both main roster and substitute list for a fresh event. |
 | `/tournament-setup-section` | Auto-construct complete tournament category, channel layout, and permissions. |
 | `/tournament-remove-section` | Safely clean up and delete the auto-generated tournament section. |
+| `/website-sync-test` | Test REST API connection and authentication to `https://unitedduelingamity.org/api/sync`. |
+| `/website-sync-tournament` | Manually push the active tournament standings, slots, and roster to the website. |
 
 ---
 
@@ -162,6 +165,7 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 | `/clan-showcase-channels` | `/clan-showcase-channels [showcase_channel] [staff_review_channel]` | Configure where approved embeds are published and where private staff reviews appear. |
 | `/clan-showcase-view-channels`| `/clan-showcase-view-channels` | Inspect current showcase and review channel routing. |
 | `/clan-showcase-edit` | `/clan-showcase-edit clan:<name_or_id>` | Search and live-edit any clan profile. Automatically edits the live published embed in Discord *(Prefix fallback: `!clan_edit <name>`)*. |
+| `/clan-showcase-sync-website` | `/clan-showcase-sync-website` | Manually push all approved clan profiles to the website directory on `unitedduelingamity.org`. |
 | **`Approve & Publish` Button** | Click on review message | Instantly publishes finished embed to the public showcase channel and notifies the applicant via DM. |
 | **`Reject` Button** | Click on review message | Opens modal for rejection reason, updates staff log, and DMs applicant with the explanation. |
 

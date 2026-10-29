@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 
 import discord
@@ -24,9 +25,22 @@ from services.tournament_service import (
     STANDARD_REGIONS,
     TournamentService,
 )
+from services.website_sync_service import WebsiteSyncService, parse_event_datetime
 from utils.ui import build_help_embed, build_roster_embed, build_status_embed
 
 logger = logging.getLogger(__name__)
+
+TIMEZONE_CHOICES = [
+    app_commands.Choice(name="EST (UTC-5) - Eastern US", value="EST"),
+    app_commands.Choice(name="EDT (UTC-4) - Eastern Daylight", value="EDT"),
+    app_commands.Choice(name="CST (UTC-6) - Central US", value="CST"),
+    app_commands.Choice(name="PST (UTC-8) - Pacific US", value="PST"),
+    app_commands.Choice(name="UTC / GMT - Universal", value="UTC"),
+    app_commands.Choice(name="CET (UTC+1) - Central European", value="CET"),
+    app_commands.Choice(name="BST (UTC+1) - British Summer", value="BST"),
+    app_commands.Choice(name="IST (UTC+5:30) - India Standard", value="IST"),
+    app_commands.Choice(name="AEST (UTC+10) - Australian Eastern", value="AEST"),
+]
 
 # Predefined slash command choices (ME removed as requested)
 WEAPON_CHOICES = [
@@ -1692,6 +1706,269 @@ class TournamentCog(commands.Cog):
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
 
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+    # =========================================================================
+    # Scheduled Events & Website REST API Sync (unitedduelingamity.org)
+    # =========================================================================
+
+    @app_commands.command(
+        name="tournament-schedule-event",
+        description="Admin: Schedule an official Discord server event (with optional sync to website).",
+    )
+    @app_commands.describe(
+        name="Tournament title or event name (e.g. UDA Winter Championship)",
+        date="Date of the event (e.g. 2026-11-15 or 11/15/2026)",
+        time="Start time (e.g. 18:00 or 6:00 PM)",
+        timezone="Timezone for the start time (defaults to EST)",
+        sync_to_website="Whether to sync and publish this event to unitedduelingamity.org (default: True)",
+        description="Optional event description, rules, or tournament notes",
+        duration_hours="Estimated duration in hours (default: 2.0)",
+        location="Location text for external events (e.g. UDA Tournament Hub)",
+        channel="Optional voice or stage arena channel for the event",
+        image="Optional cover image banner for the Discord event",
+    )
+    @app_commands.choices(timezone=TIMEZONE_CHOICES)
+    @app_commands.default_permissions(manage_events=True)
+    @is_tournament_admin()
+    async def schedule_event(
+        self,
+        interaction: discord.Interaction,
+        name: str,
+        date: str,
+        time: str,
+        timezone: Optional[app_commands.Choice[str]] = None,
+        sync_to_website: bool = True,
+        description: Optional[str] = None,
+        duration_hours: float = 2.0,
+        location: Optional[str] = None,
+        channel: Optional[discord.VoiceChannel | discord.StageChannel] = None,
+        image: Optional[discord.Attachment] = None,
+    ):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
+            return
+
+        # 1. Check Bot Permissions
+        bot_member = guild.me
+        if not bot_member or not bot_member.guild_permissions.manage_events:
+            await interaction.response.send_message(
+                "❌ The bot is missing the **Manage Events** permission in this server to create Discord scheduled events.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=False)
+
+        # 2. Parse Date & Time
+        tz_str = timezone.value if timezone else "EST"
+        valid, start_time, err = parse_event_datetime(date, time, tz_str)
+        if not valid or not start_time:
+            await interaction.followup.send(f"❌ {err}", ephemeral=True)
+            return
+
+        # 3. Calculate End Time (required by Discord for external events)
+        dur = max(0.5, duration_hours)
+        end_time = start_time + timedelta(hours=dur)
+
+        # 4. Optional Cover Image bytes
+        image_bytes = None
+        if image:
+            try:
+                image_bytes = await image.read()
+            except Exception as exc:
+                logger.warning("Could not read image attachment for event: %s", exc)
+
+        # 5. Create Discord Scheduled Event
+        event_name = name.strip()[:100]
+        event_desc = (description or f"Official {config.organization_name} Tournament Event").strip()[:1000]
+
+        try:
+            if channel:
+                entity_type = (
+                    discord.EntityType.stage_instance
+                    if isinstance(channel, discord.StageChannel)
+                    else discord.EntityType.voice
+                )
+                scheduled_event = await guild.create_scheduled_event(
+                    name=event_name,
+                    description=event_desc,
+                    start_time=start_time,
+                    end_time=end_time,
+                    channel=channel,
+                    entity_type=entity_type,
+                    privacy_level=discord.PrivacyLevel.guild_only,
+                    image=image_bytes,
+                    reason=f"Scheduled by {interaction.user} via /tournament-schedule-event",
+                )
+                location_display = channel.mention
+            else:
+                loc_text = (location or f"{config.organization_name} Tournament Hub").strip()[:100]
+                scheduled_event = await guild.create_scheduled_event(
+                    name=event_name,
+                    description=event_desc,
+                    start_time=start_time,
+                    end_time=end_time,
+                    location=loc_text,
+                    entity_type=discord.EntityType.external,
+                    privacy_level=discord.PrivacyLevel.guild_only,
+                    image=image_bytes,
+                    reason=f"Scheduled by {interaction.user} via /tournament-schedule-event",
+                )
+                location_display = f"📍 `{loc_text}`"
+        except Exception as exc:
+            logger.error("Failed to create Discord scheduled event: %s", exc, exc_info=True)
+            await interaction.followup.send(
+                f"❌ Failed to create Discord scheduled event: {exc}", ephemeral=True
+            )
+            return
+
+        # 6. Optional REST API Sync to Website (unitedduelingamity.org)
+        website_sync_status = "⏸️ **Skipped** (sync_to_website was set to False)"
+        if sync_to_website:
+            sync_service = WebsiteSyncService()
+            event_payload = {
+                "id": str(scheduled_event.id),
+                "name": scheduled_event.name,
+                "description": scheduled_event.description or "",
+                "start_time": scheduled_event.start_time.isoformat(),
+                "end_time": scheduled_event.end_time.isoformat() if scheduled_event.end_time else None,
+                "location": scheduled_event.location or (scheduled_event.channel.name if scheduled_event.channel else "Discord"),
+                "url": scheduled_event.url,
+                "image_url": str(scheduled_event.cover_image.url) if scheduled_event.cover_image else None,
+            }
+            sync_ok, sync_msg = await sync_service.sync_event(event_payload)
+            if sync_ok:
+                website_sync_status = f"✅ **Synced successfully to website!**\nIt will appear on the [Upcoming Events]({sync_service.api_url.replace('/api/sync', '')}) schedule."
+            else:
+                website_sync_status = f"⚠️ **Website sync pending:** {sync_msg}\n*(The Discord event is safely active at the top of the server)*"
+
+        # 7. Build Response Embed
+        embed = discord.Embed(
+            title="📅 Tournament Event Scheduled!",
+            description=(
+                f"**Event:** [{scheduled_event.name}]({scheduled_event.url})\n"
+                f"**Date & Time:** <t:{int(start_time.timestamp())}:F> (<t:{int(start_time.timestamp())}:R>)\n"
+                f"**Location:** {location_display}\n\n"
+                f"{scheduled_event.description}"
+            ),
+            color=config.embed_color,
+        )
+        if scheduled_event.cover_image:
+            embed.set_image(url=scheduled_event.cover_image.url)
+
+        embed.add_field(
+            name="📌 Discord Event Banner",
+            value=f"Listed at the **top of the server**! Members can click **[Interested]({scheduled_event.url})** to receive Discord reminders before it starts.",
+            inline=False,
+        )
+        embed.add_field(
+            name="🌐 Website Sync (unitedduelingamity.org)",
+            value=website_sync_status,
+            inline=False,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Event Operations")
+
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(
+        name="website-sync-test",
+        description="Admin: Test REST API connection to the official website (https://unitedduelingamity.org).",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @is_tournament_admin()
+    async def website_sync_test(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        sync_service = WebsiteSyncService()
+        embed = discord.Embed(
+            title="🌐 Website REST API Connection Test",
+            color=config.embed_color,
+        )
+        embed.add_field(
+            name="API Endpoint URL",
+            value=f"`{sync_service.api_url}`",
+            inline=False,
+        )
+
+        if not sync_service.is_configured():
+            embed.description = (
+                "⚠️ **Website API is not configured yet.**\n\n"
+                "To enable automatic website syncing:\n"
+                "1. Ask your website developer for the `WEBSITE_API_KEY`.\n"
+                "2. Add `WEBSITE_API_KEY=your_key` to your `.env` file.\n"
+                "3. Restart the bot!"
+            )
+            embed.color = 0xF1C40F
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+
+        ok, msg = await sync_service.test_connection()
+        if ok:
+            embed.description = "✅ **Connection Successful!**\nThe bot can successfully authenticate and send updates to unitedduelingamity.org."
+            embed.color = 0x2ECC71
+        else:
+            embed.description = f"❌ **Connection Failed:**\n{msg}"
+            embed.color = 0xE74C3C
+
+        embed.set_footer(text=f"{config.organization_name} • Web Integration")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="website-sync-tournament",
+        description="Admin: Manually push current tournament standings and roster to the website.",
+    )
+    @app_commands.default_permissions(administrator=True)
+    @is_tournament_admin()
+    async def website_sync_tournament(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        if not state:
+            await interaction.response.send_message("❌ No active tournament found on this server.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        sync_service = WebsiteSyncService()
+        tourney_payload = {
+            "guild_id": guild_id,
+            "tournament_name": state.name,
+            "is_open": state.main_open,
+            "checkin_open": state.checkin_open,
+            "slots": f"{len(state.participants)}/{state.max_slots}",
+            "participants": [
+                {
+                    "user_id": str(p.user_id),
+                    "ign": p.ign,
+                    "weapon": p.weapon,
+                    "region": p.region,
+                    "checked_in": p.checked_in,
+                }
+                for p in state.participants
+            ],
+            "substitutes": [
+                {
+                    "user_id": str(s.user_id),
+                    "ign": s.ign,
+                    "weapon": s.weapon,
+                    "region": s.region,
+                    "checked_in": s.checked_in,
+                }
+                for s in state.substitutes
+            ],
+        }
+
+        ok, msg = await sync_service.sync_tournament_results(tourney_payload)
+        if ok:
+            await interaction.followup.send(
+                f"✅ **Tournament roster for '{state.name}' synced successfully to unitedduelingamity.org!**",
+                ephemeral=True,
+            )
+        else:
+            await interaction.followup.send(
+                f"⚠️ **Website sync pending:** {msg}",
+                ephemeral=True,
+            )
 
 
 
