@@ -1,5 +1,5 @@
 """
-Main entry point for the IDO Tournament Discord Bot.
+Main entry point for the UDA (United Dueling Amity) Discord Bot.
 Handles client lifecycle, cog loading, slash command syncing, and graceful shutdown.
 """
 
@@ -24,7 +24,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
-logger = logging.getLogger("ido_bot")
+logger = logging.getLogger("uda_bot")
 
 
 async def start_health_server():
@@ -39,7 +39,7 @@ async def start_health_server():
     app = web.Application()
 
     async def health_handler(request):
-        return web.Response(text="IDO Tournament Bot is operational!", content_type="text/plain")
+        return web.Response(text="UDA Tournament Bot is operational!", content_type="text/plain")
 
     app.router.add_get("/", health_handler)
     app.router.add_get("/health", health_handler)
@@ -52,7 +52,7 @@ async def start_health_server():
     return runner
 
 
-class IDOTournamentBot(commands.Bot):
+class UDATournamentBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.members = True  # Required for member resolution and role checks
@@ -94,11 +94,15 @@ class IDOTournamentBot(commands.Bot):
             name=f"{config.organization_name} Tournaments (/tournament-status)",
         )
         await self.change_presence(activity=activity)
-        logger.info("IDO Tournament Bot is ready and operational.")
+        logger.info("UDA Tournament Bot is ready and operational.")
+
+
+# Backwards compatibility alias
+IDOTournamentBot = UDATournamentBot
 
 
 async def main():
-    bot = IDOTournamentBot()
+    bot = UDATournamentBot()
 
     # Graceful shutdown handler
     def handle_signal():

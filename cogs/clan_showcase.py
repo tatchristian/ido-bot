@@ -1,5 +1,5 @@
 """
-Clan Showcase Cog for IDO Tournament Bot (DUKE).
+Clan Showcase Cog for UDA (United Dueling Amity) Discord Bot.
 Provides interactive modal submission for clan profiles, persistent review panels,
 and automated publishing matching the official Sapphire-style clan showcase embeds.
 """
@@ -25,7 +25,7 @@ from services.clan_showcase_service import (
     validate_image_url,
 )
 
-logger = logging.getLogger("ido_bot.clan_showcase_cog")
+logger = logging.getLogger("uda_bot.clan_showcase_cog")
 
 
 def is_staff_user(user: discord.User | discord.Member, guild: discord.Guild) -> bool:
@@ -884,7 +884,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "Are you a clan leader looking to represent your roster in our server's official showcase? "
                 "Click the button below to submit your clan's profile for staff review.\n\n"
                 "**Form Guidelines & Tips:**\n"
-                "• **Clan Name:** Just enter your clan's name. *(Optional: if you have a custom team color, enter `Clan Name | #hex`, e.g. `Shadow | #ff0033`. Otherwise it automatically uses official IDO sky-blue!)*\n"
+                "• **Clan Name:** Just enter your clan's name. *(Optional: if you have a custom team color, enter `Clan Name | #hex`, e.g. `Shadow | #d4af37`. Otherwise it automatically uses official UDA emerald-green (#10b981)!)*\n"
                 "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
                 "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
                 "• **Logo URL:** Must be a direct image link (Discord upload, Imgur, PNG, or JPG).\n"
@@ -930,7 +930,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "Are you a clan leader looking to represent your roster in our server's official showcase? "
                 "Click the button below to submit your clan's profile for staff review.\n\n"
                 "**Form Guidelines & Tips:**\n"
-                "• **Clan Name:** Just enter your clan's name. *(Optional: if you have a custom team color, enter `Clan Name | #hex`, e.g. `Shadow | #ff0033`. Otherwise it automatically uses official IDO sky-blue!)*\n"
+                "• **Clan Name:** Just enter your clan's name. *(Optional: if you have a custom team color, enter `Clan Name | #hex`, e.g. `Shadow | #d4af37`. Otherwise it automatically uses official UDA emerald-green (#10b981)!)*\n"
                 "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
                 "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
                 "• **Logo URL:** Must be a direct image link (Discord upload, Imgur, PNG, or JPG).\n"

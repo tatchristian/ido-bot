@@ -1,11 +1,24 @@
-# ⚔️ IDO Tournament & Clan Showcase Bot (DUKE)
+# ⚔️ UDA Tournament & Clan Showcase Bot (DUKE)
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![discord.py 2.x](https://img.shields.io/badge/discord.py-2.x-5865F2.svg)](https://github.com/Rapptz/discord.py)
 [![Docker Ready](https://img.shields.io/badge/docker-ready-2496ED.svg)](https://www.docker.com/)
 [![Tests Passing](https://img.shields.io/badge/tests-45%20passed-brightgreen.svg)]()
 
-A high-reliability, modular Discord Bot engineered for the **International Dueling Organization (IDO)**. Provides end-to-end competitive tournament roster management, automated server layout construction, and an interactive, Sapphire-style **Clan Profile Showcase & Staff Approval System**.
+A high-reliability, modular Discord Bot engineered for **United Dueling Amity (UDA)**. Provides end-to-end competitive tournament roster management, automated server layout construction, and an interactive, Sapphire-style **Clan Profile Showcase & Staff Approval System**.
+
+---
+
+## 🎨 Official UDA Brand Identity & Color Palette
+
+Rooted in the official **UDA Cerberus emblem** (3-headed white wolf with gold collar and emerald gemstones):
+
+| Element | Color Name | Hex Code | Purpose in Bot |
+| :--- | :--- | :--- | :--- |
+| **Primary Theme** | Emerald Gemstone | `#10B981` | Default embed borders, check-in badges, success indicators |
+| **Accent & Trim** | Royal Antique Gold | `#D4AF37` | Warning badges, tournament titles, and admin highlight accents |
+| **Contrast / Text**| Marble White | `#F8FAFC` | Roster text, author lines, and modal placeholders |
+| **Background** | Onyx Slate | `#0F172A` | Deep dark mode embed backdrop matching Discord |
 
 ---
 
@@ -19,7 +32,7 @@ A high-reliability, modular Discord Bot engineered for the **International Dueli
 - **🌍 Region Lock & Strict Validation**:
   - Configurable tournament region filters: single region (e.g. `NA`), combinations (e.g. `NA, EU`), or `GLOBAL`.
   - Standard supported regions: `NA`, `EU`, `OCE`, `ASIA`, `SA`.
-- **⚔️ IDO Approved Weapons**:
+- **⚔️ UDA Approved Weapons**:
   - Default choices: `Daggers`, `Katana`, `Naginata`, `Bo Staff`, `Curved Swords`, `Warhammer`, `Kusarigama`, `Gauntlets`.
   - Customizable per-tournament rules via `/tournament-set-weapons`.
 - **🎟️ Check-In Window & Readiness**:
@@ -37,11 +50,16 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
   - Admin command `/post-clan-submission-panel` drops an embed with a permanent **`📋 Submit Clan Profile`** button.
   - Survives bot reboots and container redeployments (`timeout=None`).
 - **Interactive 5-Field Modal Intake**:
-  - **Clan Name & Color (Optional):** Enter clan name (with optional `#hexcode` for custom border color; defaults to IDO sky-blue `#38bdf8`).
+  - **Clan Name & Color (Optional):** Enter clan name (with optional `#hexcode` for custom border color; defaults to official UDA emerald-green `#10b981`).
   - **Clan Metadata:** Region, Founded Date, Leaders, Co-Leaders, Status (supports plain IGNs or `@mentions`).
   - **Clan Description & Philosophy:** Clan backstory, vision, and goals.
   - **Activities & Motto:** Clan wars, scrims, training schedule, and clan motto.
   - **Logo URL:** Direct image link (Discord CDN, Imgur, PNG, JPG).
+- **Safe 2-Stage Draft & Confirmation Flow**:
+  - Submitting the modal does **not** send directly to staff. Instead, it generates a private (ephemeral) **Draft Preview**.
+  - Includes **`🚀 Confirm & Send to Staff`**, **`✏️ Edit Draft`**, and **`🗑️ Discard Draft`** buttons.
+  - Decisions are **never final until confirmed**.
+  - If a user closes out accidentally, DUKE **auto-restores their draft** upon clicking the button again.
 - **Sapphire-Identical Embed Staging**:
   - **Author Header:** Clan Name + circular emblem icon.
   - **Description Block:** Unified markdown layout with metadata, description, activities, and motto.
@@ -100,7 +118,7 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 
 | Interface / Command | Description |
 | :--- | :--- |
-| **`📋 Submit Clan Profile` Button** | Placed in your designated clan intake channel. Clan leaders click this button to open the 5-field pop-up submission form. |
+| **`📋 Submit Clan Profile` Button** | Placed in your designated clan intake channel. Clan leaders click this button to open the 5-field pop-up submission form (with auto-draft restore). |
 | `/clan-showcase-preview` | Test how your clan showcase embed will look before submitting. Specify clan name, optional hex color, and direct logo URL. *(Ephemeral: only visible to you)* |
 
 ---
@@ -204,9 +222,9 @@ ADMIN_ROLE_ID=
 SHOWCASE_CHANNEL_ID=
 STAFF_REVIEW_CHANNEL_ID=
 
-# Branding & Appearance
-ORGANIZATION_NAME=IDO
-EMBED_COLOR=0xF1C40F
+# Branding & Colors (Official UDA Emerald Gemstone #10B981)
+ORGANIZATION_NAME=UDA
+EMBED_COLOR=0x10B981
 ```
 
 ---
@@ -265,7 +283,7 @@ docker compose down
    - Mount path: `/app/data`
    - Size: `1 GB` (ensures `tournament.json` and `clan_submissions.json` survive restarts).
 4. **Environment Variables**:
-   - Add `DISCORD_TOKEN`, `DATA_DIR=/app/data`, `ADMIN_ROLE_NAME=Tournament Admin`, `SHOWCASE_CHANNEL_ID`, `STAFF_REVIEW_CHANNEL_ID`.
+   - Add `DISCORD_TOKEN`, `DATA_DIR=/app/data`, `ADMIN_ROLE_NAME=Tournament Admin`, `ORGANIZATION_NAME=UDA`, `EMBED_COLOR=0x10B981`, `SHOWCASE_CHANNEL_ID`, `STAFF_REVIEW_CHANNEL_ID`.
 5. **Deploy**: Click Deploy. Koyeb builds the image and keeps the bot running 24/7.
 
 ### Render
@@ -274,4 +292,4 @@ docker compose down
 3. Build Command: `pip install -r requirements.txt`
 4. Start Command: `python bot.py`
 5. Add a **Persistent Disk** mounted at `/app/data`.
-6. Add environment variables in the Render Dashboard.
+6. Add environment variables in the Render Dashboard (`ORGANIZATION_NAME=UDA`, `EMBED_COLOR=0x10B981`, etc.).

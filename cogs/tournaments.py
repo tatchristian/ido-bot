@@ -1,5 +1,5 @@
 """
-Discord Cog implementing all IDO Tournament slash commands, check-in flow, help manual, and admin tools.
+Discord Cog implementing all UDA (United Dueling Amity) Tournament slash commands, check-in flow, help manual, and admin tools.
 Fully supports isolated per-server (multi-guild) tournaments.
 """
 
@@ -163,7 +163,7 @@ class HelpView(discord.ui.View):
 
 
 class TournamentCog(commands.Cog):
-    """Slash commands for IDO Tournament Roster and Substitute Queue management."""
+    """Slash commands for UDA Tournament Roster and Substitute Queue management."""
 
     def __init__(self, bot: commands.Bot, service: TournamentService):
         self.bot = bot
@@ -315,7 +315,7 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="tournament-help",
-        description="Interactive guide and command manual for the IDO Tournament Bot.",
+        description="Interactive guide and command manual for the UDA Tournament Bot.",
     )
     @app_commands.describe(
         section="Jump directly to a specific guide category",
@@ -332,7 +332,7 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="help-tournament",
-        description="Interactive guide and command manual for the IDO Tournament Bot (alias for /tournament-help).",
+        description="Interactive guide and command manual for the UDA Tournament Bot (alias for /tournament-help).",
     )
     @app_commands.describe(
         section="Jump directly to a specific guide category",
@@ -349,7 +349,7 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="help",
-        description="Interactive guide and command manual for the IDO Tournament Bot (alias for /tournament-help).",
+        description="Interactive guide and command manual for the UDA Tournament Bot (alias for /tournament-help).",
     )
     @app_commands.describe(
         section="Jump directly to a specific guide category",
@@ -736,7 +736,7 @@ class TournamentCog(commands.Cog):
                         participant_role = await interaction.guild.create_role(
                             name=role_name,
                             mentionable=True,
-                            reason=f"Auto-created IDO tournament participant role for {tourney_name}",
+                            reason=f"Auto-created UDA tournament participant role for {tourney_name}",
                         )
                     except (discord.Forbidden, discord.HTTPException) as exc:
                         logger.warning("Could not auto-create role for %s: %s", tourney_name, exc)

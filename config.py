@@ -1,5 +1,5 @@
 """
-Application configuration for the IDO Tournament Discord Bot.
+Application configuration for the UDA (United Dueling Amity) Discord Bot.
 Loads configuration options from environment variables or .env file.
 """
 
@@ -44,8 +44,10 @@ class Config:
     )
     data_dir: Path = Path(os.getenv("DATA_DIR", "data"))
     max_backups: int = int(os.getenv("MAX_BACKUPS", "20"))
-    organization_name: str = os.getenv("ORGANIZATION_NAME", "IDO")
-    embed_color: int = int(os.getenv("EMBED_COLOR", "0xF1C40F"), 16)
+    organization_name: str = os.getenv("ORGANIZATION_NAME", "UDA")
+    embed_color: int = int(os.getenv("EMBED_COLOR", "0x10B981"), 16)  # Official UDA Emerald Green
+    accent_gold: int = 0xD4AF37  # Official UDA Antique Gold
+    primary_emerald: int = 0x10B981  # Official UDA Emerald Gemstone
 
     @property
     def tournament_file(self) -> Path:

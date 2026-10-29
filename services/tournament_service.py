@@ -65,7 +65,7 @@ class Participant:
 
 @dataclass
 class TournamentState:
-    name: str = "IDO Championship"
+    name: str = "UDA Championship"
     main_open: bool = False
     subs_open: bool = False
     checkin_open: bool = False
@@ -92,7 +92,7 @@ class TournamentState:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TournamentState:
         return cls(
-            name=str(data.get("name", "IDO Championship")),
+            name=str(data.get("name", "UDA Championship")),
             main_open=bool(data.get("main_open", False)),
             subs_open=bool(data.get("subs_open", False)),
             checkin_open=bool(data.get("checkin_open", False)),

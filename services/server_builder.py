@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import discord
 
-logger = logging.getLogger("ido_bot.tournament_builder")
+logger = logging.getLogger("uda_bot.tournament_builder")
 
 RATE_LIMIT_DELAY: float = 1.2
 

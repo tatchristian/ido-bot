@@ -44,13 +44,13 @@ def test_parse_name_and_color_fallback():
     name, color_int, hex_str = parse_name_and_color("Solo Warriors")
     assert name == "Solo Warriors"
     assert color_int == DEFAULT_CLAN_COLOR
-    assert hex_str == "#38bdf8"
+    assert hex_str == "#10b981"
 
     # Invalid hex provided
     name2, color_int2, hex_str2 = parse_name_and_color("Solo Warriors | not-a-color")
     assert name2 == "Solo Warriors"
     assert color_int2 == DEFAULT_CLAN_COLOR
-    assert hex_str2 == "#38bdf8"
+    assert hex_str2 == "#10b981"
 
 
 def test_validate_image_url():

@@ -9,7 +9,7 @@ def test_storage_save_and_load(tmp_path: Path):
     backup_dir = tmp_path / "backups"
     manager = StorageManager(storage_file, backup_dir=backup_dir, max_backups=5)
 
-    test_data = {"name": "IDO Weekly #1", "max_slots": 16}
+    test_data = {"name": "UDA Weekly #1", "max_slots": 16}
     manager.save(test_data)
 
     loaded = manager.load()

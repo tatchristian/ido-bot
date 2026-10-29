@@ -25,7 +25,7 @@ def test_progress_bar_full():
 
 def test_build_status_embed():
     state = TournamentState(
-        name="IDO Masters 2026",
+        name="UDA Masters 2026",
         main_open=True,
         subs_open=False,
         max_slots=8,
@@ -35,8 +35,8 @@ def test_build_status_embed():
         Participant(1, "<@1>", "Shadow", "Katana", "NA")
     )
 
-    embed = build_status_embed(state, org_name="IDO")
-    assert "IDO Masters 2026" in embed.title
+    embed = build_status_embed(state, org_name="UDA")
+    assert "UDA Masters 2026" in embed.title
     assert "**Main Bracket Submissions:** 🟢 **OPEN**" in embed.description
     assert "**Substitute Signups:** 🔴 **CLOSED**" in embed.description
     assert "Allowed Regions:** `NA, EU`" in embed.description
@@ -46,7 +46,7 @@ def test_build_status_embed():
 
 def test_build_roster_embed():
     state = TournamentState(
-        name="IDO Masters 2026",
+        name="UDA Masters 2026",
         main_open=True,
         subs_open=True,
         max_slots=8,
@@ -58,8 +58,8 @@ def test_build_roster_embed():
         Participant(2, "<@2>", "Backup", "Daggers", "EU")
     )
 
-    embed = build_roster_embed(state, org_name="IDO")
-    assert "IDO Masters 2026 — Tournament Roster" in embed.title
+    embed = build_roster_embed(state, org_name="UDA")
+    assert "UDA Masters 2026 — Tournament Roster" in embed.title
     main_field = next(f for f in embed.fields if "Main Bracket" in f.name)
     assert "#01" in main_field.value
     assert "Shadow" in main_field.value
@@ -71,7 +71,7 @@ def test_build_roster_embed():
 
 def test_build_help_embed():
     # Test all section
-    embed_all = build_help_embed("all", org_name="IDO")
+    embed_all = build_help_embed("all", org_name="UDA")
     field_names = [f.name for f in embed_all.fields]
     assert any("Participant Commands" in name for name in field_names)
     assert any("Tournament Admin Controls" in name for name in field_names)

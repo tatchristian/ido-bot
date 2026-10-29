@@ -19,16 +19,16 @@ import discord
 from config import config
 from utils.storage import StorageManager
 
-logger = logging.getLogger("ido_bot.clan_showcase")
+logger = logging.getLogger("uda_bot.clan_showcase")
 
-DEFAULT_CLAN_COLOR = 0x38BDF8  # Default Sky Blue (#38bdf8)
+DEFAULT_CLAN_COLOR = 0x10B981  # Official UDA Emerald Green (#10b981)
 
 
 def parse_name_and_color(raw_str: str) -> Tuple[str, int, str]:
     """
-    Parses a string formatted like 'Clan Name | #38bdf8' or 'Clan Name'
+    Parses a string formatted like 'Clan Name | #10b981' or 'Clan Name'
     into (clan_name, color_int, hex_str).
-    Falls back to DEFAULT_CLAN_COLOR (0x38bdf8) if color is omitted or invalid.
+    Falls back to DEFAULT_CLAN_COLOR (0x10B981) if color is omitted or invalid.
     """
     cleaned = raw_str.strip()
     if "|" in cleaned:
@@ -44,7 +44,7 @@ def parse_name_and_color(raw_str: str) -> Tuple[str, int, str]:
         color_candidate = ""
 
     # Parse hex color
-    hex_str = "#38bdf8"
+    hex_str = "#10b981"
     color_int = DEFAULT_CLAN_COLOR
 
     if color_candidate:
@@ -55,7 +55,7 @@ def parse_name_and_color(raw_str: str) -> Tuple[str, int, str]:
                 hex_str = f"#{clean_hex.lower()}"
             except ValueError:
                 color_int = DEFAULT_CLAN_COLOR
-                hex_str = "#38bdf8"
+                hex_str = "#10b981"
 
     return name or "Unnamed Clan", color_int, hex_str
 
@@ -162,7 +162,7 @@ class ClanSubmission:
             applicant_id=int(data.get("applicant_id", 0)),
             applicant_name=str(data.get("applicant_name", "Unknown")),
             clan_name=str(data.get("clan_name", "Unnamed Clan")),
-            color_hex=str(data.get("color_hex", "#38bdf8")),
+            color_hex=str(data.get("color_hex", "#10b981")),
             color_int=int(data.get("color_int", DEFAULT_CLAN_COLOR)),
             metadata_text=str(data.get("metadata_text", "")),
             description_text=str(data.get("description_text", "")),

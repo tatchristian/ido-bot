@@ -38,7 +38,7 @@ def test_register_when_closed(service: TournamentService):
 
 
 def test_register_success_and_capacity_limit(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=2, regions="GLOBAL", open_subs=True)
+    service.open_tournament(name="UDA Cup", slots=2, regions="GLOBAL", open_subs=True)
 
     ok1, msg1, p1 = service.register_participant(
         user_id=1, user_mention="<@1>", ign="PlayerOne", weapon="Katana", region="NA"
@@ -63,7 +63,7 @@ def test_register_success_and_capacity_limit(service: TournamentService):
 
 
 def test_duplicate_registration_rejected(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL")
+    service.open_tournament(name="UDA Cup", slots=8, regions="GLOBAL")
 
     ok1, _, _ = service.register_participant(
         user_id=10, user_mention="<@10>", ign="Shadow", weapon="Katana", region="NA"
@@ -141,7 +141,7 @@ def test_region_parsing_strips_quotes_and_brackets(service: TournamentService):
 # =============================================================================
 
 def test_substitute_registration_and_unregister(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL", open_subs=True)
+    service.open_tournament(name="UDA Cup", slots=8, regions="GLOBAL", open_subs=True)
 
     ok, msg, sub = service.register_substitute(
         user_id=201, user_mention="<@201>", ign="SubOne", weapon="Naginata", region="NA"
@@ -161,7 +161,7 @@ def test_substitute_registration_and_unregister(service: TournamentService):
 
 
 def test_cross_registration_prevention(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL", open_subs=True)
+    service.open_tournament(name="UDA Cup", slots=8, regions="GLOBAL", open_subs=True)
 
     service.register_participant(1, "<@1>", "MainPlayer", "Katana", "NA")
 
@@ -175,7 +175,7 @@ def test_cross_registration_prevention(service: TournamentService):
 
 
 def test_promote_substitute_fifo(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=4, regions="GLOBAL", open_subs=True)
+    service.open_tournament(name="UDA Cup", slots=4, regions="GLOBAL", open_subs=True)
     service.register_participant(1, "<@1>", "Player1", "Katana", "NA")
 
     service.register_substitute(10, "<@10>", "FirstSub", "Daggers", "NA")
@@ -190,7 +190,7 @@ def test_promote_substitute_fifo(service: TournamentService):
 
 
 def test_promote_substitute_replace_no_show(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=2, regions="GLOBAL", open_subs=True)
+    service.open_tournament(name="UDA Cup", slots=2, regions="GLOBAL", open_subs=True)
     service.register_participant(1, "<@1>", "NoShowPlayer", "Katana", "NA")
     service.register_participant(2, "<@2>", "ReadyPlayer", "Katana", "NA")
 
@@ -211,7 +211,7 @@ def test_promote_substitute_replace_no_show(service: TournamentService):
 
 
 def test_promote_substitute_prioritizes_checked_in(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=2, regions="GLOBAL", open_subs=True)
+    service.open_tournament(name="UDA Cup", slots=2, regions="GLOBAL", open_subs=True)
     service.register_participant(1, "<@1>", "Player1", "Katana", "NA")
     service.register_participant(2, "<@2>", "Player2", "Katana", "NA")
 
@@ -243,7 +243,7 @@ def test_promote_substitute_prioritizes_checked_in(service: TournamentService):
 # =============================================================================
 
 def test_kick_user(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL", open_subs=True)
+    service.open_tournament(name="UDA Cup", slots=8, regions="GLOBAL", open_subs=True)
     service.register_participant(1, "<@1>", "BadPlayer", "Katana", "NA")
     service.register_substitute(2, "<@2>", "BadSub", "Katana", "NA")
 
@@ -261,7 +261,7 @@ def test_kick_user(service: TournamentService):
 
 
 def test_force_register(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=2, regions="GLOBAL")
+    service.open_tournament(name="UDA Cup", slots=2, regions="GLOBAL")
     # Tournament registration can even be closed
     service.close_tournament()
 
@@ -274,7 +274,7 @@ def test_force_register(service: TournamentService):
 
 
 def test_edit_entry(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=8, regions="NA, EU")
+    service.open_tournament(name="UDA Cup", slots=8, regions="NA, EU")
     service.register_participant(1, "<@1>", "OldIGN", "Katana", "NA")
 
     # Edit weapon and IGN
@@ -295,7 +295,7 @@ def test_edit_entry(service: TournamentService):
 # =============================================================================
 
 def test_checkin_flow(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL")
+    service.open_tournament(name="UDA Cup", slots=8, regions="GLOBAL")
     service.register_participant(1, "<@1>", "ReadyPlayer", "Katana", "NA")
     service.register_participant(2, "<@2>", "NoShowPlayer", "Katana", "NA")
 
@@ -320,7 +320,7 @@ def test_checkin_flow(service: TournamentService):
 
 
 def test_export_roster(service: TournamentService):
-    service.open_tournament(name="IDO Masters", slots=8, regions="GLOBAL", open_subs=True)
+    service.open_tournament(name="UDA Masters", slots=8, regions="GLOBAL", open_subs=True)
     service.register_participant(1, "<@1>", "Champion", "Katana", "NA")
     service.register_substitute(2, "<@2>", "Standby", "Daggers", "EU")
 
@@ -342,7 +342,7 @@ def test_export_roster(service: TournamentService):
 
 
 def test_admin_set_admin_role_and_clear(service: TournamentService):
-    service.open_tournament(name="IDO Cup", slots=8, regions="GLOBAL")
+    service.open_tournament(name="UDA Cup", slots=8, regions="GLOBAL")
     service.register_participant(1, "<@1>", "Player1", "Katana", "NA")
 
     # Set admin role threshold
@@ -384,7 +384,7 @@ def test_participant_role_management(service: TournamentService):
 
 
 def test_export_roster_targets(service: TournamentService):
-    service.open_tournament(name="IDO Masters", slots=8, open_subs=True)
+    service.open_tournament(name="UDA Masters", slots=8, open_subs=True)
     service.register_participant(1, "<@1>", "MainPlayer", "Katana", "NA")
     service.register_substitute(2, "<@2>", "SubPlayer", "Daggers", "EU")
 
@@ -447,7 +447,7 @@ def test_multi_server_isolation(tmp_path: Path):
     # Open tournament on test server with 4 slots
     service.open_tournament(name="Test Cup", slots=4, guild_id=guild_test)
     # Open tournament on main server with 16 slots
-    service.open_tournament(name="Official IDO", slots=16, guild_id=guild_main)
+    service.open_tournament(name="Official UDA", slots=16, guild_id=guild_main)
 
     # Register in test server
     service.register_participant(1, "<@1>", "Tester", "Katana", "NA", guild_id=guild_test)
@@ -464,7 +464,7 @@ def test_multi_server_isolation(tmp_path: Path):
 
     # Check main server state
     main_state = service.get_state(guild_main)
-    assert main_state.name == "Official IDO"
+    assert main_state.name == "Official UDA"
     assert main_state.max_slots == 16
     assert len(main_state.participants) == 1
     assert main_state.participants[0].ign == "Champion"
