@@ -207,7 +207,8 @@ def build_roster_embed(
         inline=False,
     )
 
-    embed.set_footer(text=f"{org} • United Dueling Amity")
+    full_name = getattr(config, "organization_full_name", "United Dueling Alliances")
+    embed.set_footer(text=f"{org} • {full_name}")
     return embed
 
 
@@ -222,11 +223,12 @@ def build_help_embed(
     """
     org = org_name or config.organization_name
     embed_color = color or config.embed_color
+    full_name = getattr(config, "organization_full_name", "United Dueling Alliances")
 
     embed = discord.Embed(
         title=f"📖 {org} Tournament Bot — Command Manual",
         description=(
-            "Welcome to the official **United Dueling Amity (UDA)** Tournament Bot.\n"
+            f"Welcome to the official **{full_name} ({org})** Tournament Bot.\n"
             "Use the command reference below or switch categories using the buttons below."
         ),
         color=embed_color,
@@ -300,12 +302,13 @@ def build_help_embed(
 
     if section in ("all", "clans"):
         clan_cmds = (
-            "• `/post-clan-submission-panel` (or `!post_clan_submission_panel`) — Post interactive submission panel with persistent button.\n"
+            "• `/clan-submit` — Submit or draft your clan profile (choose photo/GIF directly from phone or paste link).\n"
+            "• `/post-clan-submission-panel` (or `!post_clan_submission_panel`) — Post interactive submission panel with persistent buttons.\n"
             "• `/clan-showcase-channels` — Configure target showcase and staff review channels.\n"
             "• `/clan-showcase-view-channels` — View current configured channels for submissions.\n"
             "• `/clan-showcase-edit` — Edit any existing clan profile live (updates database & published embed).\n"
             "• `/clan-showcase-preview` — Test embed rendering with custom colors and artwork.\n"
-            "• **Clan Intake Flow:** Leaders click **`📋 Submit Clan Profile`** to open the 5-field modal form.\n"
+            "• **Clan Intake Flow:** Leaders submit via `/clan-submit` or click **`📋 Submit Clan Profile`** on the panel.\n"
             "• **Staff Workflow:** Review submissions with **`Approve & Publish`** or **`Reject`** (with custom reason prompt)."
         )
         embed.add_field(
@@ -314,6 +317,7 @@ def build_help_embed(
             inline=False,
         )
 
-    embed.set_footer(text=f"{org} • United Dueling Amity")
+    full_name = getattr(config, "organization_full_name", "United Dueling Alliances")
+    embed.set_footer(text=f"{org} • {full_name}")
     return embed
 

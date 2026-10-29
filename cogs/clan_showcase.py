@@ -22,6 +22,7 @@ from services.clan_showcase_service import (
     ClanSubmission,
     build_clan_showcase_embed,
     parse_name_and_color,
+    resolve_image_url,
     validate_image_url,
 )
 
@@ -145,8 +146,8 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             required=True,
         )
         self.logo_url = discord.ui.TextInput(
-            label="Clan Logo / Emblem Direct Image URL",
-            placeholder="https://... (Direct link to PNG, JPG, or Discord image)",
+            label="Clan Logo / Emblem (Image Link)",
+            placeholder="Paste image link (or use /clan-submit image to pick file)",
             default=self.initial_data.get("logo_url", ""),
             style=discord.TextStyle.short,
             max_length=500,
@@ -167,23 +168,27 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             )
             return
 
-        # 1. Validate Image URL
-        is_valid_url, url_error = validate_image_url(self.logo_url.value)
+        # 1. Validate & Resolve Image URL (supports direct links & Discord message links)
+        is_valid_url, resolved_logo_url, url_error = await resolve_image_url(
+            interaction.client, self.logo_url.value
+        )
         if not is_valid_url:
             await interaction.response.send_message(
-                f"❌ **Invalid Logo URL:** {url_error}\n"
-                "Please make sure your link starts with `https://` or `http://` and points directly to an image (e.g. PNG, JPG, or Discord attachment).",
+                f"❌ **Invalid Logo / Emblem URL:** {url_error}\n\n"
+                "**How to provide your image:**\n"
+                "• **Choice 1 (Direct Device Upload):** Use `/clan-submit image:[Select Photo or GIF]` to choose directly from your phone gallery or files!\n"
+                "• **Choice 2 (Image Link):** Provide a direct link (PNG, JPG, GIF) or Discord image link.",
                 ephemeral=True,
             )
             return
 
-        # 2. Save draft so the user can re-open or edit anytime without losing text
+        # 2. Save draft with resolved URL so user never loses their progress
         draft = {
             "clan_name_color": self.clan_name_color.value,
             "metadata": self.metadata.value,
             "description": self.description.value,
             "activities_motto": self.activities_motto.value,
-            "logo_url": self.logo_url.value,
+            "logo_url": resolved_logo_url,
         }
         self.service.save_draft(guild.id, interaction.user.id, draft)
 
@@ -195,7 +200,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             metadata_text=self.metadata.value,
             description_text=self.description.value,
             activities_motto_text=self.activities_motto.value,
-            logo_url=self.logo_url.value,
+            logo_url=resolved_logo_url,
         )
         preview_embed.set_footer(
             text=f"{config.organization_name} • Clan Showcase Draft Preview"
@@ -512,8 +517,10 @@ class ClanEditModal(discord.ui.Modal):
         self.add_item(self.logo_url)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # 1. Validate Image URL
-        valid, err = validate_image_url(self.logo_url.value)
+        # 1. Validate & Resolve Image URL
+        valid, resolved_logo_url, err = await resolve_image_url(
+            interaction.client, self.logo_url.value
+        )
         if not valid:
             await interaction.response.send_message(
                 f"❌ **Invalid Logo URL:** {err}", ephemeral=True
@@ -534,7 +541,7 @@ class ClanEditModal(discord.ui.Modal):
             metadata_text=self.metadata.value,
             description_text=self.description.value,
             activities_motto=self.activities_motto.value,
-            logo_url=self.logo_url.value,
+            logo_url=resolved_logo_url,
         )
         if not sub:
             await interaction.response.send_message(
@@ -780,9 +787,43 @@ class ClanReviewButtonsView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
+class ClanChoiceLauncherModalView(discord.ui.View):
+    """Ephemeral launcher view offering quick modal opening from the device upload guide."""
+
+    def __init__(self, service: ClanShowcaseService):
+        super().__init__(timeout=300)
+        self.service = service
+
+    @discord.ui.button(
+        label="📋 Open Form with Image Link",
+        style=discord.ButtonStyle.primary,
+        custom_id="btn_open_form_from_guide",
+    )
+    async def open_form_from_guide(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        initial_data = {}
+        if interaction.guild:
+            draft = self.service.get_draft(interaction.guild.id, interaction.user.id)
+            if draft:
+                initial_data = draft
+            else:
+                prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
+                if prev:
+                    initial_data = {
+                        "clan_name_color": f"{prev.clan_name} | {prev.color_hex}",
+                        "metadata": prev.metadata_text,
+                        "description": prev.description_text,
+                        "activities_motto": prev.activities_motto,
+                        "logo_url": prev.logo_url,
+                    }
+        modal = ClanSubmissionModal(self.service, initial_data=initial_data)
+        await interaction.response.send_modal(modal)
+
+
 class ClanSubmissionPanelView(discord.ui.View):
     """
-    Persistent view with the 'Submit Clan Profile' button.
+    Persistent view with the 'Submit Clan Profile' button and device photo upload assistance.
     Placed in public channels for clan leaders to initiate the submission modal.
     """
 
@@ -826,6 +867,30 @@ class ClanSubmissionPanelView(discord.ui.View):
                     f"⚠️ An error occurred while opening the form: {exc}", ephemeral=True
                 )
 
+    @discord.ui.button(
+        label="📱 Choose Photo from Device",
+        style=discord.ButtonStyle.secondary,
+        emoji="🖼️",
+        custom_id="btn_clan_mobile_upload_info",
+    )
+    async def mobile_upload_info_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        view = ClanChoiceLauncherModalView(self.service)
+        await interaction.response.send_message(
+            content=(
+                "📱 **Upload Directly from your Device (Phone or PC):**\n\n"
+                "If you want to choose a photo or saved GIF directly from your **Camera Roll, Gallery, or Files** without having to copy/paste any links:\n\n"
+                "1️⃣ Type **/clan-submit** in chat.\n"
+                "2️⃣ Select the **`image`** option — your phone's photo library will open directly!\n"
+                "3️⃣ Pick your clan emblem or saved GIF.\n"
+                "4️⃣ The submission form will pop up immediately with your image attached!\n\n"
+                "*(Or if you already have an image link, tap **Open Form with Image Link** below!)*"
+            ),
+            view=view,
+            ephemeral=True,
+        )
+
 
 class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
     """
@@ -846,11 +911,91 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         logger.info("Registered persistent clan showcase views (Submit Panel & Review Buttons).")
 
     # -------------------------------------------------------------------------
+    # Command: /clan-submit and !clan_submit
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-submit",
+        description="Submit or draft your clan showcase profile (choose photo/GIF from device or paste link).",
+    )
+    @app_commands.describe(
+        image="Select a photo or saved GIF directly from your phone gallery/camera roll or files",
+        image_url="Or enter a direct image/GIF URL (https://...)",
+    )
+    async def submit_clan_slash(
+        self,
+        interaction: discord.Interaction,
+        image: Optional[discord.Attachment] = None,
+        image_url: Optional[str] = None,
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ This command can only be used in a server.", ephemeral=True
+            )
+            return
+
+        initial_data = {}
+        draft = self.service.get_draft(interaction.guild.id, interaction.user.id)
+        if draft:
+            initial_data = dict(draft)
+        else:
+            prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
+            if prev:
+                initial_data = {
+                    "clan_name_color": f"{prev.clan_name} | {prev.color_hex}",
+                    "metadata": prev.metadata_text,
+                    "description": prev.description_text,
+                    "activities_motto": prev.activities_motto,
+                    "logo_url": prev.logo_url,
+                }
+
+        # Check if user uploaded a photo/GIF directly from their device
+        if image:
+            content_type = image.content_type or ""
+            filename = image.filename.lower()
+            valid_exts = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+            if not (content_type.startswith("image/") or any(filename.endswith(ext) for ext in valid_exts)):
+                await interaction.response.send_message(
+                    f"❌ The file `{image.filename}` is not a supported image or GIF format. "
+                    "Please upload a PNG, JPG, WEBP, or GIF file.",
+                    ephemeral=True,
+                )
+                return
+            initial_data["logo_url"] = image.url
+        elif image_url:
+            valid, resolved, err = await resolve_image_url(interaction.client, image_url)
+            if not valid:
+                await interaction.response.send_message(
+                    f"❌ **Invalid Image URL:** {err}", ephemeral=True
+                )
+                return
+            initial_data["logo_url"] = resolved
+
+        modal = ClanSubmissionModal(self.service, initial_data=initial_data)
+        await interaction.response.send_modal(modal)
+
+    @commands.command(name="clan_submit")
+    async def submit_clan_prefix(
+        self, ctx: commands.Context, image_url: Optional[str] = None
+    ):
+        """Prefix fallback command (!clan_submit)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        msg = (
+            "ℹ️ Discord modals must be opened via interactive slash commands or buttons.\n"
+            "Please use the slash command: **/clan-submit**\n"
+            "• **To select a photo/GIF from your phone:** Use `/clan-submit image:[Select Photo]`!\n"
+            "• **To use a link:** Use `/clan-submit` or click **📋 Submit Clan Profile** on the registration panel."
+        )
+        await ctx.send(msg)
+
+    # -------------------------------------------------------------------------
     # Command: /post-clan-submission-panel and !post_clan_submission_panel
     # -------------------------------------------------------------------------
     @app_commands.command(
         name="post-clan-submission-panel",
-        description="Admin: Drop the interactive Clan Profile Submission panel with persistent button.",
+        description="Admin: Drop the interactive Clan Profile Submission panel with persistent buttons.",
     )
     @app_commands.describe(
         channel="Channel to post the submission panel in (defaults to current channel)"
@@ -882,12 +1027,17 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             description=(
                 f"Welcome to the official **{config.organization_name}** Clan Showcase submission system!\n\n"
                 "Are you a clan leader looking to represent your roster in our server's official showcase? "
-                "Click the button below to submit your clan's profile for staff review.\n\n"
+                "Choose your preferred method below to submit your clan's profile for staff review:\n\n"
+                "**How to Provide Your Clan Logo / GIF (Choose One):**\n"
+                "• **Choice 1 — Pick Photo/GIF from Device (Mobile & PC):**\n"
+                "  Type `/clan-submit` and select **`image`** to choose directly from your phone's Camera Roll / Gallery or files!\n"
+                "• **Choice 2 — Paste Image Link in Form:**\n"
+                "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
-                "• **Clan Name:** Just enter your clan's name. *(Optional: if you have a custom team color, enter `Clan Name | #hex`, e.g. `Shadow | #d4af37`. Otherwise it automatically uses official UDA emerald-green (#10b981)!)*\n"
+                "• **Clan Name:** Just enter your clan's name. *(Optional: enter `Clan Name | #hex`, e.g. `Shadow | #d4af37`. Defaults to official UDA emerald-green #10b981!)*\n"
                 "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
                 "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
-                "• **Logo URL:** Must be a direct image link (Discord upload, Imgur, PNG, or JPG).\n"
+                "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
                 "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
                 "Click **📋 Submit Clan Profile** below to begin!"
             ),
@@ -928,12 +1078,17 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             description=(
                 f"Welcome to the official **{config.organization_name}** Clan Showcase submission system!\n\n"
                 "Are you a clan leader looking to represent your roster in our server's official showcase? "
-                "Click the button below to submit your clan's profile for staff review.\n\n"
+                "Choose your preferred method below to submit your clan's profile for staff review:\n\n"
+                "**How to Provide Your Clan Logo / GIF (Choose One):**\n"
+                "• **Choice 1 — Pick Photo/GIF from Device (Mobile & PC):**\n"
+                "  Type `/clan-submit` and select **`image`** to choose directly from your phone's Camera Roll / Gallery or files!\n"
+                "• **Choice 2 — Paste Image Link in Form:**\n"
+                "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
-                "• **Clan Name:** Just enter your clan's name. *(Optional: if you have a custom team color, enter `Clan Name | #hex`, e.g. `Shadow | #d4af37`. Otherwise it automatically uses official UDA emerald-green (#10b981)!)*\n"
+                "• **Clan Name:** Just enter your clan's name. *(Optional: enter `Clan Name | #hex`, e.g. `Shadow | #d4af37`. Defaults to official UDA emerald-green #10b981!)*\n"
                 "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
                 "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
-                "• **Logo URL:** Must be a direct image link (Discord upload, Imgur, PNG, or JPG).\n"
+                "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
                 "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
                 "Click **📋 Submit Clan Profile** below to begin!"
             ),

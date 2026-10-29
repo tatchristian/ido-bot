@@ -13,9 +13,19 @@ from services.clan_showcase_service import (
     ClanSubmission,
     build_clan_showcase_embed,
     parse_name_and_color,
+    resolve_image_url,
     validate_image_url,
 )
 from utils.storage import StorageManager
+
+
+def run_coro(coro):
+    """Executes a pure coroutine without spinning an event loop."""
+    try:
+        coro.send(None)
+    except StopIteration as exc:
+        return exc.value
+    raise RuntimeError("Coroutine did not finish synchronously")
 
 
 def test_parse_name_and_color_standard():
@@ -70,6 +80,31 @@ def test_validate_image_url():
     invalid_spaces, err3 = validate_image_url("https://example.com/bad url.png")
     assert invalid_spaces is False
     assert "spaces" in err3
+
+
+def test_resolve_image_url_direct_link():
+    valid, resolved, err = run_coro(
+        resolve_image_url(None, "https://cdn.discordapp.com/attachments/123/456/logo.png")
+    )
+    assert valid is True
+    assert resolved == "https://cdn.discordapp.com/attachments/123/456/logo.png"
+    assert err == ""
+
+    valid_gif, resolved_gif, _ = run_coro(
+        resolve_image_url(None, "https://media.tenor.com/image.gif")
+    )
+    assert valid_gif is True
+    assert resolved_gif == "https://media.tenor.com/image.gif"
+
+
+def test_resolve_image_url_invalid():
+    valid_empty, _, err_empty = run_coro(resolve_image_url(None, "   "))
+    assert valid_empty is False
+    assert "empty" in err_empty.lower()
+
+    valid_bad, _, err_bad = run_coro(resolve_image_url(None, "not_a_link"))
+    assert valid_bad is False
+    assert "http" in err_bad.lower()
 
 
 def test_build_clan_showcase_embed():

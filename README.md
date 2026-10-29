@@ -118,7 +118,9 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 
 | Interface / Command | Description |
 | :--- | :--- |
-| **`📋 Submit Clan Profile` Button** | Placed in your designated clan intake channel. Clan leaders click this button to open the 5-field pop-up submission form (with auto-draft restore). |
+| **`📋 Submit Clan Profile` Button** | Placed in your designated clan intake channel. Click this button to open the submission form and enter your details with an image link. |
+| **`📱 Choose Photo from Device` Button** | Guidance button on the submission panel explaining how to pick a photo directly from your mobile camera roll or saved GIFs without needing links. |
+| `/clan-submit [image] [image_url]` | **Dual-Choice Intake:** Upload a photo/GIF directly from your device library (`image`) or provide an image link (`image_url`). Automatically opens the submission form with your image attached! *(Prefix fallback: `!clan_submit`)* |
 | `/clan-showcase-preview` | Test how your clan showcase embed will look before submitting. Specify clan name, optional hex color, and direct logo URL. *(Ephemeral: only visible to you)* |
 
 ---

@@ -60,16 +60,88 @@ def parse_name_and_color(raw_str: str) -> Tuple[str, int, str]:
     return name or "Unnamed Clan", color_int, hex_str
 
 
+DISCORD_MESSAGE_LINK_REGEX = re.compile(
+    r"^https?://(?:ptb\.|canary\.)?discord(?:app)?\.com/channels/(\d+)/(\d+)/(\d+)/?$",
+    re.IGNORECASE,
+)
+
+
 def validate_image_url(url: str) -> Tuple[bool, str]:
     """
     Validates that a URL is a valid web link.
+    Accepts HTTP/HTTPS image links, Discord CDN, Imgur, Tenor, Giphy, etc.
     """
     stripped = url.strip()
+    if not stripped:
+        return False, "Logo/Banner URL cannot be empty."
     if not (stripped.startswith("http://") or stripped.startswith("https://")):
         return False, "Logo/Banner URL must start with `http://` or `https://`."
     if " " in stripped:
         return False, "Logo/Banner URL cannot contain spaces."
     return True, ""
+
+
+async def resolve_image_url(
+    bot_client: Optional[discord.Client],
+    raw_url: str,
+) -> Tuple[bool, str, str]:
+    """
+    Validates and resolves an image URL.
+    Supports:
+    1. Direct HTTP/HTTPS URLs (PNG, JPG, JPEG, WEBP, GIF, Imgur, Discord CDN).
+    2. Discord message links (e.g. https://discord.com/channels/.../.../...) -
+       fetches the referenced message and extracts the image attachment or embed URL.
+    Returns: (is_valid, resolved_url, error_message)
+    """
+    stripped = raw_url.strip()
+    if not stripped:
+        return False, "", "Logo/Banner URL cannot be empty."
+
+    # Check for Discord message link (common when mobile users tap 'Copy Link' on chat images)
+    match = DISCORD_MESSAGE_LINK_REGEX.match(stripped)
+    if match and bot_client:
+        _guild_id = int(match.group(1))
+        channel_id = int(match.group(2))
+        message_id = int(match.group(3))
+        try:
+            channel = bot_client.get_channel(channel_id)
+            if not channel:
+                channel = await bot_client.fetch_channel(channel_id)
+            if channel and isinstance(channel, (discord.TextChannel, discord.Thread)):
+                target_msg = await channel.fetch_message(message_id)
+                # Check message attachments for photo/GIF
+                for att in target_msg.attachments:
+                    content_type = att.content_type or ""
+                    filename = att.filename.lower()
+                    if content_type.startswith("image/") or any(
+                        filename.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif")
+                    ):
+                        return True, att.url, ""
+                # Check embeds for image or thumbnail
+                for emb in target_msg.embeds:
+                    if emb.image and emb.image.url:
+                        return True, emb.image.url, ""
+                    if emb.thumbnail and emb.thumbnail.url:
+                        return True, emb.thumbnail.url, ""
+                return (
+                    False,
+                    stripped,
+                    "The linked Discord message does not contain any image or GIF attachments.",
+                )
+        except Exception as exc:
+            logger.warning("Failed to resolve image from message link '%s': %s", stripped, exc)
+            return (
+                False,
+                stripped,
+                f"Could not access the linked Discord message: {exc}",
+            )
+
+    # Standard URL validation
+    is_valid, err = validate_image_url(stripped)
+    if not is_valid:
+        return False, stripped, err
+
+    return True, stripped, ""
 
 
 def build_clan_showcase_embed(
