@@ -89,6 +89,7 @@ HELP_SECTION_CHOICES = [
     app_commands.Choice(name="Admin Controls", value="admin"),
     app_commands.Choice(name="Weapons, Regions & Rules", value="weapons_regions"),
     app_commands.Choice(name="Clan Showcase & Submissions", value="clans"),
+    app_commands.Choice(name="Events & Website Live Sync", value="events_sync"),
 ]
 
 
@@ -173,6 +174,11 @@ class HelpView(discord.ui.View):
     @discord.ui.button(label="🏛️ Clan Showcase", style=discord.ButtonStyle.secondary, custom_id="help_clans")
     async def clans_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = build_help_embed("clans")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="📅 Events & Website", style=discord.ButtonStyle.secondary, custom_id="help_events_sync")
+    async def events_sync_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = build_help_embed("events_sync")
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="📖 View All", style=discord.ButtonStyle.success, custom_id="help_all")
@@ -1867,6 +1873,226 @@ class TournamentCog(commands.Cog):
         embed.set_footer(text=f"{config.organization_name} • Event Operations")
 
         await interaction.followup.send(embed=embed)
+
+    # -------------------------------------------------------------------------
+    # Event Management: Cancel & Complete Events, Manage Past Results
+    # -------------------------------------------------------------------------
+
+    async def _scheduled_events_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        choices = []
+        guild = interaction.guild
+        if guild:
+            for ev in getattr(guild, "scheduled_events", []):
+                status_str = str(getattr(ev, "status", "")).lower()
+                if "cancel" in status_str or "complete" in status_str or "ended" in status_str:
+                    continue
+                date_str = ev.start_time.strftime("%m/%d") if ev.start_time else "TBD"
+                display_name = f"{ev.name} ({date_str})"[:100]
+                if not current or current.lower() in display_name.lower():
+                    choices.append(app_commands.Choice(name=display_name, value=str(ev.id)))
+                    if len(choices) >= 25:
+                        break
+        return choices
+
+    async def _past_results_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        choices = []
+        past_service = getattr(self.bot, "past_results_service", None)
+        if not past_service:
+            from services.past_results_service import PastResultsService
+            past_service = PastResultsService()
+            self.bot.past_results_service = past_service
+
+        for res in past_service.get_all_results():
+            display = f"{res.name} (🏆 {res.champion} | {res.date})"[:100]
+            if not current or current.lower() in display.lower():
+                choices.append(app_commands.Choice(name=display, value=res.id))
+                if len(choices) >= 25:
+                    break
+        return choices
+
+    @app_commands.command(
+        name="tournament-cancel-event",
+        description="Admin: Cancel and remove an upcoming scheduled event from Discord and the website schedule.",
+    )
+    @app_commands.describe(
+        event="The scheduled tournament event to cancel and remove"
+    )
+    @app_commands.default_permissions(manage_events=True)
+    @is_tournament_admin()
+    async def cancel_event(self, interaction: discord.Interaction, event: str):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        target_event = None
+        for ev in getattr(guild, "scheduled_events", []):
+            if str(ev.id) == event or ev.name.lower() == event.lower():
+                target_event = ev
+                break
+
+        if not target_event:
+            await interaction.response.send_message(
+                f"❌ Could not find a scheduled event matching `{event}`.",
+                ephemeral=True,
+            )
+            return
+
+        event_name = target_event.name
+        try:
+            await target_event.delete(reason=f"Canceled by {interaction.user} via /tournament-cancel-event")
+        except Exception as exc:
+            logger.error("Failed to delete scheduled event %s: %s", target_event.id, exc)
+            await interaction.response.send_message(
+                f"❌ Failed to cancel scheduled event: {exc}",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="🗑️ Tournament Event Canceled",
+            description=(
+                f"**Event:** `{event_name}`\n"
+                f"**Action:** Removed from Discord server events and the website upcoming schedule.\n\n"
+                f"• The top-of-server banner has been removed.\n"
+                f"• [unitedduelingamity.org/tournaments.html](https://unitedduelingamity.org/tournaments.html) will no longer list this event."
+            ),
+            color=0xE74C3C,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Event Operations")
+        await interaction.response.send_message(embed=embed)
+
+    @cancel_event.autocomplete("event")
+    async def cancel_event_autocomplete(self, interaction: discord.Interaction, current: str):
+        return await self._scheduled_events_autocomplete(interaction, current)
+
+    @app_commands.command(
+        name="tournament-complete-event",
+        description="Admin: Conclude a tournament, crown the champion clan/player, and publish to Past Results.",
+    )
+    @app_commands.describe(
+        event="The tournament or event that concluded",
+        champion="The winning clan or champion player name",
+        runner_up="The runner-up clan or player name (optional)",
+        score="Final match score or series result (e.g. 3-1, 2-0)",
+        notes="Optional tournament recap or notes",
+    )
+    @app_commands.default_permissions(manage_events=True)
+    @is_tournament_admin()
+    async def complete_event(
+        self,
+        interaction: discord.Interaction,
+        event: str,
+        champion: str,
+        runner_up: str = "",
+        score: str = "",
+        notes: str = "",
+    ):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        target_event = None
+        for ev in getattr(guild, "scheduled_events", []):
+            if str(ev.id) == event or ev.name.lower() == event.lower():
+                target_event = ev
+                break
+
+        event_name = target_event.name if target_event else event.strip()
+        event_date = (
+            target_event.start_time.strftime("%Y-%m-%d")
+            if target_event and target_event.start_time
+            else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        event_type = "Clan Cup" if "clan" in event_name.lower() else "Tournament"
+
+        past_service = getattr(self.bot, "past_results_service", None)
+        if not past_service:
+            from services.past_results_service import PastResultsService
+            past_service = PastResultsService()
+            self.bot.past_results_service = past_service
+
+        past_service.add_result(
+            name=event_name,
+            champion=champion,
+            date=event_date,
+            runner_up=runner_up,
+            score=score,
+            type_str=event_type,
+            description=notes or (target_event.description if target_event else ""),
+        )
+
+        # Conclude the Discord scheduled event so it leaves Upcoming
+        if target_event:
+            try:
+                await target_event.delete(reason=f"Concluded by {interaction.user} via /tournament-complete-event")
+            except Exception as exc:
+                logger.debug("Could not remove concluded scheduled event: %s", exc)
+
+        embed = discord.Embed(
+            title="🏆 Tournament Concluded & Published to Past Results!",
+            description=(
+                f"**Tournament:** `{event_name}`\n"
+                f"**Date:** `{event_date}`\n\n"
+                f"🥇 **Champion:** **{champion}**\n"
+                f"{f'🥈 **Runner-Up:** {runner_up}' if runner_up else ''}\n"
+                f"{f'📊 **Final Score:** `{score}`' if score else ''}\n"
+                f"{f'📝 **Notes:** {notes}' if notes else ''}\n\n"
+                f"Published to **[unitedduelingamity.org/tournaments.html](https://unitedduelingamity.org/tournaments.html)** (Past Results)."
+            ),
+            color=0xD4AF37,  # Official Gold
+        )
+        embed.set_footer(text=f"{config.organization_name} • Hall of Champions")
+        await interaction.response.send_message(embed=embed)
+
+    @complete_event.autocomplete("event")
+    async def complete_event_autocomplete(self, interaction: discord.Interaction, current: str):
+        return await self._scheduled_events_autocomplete(interaction, current)
+
+    @app_commands.command(
+        name="tournament-remove-past-result",
+        description="Admin: Remove an entry from the website's Past Results archive.",
+    )
+    @app_commands.describe(
+        result="Select the past result entry to delete"
+    )
+    @app_commands.default_permissions(administrator=True)
+    @is_tournament_admin()
+    async def remove_past_result_cmd(self, interaction: discord.Interaction, result: str):
+        past_service = getattr(self.bot, "past_results_service", None)
+        if not past_service:
+            from services.past_results_service import PastResultsService
+            past_service = PastResultsService()
+            self.bot.past_results_service = past_service
+
+        removed = past_service.remove_result(result)
+        if not removed:
+            await interaction.response.send_message(
+                f"❌ Could not find a past result matching `{result}`.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="🗑️ Past Result Removed",
+            description=(
+                f"**Event:** `{removed.name}` ({removed.date})\n"
+                f"**Champion:** {removed.champion}\n\n"
+                f"Successfully deleted from the website's Past Results archive."
+            ),
+            color=0xE74C3C,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Event Operations")
+        await interaction.response.send_message(embed=embed)
+
+    @remove_past_result_cmd.autocomplete("result")
+    async def remove_past_result_autocomplete(self, interaction: discord.Interaction, current: str):
+        return await self._past_results_autocomplete(interaction, current)
 
     # -------------------------------------------------------------------------
     # Interactive Event Scheduling Panel (/post-event-scheduler-panel)

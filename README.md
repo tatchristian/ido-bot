@@ -145,13 +145,15 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 | `/tournament-set-channels` / `/tournament-view-channels` | Configure or view dedicated tournament channels. |
 | `/tournament-set-admin-role` / `/tournament-view-admin-role` | Select which role (and higher) can manage tournaments. |
 | `/tournament-announce` | Ping registered main players, substitutes, or everyone with an announcement. |
-| `/tournament-schedule-event` | Schedule an official Discord server event (displayed at the top of the server) with an optional `sync_to_website` flag to automatically push to `unitedduelingamity.org`. |
+| `/tournament-schedule-event` | Schedule an official Discord server event (displayed at the top of the server) which automatically feeds to `unitedduelingamity.org`. |
+| `/tournament-cancel-event` | Cancel and delete an upcoming event from Discord and automatically remove it from the website schedule. |
+| `/tournament-complete-event` | Conclude a tournament, crown the champion and runner-up, and publish to website Past Results. |
+| `/tournament-remove-past-result` | Remove an event record from the website's Past Results archive. |
+| `/post-event-scheduler-panel` | Post the 1-click interactive Tournament & Event Scheduler panel with persistent modal button in staff channels *(Prefix: `!post_event_scheduler_panel`)*. |
 | `/tournament-export` | Download a roster export formatted for **Challonge**, **Start.gg / Battlefy (CSV)**, or Text. |
 | `/tournament-clear` | Wipe both main roster and substitute list for a fresh event. |
 | `/tournament-setup-section` | Auto-construct complete tournament category, channel layout, and permissions. |
 | `/tournament-remove-section` | Safely clean up and delete the auto-generated tournament section. |
-| `/website-sync-test` | Test REST API connection and authentication to `https://unitedduelingamity.org/api/sync`. |
-| `/website-sync-tournament` | Manually push the active tournament standings, slots, and roster to the website. |
 
 ---
 
@@ -165,9 +167,66 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 | `/clan-showcase-channels` | `/clan-showcase-channels [showcase_channel] [staff_review_channel]` | Configure where approved embeds are published and where private staff reviews appear. |
 | `/clan-showcase-view-channels`| `/clan-showcase-view-channels` | Inspect current showcase and review channel routing. |
 | `/clan-showcase-edit` | `/clan-showcase-edit clan:<name_or_id>` | Search and live-edit any clan profile. Automatically edits the live published embed in Discord *(Prefix fallback: `!clan_edit <name>`)*. |
-| `/clan-showcase-sync-website` | `/clan-showcase-sync-website` | Manually push all approved clan profiles to the website directory on `unitedduelingamity.org`. |
-| **`Approve & Publish` Button** | Click on review message | Instantly publishes finished embed to the public showcase channel and notifies the applicant via DM. |
+| **`Approve & Publish` Button** | Click on review message | Instantly publishes finished embed to the public showcase channel, updates the website directory, and notifies the applicant via DM. |
 | **`Reject` Button** | Click on review message | Opens modal for rejection reason, updates staff log, and DMs applicant with the explanation. |
+
+---
+
+### 🌐 5. Tournament Event Scheduling & Website Live Sync (`unitedduelingamity.org`)
+
+Duke hosts a public REST API server with full CORS support directly feeding **`https://unitedduelingamity.org`**. 
+
+No manual API keys or push commands are needed—events scheduled in Discord and approved clan profiles appear on the website automatically.
+
+#### 📅 1-Click Interactive Scheduler Panel
+Staff can drop a permanent interactive scheduler panel into any admin channel:
+```
+/post-event-scheduler-panel [channel:#channel]
+```
+*(Or prefix command: `!post_event_scheduler_panel`)*
+
+* **`📅 Schedule Tournament Event` Button:** Opens a 4-field modal:
+  * **Event Title:** (e.g. `Autumn Clan Cup 2026`)
+  * **Date & Time:** (e.g. `2026-11-15 18:00 EST` or `11/15 6:00 PM EST`)
+  * **Duration & Location:** (e.g. `2 hours | Dueling Grounds Arena`)
+  * **Description:** Format, weapon rules, and prize info.
+* **`🌐 Website Feed Status` Button:** Ephemeral button that displays the live status of the public REST API and provides direct links to verify upcoming events and leaderboard feeds.
+
+#### ⚡ Automatic Live Sync
+* **Top-of-Server Event:** Discord immediately displays the event at the top of the server banner so members can click **Interested** for reminders.
+* **Website Upcoming Schedule:** Duke's API server serves the event at `GET /tournaments`. The website's `script.js` renders the date badge, event tag, title, and description automatically.
+
+#### 🗑️ Canceling an Upcoming Event
+To cancel an event and remove it from both Discord and the website:
+```
+/tournament-cancel-event event:<event_name_or_id>
+```
+*(Features interactive Discord autocomplete of currently scheduled events)*.
+
+#### 🏆 Concluding an Event & Publishing to Past Results
+When a tournament finishes, crown the champion and publish to the website's Past Results archive:
+```
+/tournament-complete-event event:<event> champion:<clan_or_player> [runner_up:<name>] [score:<3-1>] [notes:<text>]
+```
+* Concludes the Discord scheduled event so it leaves the "Upcoming" list.
+* Saves the historical record to `data/past_results.json`.
+* Exposes the record via `GET /past-results` (and `GET /tournaments/past`) for the website's Past Results section.
+
+#### ❌ Deleting a Past Result
+To delete an archived result from the website:
+```
+/tournament-remove-past-result result:<event_name_or_id>
+```
+*(Features interactive Discord autocomplete of past tournament archives)*.
+
+#### 📡 Public REST API Endpoints
+| Endpoint | Method | Output | Description |
+| :--- | :--- | :--- | :--- |
+| `/tournaments` | `GET` | JSON Array | Active & upcoming scheduled events for `tournaments.html`. |
+| `/past-results` | `GET` | JSON Array | Historical champions, runner-ups, and match scores. |
+| `/leaderboard` (or `/clans`) | `GET` | JSON Array | Approved clans, logos, Banner Points, and mottos for `leaderboard.html`. |
+| `/players` | `GET` | JSON Array | Registered players, ratings, and weapon masteries. |
+| `/health` | `GET` | Text | Health check for 24/7 cloud hosts (Render / Koyeb). |
 
 ---
 

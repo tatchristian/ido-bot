@@ -2,6 +2,7 @@
 Public Web REST API Server for United Dueling Amity (UDA).
 Provides live JSON endpoints for https://unitedduelingamity.org:
 - GET /tournaments : Upcoming and active tournament events
+- GET /past-results (alias /tournaments/past) : Historical champions and match scores
 - GET /leaderboard (alias /clans) : Approved clan standings and Banner Points
 - GET /players     : Registered player roster and competitive ratings
 - GET /health (or /) : Service health check for Railway/Koyeb deployments
@@ -50,6 +51,7 @@ def create_api_app(bot: Any) -> web.Application:
         Format expected by https://unitedduelingamity.org:
         [
           {
+            "id": "123456789",
             "name": "Autumn Clan Cup",
             "date": "2026-11-08",
             "type": "Clan Cup",
@@ -64,6 +66,11 @@ def create_api_app(bot: Any) -> web.Application:
             for guild in bot.guilds:
                 try:
                     for ev in getattr(guild, "scheduled_events", []):
+                        # Filter out canceled or completed events
+                        status_str = str(getattr(ev, "status", "")).lower()
+                        if "cancel" in status_str or "complete" in status_str or "ended" in status_str:
+                            continue
+
                         # Extract YYYY-MM-DD date required by script.js date parser
                         start_date = (
                             ev.start_time.strftime("%Y-%m-%d")
@@ -72,6 +79,7 @@ def create_api_app(bot: Any) -> web.Application:
                         )
                         ev_type = "Clan Cup" if "clan" in ev.name.lower() else "Tournament"
                         events.append({
+                            "id": str(ev.id),
                             "name": ev.name,
                             "date": start_date,
                             "type": ev_type,
@@ -94,6 +102,7 @@ def create_api_app(bot: Any) -> web.Application:
                     # Don't duplicate if already listed in scheduled events
                     if not any(e["name"].lower() == state.name.lower() for e in events):
                         events.append({
+                            "id": f"guild-{gid}",
                             "name": state.name,
                             "date": created_date,
                             "type": "Championship",
@@ -103,6 +112,32 @@ def create_api_app(bot: Any) -> web.Application:
         # Sort chronologically by date
         events.sort(key=lambda x: str(x.get("date", "")))
         return web.json_response(events, headers=CORS_HEADERS)
+
+    async def past_results_handler(request: web.Request) -> web.Response:
+        """
+        Returns past tournament results, champions, runner-ups, and final scores.
+        Format:
+        [
+          {
+            "id": "1a2b3c4d",
+            "name": "Autumn Clan Cup",
+            "date": "2026-11-08",
+            "champion": "Cerberus Elite",
+            "runner_up": "Shadow Syndicate",
+            "score": "3 - 1",
+            "type": "Clan Cup",
+            "description": "Final bracket showdown"
+          }
+        ]
+        """
+        past_service = getattr(bot, "past_results_service", None)
+        if not past_service:
+            from services.past_results_service import PastResultsService
+            past_service = PastResultsService()
+            bot.past_results_service = past_service
+
+        results = [r.to_dict() for r in past_service.get_all_results()]
+        return web.json_response(results, headers=CORS_HEADERS)
 
     async def leaderboard_handler(request: web.Request) -> web.Response:
         """
@@ -170,6 +205,8 @@ def create_api_app(bot: Any) -> web.Application:
     app.router.add_get("/", health_handler)
     app.router.add_get("/health", health_handler)
     app.router.add_get("/tournaments", tournaments_handler)
+    app.router.add_get("/past-results", past_results_handler)
+    app.router.add_get("/tournaments/past", past_results_handler)
     app.router.add_get("/leaderboard", leaderboard_handler)
     app.router.add_get("/clans", leaderboard_handler)
     app.router.add_get("/players", players_handler)

@@ -27,11 +27,13 @@ class DummyGuild:
 
 
 class DummyEvent:
-    def __init__(self, name, start_time, description=""):
+    def __init__(self, name, start_time, description="", status="scheduled", event_id=123):
+        self.id = event_id
         self.name = name
         self.start_time = start_time
         self.description = description
-        self.url = "https://discord.com/events/123/456"
+        self.status = status
+        self.url = f"https://discord.com/events/123/{event_id}"
 
 
 class DummyBot:
@@ -176,3 +178,57 @@ class TestApiServer(AioHTTPTestCase):
         # script.js expects name and score
         assert any(p["name"] == "Viper" and p["score"] == 1000 for p in data)
         assert any(p["name"] == "Kensei" and p["score"] == 1000 for p in data)
+
+    @unittest_run_loop
+    async def test_canceled_and_completed_events_excluded_from_upcoming(self):
+        guild = DummyGuild()
+        now = datetime.now(timezone.utc)
+        guild.scheduled_events.append(
+            DummyEvent("Active Cup", now, status="scheduled", event_id=1)
+        )
+        guild.scheduled_events.append(
+            DummyEvent("Canceled Cup", now, status="canceled", event_id=2)
+        )
+        guild.scheduled_events.append(
+            DummyEvent("Finished Cup", now, status="completed", event_id=3)
+        )
+        self.bot.guilds.append(guild)
+
+        resp = await self.client.get("/tournaments")
+        assert resp.status == 200
+        data = await resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Active Cup"
+
+    @unittest_run_loop
+    async def test_past_results_endpoint(self):
+        from services.past_results_service import PastResultsService
+        storage = MagicMock()
+        storage.load.return_value = {"results": []}
+        past_svc = PastResultsService(storage=storage)
+        past_svc._results.clear()
+        past_svc.add_result(
+            name="Autumn Clan Cup 2026",
+            champion="Cerberus Elite",
+            date="2026-10-15",
+            runner_up="Shadow Syndicate",
+            score="3 - 1",
+            type_str="Clan Cup",
+            description="Championship Finals",
+        )
+        self.bot.past_results_service = past_svc
+
+        resp = await self.client.get("/past-results")
+        assert resp.status == 200
+        data = await resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "Autumn Clan Cup 2026"
+        assert data[0]["champion"] == "Cerberus Elite"
+        assert data[0]["runner_up"] == "Shadow Syndicate"
+        assert data[0]["score"] == "3 - 1"
+
+        # Check alias
+        resp_alias = await self.client.get("/tournaments/past")
+        assert resp_alias.status == 200
+        data_alias = await resp_alias.json()
+        assert data_alias == data

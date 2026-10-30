@@ -92,4 +92,10 @@ def test_build_help_embed():
     assert "Clan Profile Showcase Portal" in embed_clans.fields[0].name
     assert "/clan-showcase-edit" in embed_clans.fields[0].value
 
+    # Test events_sync only section
+    embed_events = build_help_embed("events_sync")
+    assert len(embed_events.fields) == 1
+    assert "Events & Website Live Sync" in embed_events.fields[0].name
+    assert "/tournament-complete-event" in embed_events.fields[0].value
+
     assert all(len(f.value) <= 1024 for f in embed_all.fields)

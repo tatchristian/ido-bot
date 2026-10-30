@@ -317,6 +317,21 @@ def build_help_embed(
             inline=False,
         )
 
+    if section in ("all", "events_sync"):
+        events_sync_cmds = (
+            "• `/post-event-scheduler-panel` (or `!post_event_scheduler_panel`) — Post interactive 1-click event scheduler panel in staff channels.\n"
+            "• `/tournament-schedule-event` — Schedule an official Discord server event (displayed at the top of the server banner).\n"
+            "• `/tournament-cancel-event` — Cancel and delete an upcoming event (removes from Discord & website schedule).\n"
+            "• `/tournament-complete-event` — Conclude a tournament, crown champion & runner-up, and publish to website Past Results.\n"
+            "• `/tournament-remove-past-result` — Delete an archived result from the website Past Results list.\n"
+            "• **Live Website Sync:** All active Discord events and approved clans automatically feed into `unitedduelingamity.org`!"
+        )
+        embed.add_field(
+            name="📅 Events & Website Live Sync",
+            value=events_sync_cmds,
+            inline=False,
+        )
+
     full_name = getattr(config, "organization_full_name", "United Dueling Alliances")
     embed.set_footer(text=f"{org} • {full_name}")
     return embed

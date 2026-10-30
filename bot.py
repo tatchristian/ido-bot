@@ -19,6 +19,7 @@ from aiohttp import web
 from config import config
 from services.api_server import create_api_app
 from services.clan_showcase_service import ClanShowcaseService
+from services.past_results_service import PastResultsService
 from services.tournament_service import TournamentService
 from utils.storage import StorageManager
 
@@ -65,6 +66,7 @@ class UDATournamentBot(commands.Bot):
         )
         self.tournament_service = TournamentService(self.storage)
         self.clan_showcase_service = ClanShowcaseService(data_dir=config.data_dir)
+        self.past_results_service = PastResultsService(data_dir=config.data_dir)
 
     async def setup_hook(self) -> None:
         """Invoked before the bot establishes its gateway connection."""
