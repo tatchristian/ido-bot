@@ -348,7 +348,9 @@ class ClanDraftConfirmationView(discord.ui.View):
             content=(
                 f"🎉 **Your clan profile for {sub.clan_name} has been officially submitted to staff!**\n"
                 f"• **Submission ID:** `{sub.id}`\n"
-                f"• Staff will review your profile shortly. You will receive a direct message once approved!"
+                f"• Staff will review your profile shortly. You will receive a direct message once approved!\n\n"
+                f"💡 *Note: Your official clan role will be generated automatically upon approval. "
+                f"Extra customizations (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.*"
             ),
             embed=None,
             view=None,
@@ -826,7 +828,12 @@ class ClanReviewButtonsView(discord.ui.View):
 
         if applicant:
             try:
-                role_info = f"\nYour official clan role **@{created_role.name}** has also been created and assigned to you!" if created_role else ""
+                role_info = (
+                    f"\n\n🛡️ **Official Clan Role:** **@{created_role.name}** has been automatically created and assigned to you!\n"
+                    f"💡 *Note: Any extra role perks (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.*"
+                    if created_role
+                    else ""
+                )
                 await applicant.send(
                     f"🎉 **Congratulations!** Your clan profile submission for **{sub.clan_name}** "
                     f"has been **approved** by staff in **{guild.name}**!\n\n"
@@ -1139,6 +1146,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
                 "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
                 "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
+                "• **Clan Role Creation:** Your official clan role is created automatically upon approval. Extra customizations (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.\n"
                 "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
                 "Click **📋 Submit Clan Profile** below to begin!"
             ),
@@ -1190,6 +1198,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
                 "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
                 "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
+                "• **Clan Role Creation:** Your official clan role is created automatically upon approval. Extra customizations (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.\n"
                 "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
                 "Click **📋 Submit Clan Profile** below to begin!"
             ),
