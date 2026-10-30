@@ -70,32 +70,51 @@ def test_build_roster_embed():
 
 
 def test_build_help_embed():
-    # Test all section
-    embed_all = build_help_embed("all", org_name="UDA")
-    field_names = [f.name for f in embed_all.fields]
-    assert any("Participant Commands" in name for name in field_names)
-    assert any("Tournament Admin Controls" in name for name in field_names)
-    assert any("Weapons, Regions & Rules" in name for name in field_names)
+    # Test all section for non-admin (admin & event sync should be omitted)
+    embed_all_user = build_help_embed("all", org_name="UDA", is_admin=False)
+    user_field_names = [f.name for f in embed_all_user.fields]
+    assert any("Participant Commands" in name for name in user_field_names)
+    assert any("Weapons, Regions & Rules" in name for name in user_field_names)
+    assert any("Clan Profile Showcase Portal" in name for name in user_field_names)
+    assert not any("Tournament Admin Controls" in name for name in user_field_names)
+    assert not any("Events & Website Live Sync" in name for name in user_field_names)
+
+    # Test all section for admin (admin & event sync should be included)
+    embed_all_admin = build_help_embed("all", org_name="UDA", is_admin=True)
+    admin_field_names = [f.name for f in embed_all_admin.fields]
+    assert any("Participant Commands" in name for name in admin_field_names)
+    assert any("Tournament Admin Controls" in name for name in admin_field_names)
+    assert any("Events & Website Live Sync" in name for name in admin_field_names)
+    assert any("Weapons, Regions & Rules" in name for name in admin_field_names)
 
     # Test participant only section
     embed_part = build_help_embed("participants")
     assert len(embed_part.fields) == 1
     assert "Participant Commands" in embed_part.fields[0].name
 
-    # Test admin only section (split into 2 sub-fields to respect Discord 1024-char limit)
-    embed_admin = build_help_embed("admin")
-    assert len(embed_admin.fields) == 2
-    assert all("Tournament Admin Controls" in f.name for f in embed_admin.fields)
+    # Test admin section for non-admin vs admin
+    embed_admin_denied = build_help_embed("admin", is_admin=False)
+    assert len(embed_admin_denied.fields) == 1
+    assert "Admin Access Restricted" in embed_admin_denied.fields[0].name
+
+    embed_admin_allowed = build_help_embed("admin", is_admin=True)
+    assert len(embed_admin_allowed.fields) == 2
+    assert all("Tournament Admin Controls" in f.name for f in embed_admin_allowed.fields)
+
     # Test clans only section
     embed_clans = build_help_embed("clans")
     assert len(embed_clans.fields) == 1
     assert "Clan Profile Showcase Portal" in embed_clans.fields[0].name
     assert "/clan-showcase-edit" in embed_clans.fields[0].value
 
-    # Test events_sync only section
-    embed_events = build_help_embed("events_sync")
-    assert len(embed_events.fields) == 1
-    assert "Events & Website Live Sync" in embed_events.fields[0].name
-    assert "/tournament-complete-event" in embed_events.fields[0].value
+    # Test events_sync section for non-admin vs admin
+    embed_events_denied = build_help_embed("events_sync", is_admin=False)
+    assert len(embed_events_denied.fields) == 1
+    assert "Admin Access Restricted" in embed_events_denied.fields[0].name
 
-    assert all(len(f.value) <= 1024 for f in embed_all.fields)
+    embed_events_allowed = build_help_embed("events_sync", is_admin=True)
+    assert len(embed_events_allowed.fields) == 1
+    assert "Events & Website Live Sync" in embed_events_allowed.fields[0].name
+    assert "/tournament-complete-event" in embed_events_allowed.fields[0].value
+
+    assert all(len(f.value) <= 1024 for f in embed_all_admin.fields)

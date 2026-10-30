@@ -93,47 +93,49 @@ HELP_SECTION_CHOICES = [
 ]
 
 
+def check_is_tournament_admin(user: Union[discord.User, discord.Member], guild: Optional[discord.Guild], client: Optional[commands.Bot] = None) -> bool:
+    """Synchronous predicate to check if a user is server owner, admin, or has tournament admin role or higher."""
+    if guild is None:
+        return False
+    if user.id == guild.owner_id:
+        return True
+    if hasattr(user, "guild_permissions") and user.guild_permissions.administrator:
+        return True
+    if not isinstance(user, discord.Member):
+        return False
+
+    cog = client.get_cog("TournamentCog") if client else None
+    target_role_id = None
+    target_role_name = config.admin_role_name
+    if cog and hasattr(cog, "service"):
+        guild_state = cog.service.get_state(guild.id)
+        target_role_id = guild_state.admin_role_id or config.admin_role_id
+        target_role_name = guild_state.admin_role_name or config.admin_role_name
+    else:
+        target_role_id = config.admin_role_id
+
+    threshold_role = None
+    if target_role_id:
+        threshold_role = guild.get_role(target_role_id)
+
+    if not threshold_role and target_role_name:
+        target_name_lower = target_role_name.strip().lower()
+        threshold_role = discord.utils.find(
+            lambda r: r.name.strip().lower() == target_name_lower,
+            guild.roles,
+        )
+
+    if threshold_role is not None:
+        if user.top_role.position >= threshold_role.position:
+            return True
+
+    return False
+
+
 def is_tournament_admin():
     """Custom check for administrator permission or designated Tournament Admin role or higher in hierarchy."""
     async def predicate(interaction: discord.Interaction) -> bool:
-        if interaction.guild is None:
-            return False
-
-        if interaction.user.id == interaction.guild.owner_id:
-            return True
-
-        if interaction.permissions.administrator:
-            return True
-
-        if not isinstance(interaction.user, discord.Member):
-            return False
-
-        cog = interaction.client.get_cog("TournamentCog")
-        target_role_id = None
-        target_role_name = config.admin_role_name
-        if cog and hasattr(cog, "service"):
-            guild_state = cog.service.get_state(interaction.guild_id or 0)
-            target_role_id = guild_state.admin_role_id or config.admin_role_id
-            target_role_name = guild_state.admin_role_name or config.admin_role_name
-        else:
-            target_role_id = config.admin_role_id
-
-        threshold_role = None
-        if target_role_id:
-            threshold_role = interaction.guild.get_role(target_role_id)
-
-        if not threshold_role and target_role_name:
-            target_name_lower = target_role_name.strip().lower()
-            threshold_role = discord.utils.find(
-                lambda r: r.name.strip().lower() == target_name_lower,
-                interaction.guild.roles,
-            )
-
-        if threshold_role is not None:
-            if interaction.user.top_role.position >= threshold_role.position:
-                return True
-
-        return False
+        return check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
 
     return app_commands.check(predicate)
 
@@ -153,37 +155,56 @@ def is_server_admin():
 class HelpView(discord.ui.View):
     """Interactive navigation buttons for the /tournament-help command."""
 
-    def __init__(self, timeout: float = 180.0):
+    def __init__(self, is_admin: bool = False, timeout: float = 180.0):
         super().__init__(timeout=timeout)
+        self.is_admin = is_admin
 
     @discord.ui.button(label="👥 Participants", style=discord.ButtonStyle.primary, custom_id="help_participants")
     async def participant_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_help_embed("participants")
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        embed = build_help_embed("participants", is_admin=user_is_admin)
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="🛠️ Admins", style=discord.ButtonStyle.secondary, custom_id="help_admin")
     async def admin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_help_embed("admin")
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        if not user_is_admin:
+            await interaction.response.send_message(
+                "❌ **Access Denied**: Tournament Admin controls are restricted to administrators and Tournament Staff.",
+                ephemeral=True,
+            )
+            return
+        embed = build_help_embed("admin", is_admin=True)
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="⚔️ Rules & Weapons", style=discord.ButtonStyle.secondary, custom_id="help_weapons")
     async def weapons_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_help_embed("weapons_regions")
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        embed = build_help_embed("weapons_regions", is_admin=user_is_admin)
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="🏛️ Clan Showcase", style=discord.ButtonStyle.secondary, custom_id="help_clans")
     async def clans_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_help_embed("clans")
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        embed = build_help_embed("clans", is_admin=user_is_admin)
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="📅 Events & Website", style=discord.ButtonStyle.secondary, custom_id="help_events_sync")
     async def events_sync_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_help_embed("events_sync")
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        if not user_is_admin:
+            await interaction.response.send_message(
+                "❌ **Access Denied**: Event Scheduling and Live Website Sync commands are restricted to Tournament Administrators.",
+                ephemeral=True,
+            )
+            return
+        embed = build_help_embed("events_sync", is_admin=True)
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="📖 View All", style=discord.ButtonStyle.success, custom_id="help_all")
     async def all_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = build_help_embed("all")
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        embed = build_help_embed("all", is_admin=user_is_admin)
         await interaction.response.edit_message(embed=embed, view=self)
 
 
@@ -340,8 +361,9 @@ class TournamentCog(commands.Cog):
         ephemeral: bool = True,
     ):
         sec = section.value if section else "all"
-        embed = build_help_embed(sec)
-        view = HelpView()
+        is_admin = check_is_tournament_admin(interaction.user, interaction.guild, self.bot)
+        embed = build_help_embed(sec, is_admin=is_admin)
+        view = HelpView(is_admin=is_admin)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
 
     @app_commands.command(

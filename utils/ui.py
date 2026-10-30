@@ -216,10 +216,12 @@ def build_help_embed(
     section: str = "all",
     org_name: str | None = None,
     color: int | None = None,
+    is_admin: bool = False,
 ) -> discord.Embed:
     """
     Builds the /tournament-help command manual.
-    Sections: 'all', 'participants', 'admin', 'weapons_regions'.
+    Sections: 'all', 'participants', 'admin', 'weapons_regions', 'clans', 'events_sync'.
+    Admin and Event Sync sections are strictly restricted to verified administrators.
     """
     org = org_name or config.organization_name
     embed_color = color or config.embed_color
@@ -253,37 +255,45 @@ def build_help_embed(
         )
 
     if section in ("all", "admin"):
-        admin_lifecycle = (
-            "• `/tournament-open` — Open bracket, set capacity & region filters.\n"
-            "• `/tournament-close` — Close main bracket registrations.\n"
-            "• `/tournament-open-subs` / `/tournament-close-subs` — Toggle substitute signups.\n"
-            "• `/tournament-open-checkin` / `/tournament-close-checkin` — Run check-in window.\n"
-            "• `/tournament-promote-sub` — Swap a no-show player with standby sub.\n"
-            "• `/tournament-kick` — Remove player from main or sub queue.\n"
-            "• `/tournament-force-register` — Manually add a participant or VIP.\n"
-            "• `/tournament-announce` — Broadcast announcement to players.\n"
-            "• `/tournament-clear` — Wipe roster clean for next event."
-        )
-        embed.add_field(
-            name="🛠️ Tournament Admin Controls — Operations",
-            value=admin_lifecycle,
-            inline=False,
-        )
+        if not is_admin:
+            if section == "admin":
+                embed.add_field(
+                    name="🔒 Admin Access Restricted",
+                    value="❌ Tournament Admin commands are restricted to server administrators and Tournament Staff.",
+                    inline=False,
+                )
+        else:
+            admin_lifecycle = (
+                "• `/tournament-open` — Open bracket, set capacity & region filters.\n"
+                "• `/tournament-close` — Close main bracket registrations.\n"
+                "• `/tournament-open-subs` / `/tournament-close-subs` — Toggle substitute signups.\n"
+                "• `/tournament-open-checkin` / `/tournament-close-checkin` — Run check-in window.\n"
+                "• `/tournament-promote-sub` — Swap a no-show player with standby sub.\n"
+                "• `/tournament-kick` — Remove player from main or sub queue.\n"
+                "• `/tournament-force-register` — Manually add a participant or VIP.\n"
+                "• `/tournament-announce` — Broadcast announcement to players.\n"
+                "• `/tournament-clear` — Wipe roster clean for next event."
+            )
+            embed.add_field(
+                name="🛠️ Tournament Admin Controls — Operations",
+                value=admin_lifecycle,
+                inline=False,
+            )
 
-        admin_config = (
-            "• `/tournament-set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
-            "• `/tournament-set-regions` — Update allowed regions filter.\n"
-            "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
-            "• `/tournament-set-role` — Set or link Discord role for participants.\n"
-            "• `/tournament-set-channels` — Configure dedicated channels for tournament.\n"
-            "• `/tournament-set-admin-role` — Set role required for admin commands.\n"
-            "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster."
-        )
-        embed.add_field(
-            name="⚙️ Tournament Admin Controls — Settings & Export",
-            value=admin_config,
-            inline=False,
-        )
+            admin_config = (
+                "• `/tournament-set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
+                "• `/tournament-set-regions` — Update allowed regions filter.\n"
+                "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
+                "• `/tournament-set-role` — Set or link Discord role for participants.\n"
+                "• `/tournament-set-channels` — Configure dedicated channels for tournament.\n"
+                "• `/tournament-set-admin-role` — Set role required for admin commands.\n"
+                "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster."
+            )
+            embed.add_field(
+                name="⚙️ Tournament Admin Controls — Settings & Export",
+                value=admin_config,
+                inline=False,
+            )
 
     if section in ("all", "weapons_regions"):
         weapons_str = ", ".join(f"`{w}`" for w in DEFAULT_WEAPONS)
@@ -318,19 +328,27 @@ def build_help_embed(
         )
 
     if section in ("all", "events_sync"):
-        events_sync_cmds = (
-            "• `/post-event-scheduler-panel` (or `!post_event_scheduler_panel`) — Post interactive 1-click event scheduler panel in staff channels.\n"
-            "• `/tournament-schedule-event` — Schedule an official Discord server event (displayed at the top of the server banner).\n"
-            "• `/tournament-cancel-event` — Cancel and delete an upcoming event (removes from Discord & website schedule).\n"
-            "• `/tournament-complete-event` — Conclude a tournament, crown champion & runner-up, and publish to website Past Results.\n"
-            "• `/tournament-remove-past-result` — Delete an archived result from the website Past Results list.\n"
-            "• **Live Website Sync:** All active Discord events and approved clans automatically feed into `unitedduelingamity.org`!"
-        )
-        embed.add_field(
-            name="📅 Events & Website Live Sync",
-            value=events_sync_cmds,
-            inline=False,
-        )
+        if not is_admin:
+            if section == "events_sync":
+                embed.add_field(
+                    name="🔒 Admin Access Restricted",
+                    value="❌ Event Scheduling and Live Website Sync commands are restricted to Tournament Administrators.",
+                    inline=False,
+                )
+        else:
+            events_sync_cmds = (
+                "• `/post-event-scheduler-panel` (or `!post_event_scheduler_panel`) — Post interactive 1-click event scheduler panel in staff channels.\n"
+                "• `/tournament-schedule-event` — Schedule an official Discord server event (displayed at the top of the server banner).\n"
+                "• `/tournament-cancel-event` — Cancel and delete an upcoming event (removes from Discord & website schedule).\n"
+                "• `/tournament-complete-event` — Conclude a tournament, crown champion & runner-up, and publish to website Past Results.\n"
+                "• `/tournament-remove-past-result` — Delete an archived result from the website Past Results list.\n"
+                "• **Live Website Sync:** All active Discord events and approved clans automatically feed into `unitedduelingamity.org`!"
+            )
+            embed.add_field(
+                name="📅 Events & Website Live Sync",
+                value=events_sync_cmds,
+                inline=False,
+            )
 
     full_name = getattr(config, "organization_full_name", "United Dueling Alliances")
     embed.set_footer(text=f"{org} • {full_name}")
