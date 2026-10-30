@@ -1408,5 +1408,6 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
 
 
 async def setup(bot: commands.Bot) -> None:
-    await bot.add_cog(ClanShowcaseCog(bot))
+    service = getattr(bot, "clan_showcase_service", None)
+    await bot.add_cog(ClanShowcaseCog(bot, service=service))
 

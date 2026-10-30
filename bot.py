@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 
@@ -16,6 +17,8 @@ from discord.ext import commands
 from aiohttp import web
 
 from config import config
+from services.api_server import create_api_app
+from services.clan_showcase_service import ClanShowcaseService
 from services.tournament_service import TournamentService
 from utils.storage import StorageManager
 
@@ -27,28 +30,20 @@ logging.basicConfig(
 logger = logging.getLogger("uda_bot")
 
 
-async def start_health_server():
-    """Starts a lightweight HTTP health check endpoint for cloud platforms like Koyeb."""
-    port_str = config.data_dir.name if False else None
-    # Cloud providers like Koyeb inject PORT into environment
-    raw_port = sys.modules["os"].getenv("PORT", "8000")
+async def start_api_server(bot: UDATournamentBot) -> web.AppRunner | None:
+    """Starts the public REST API and health server for Railway/Koyeb and unitedduelingamity.org."""
+    raw_port = os.getenv("PORT", "8000")
     if not raw_port or not raw_port.isdigit():
         return None
 
     port = int(raw_port)
-    app = web.Application()
-
-    async def health_handler(request):
-        return web.Response(text="UDA Tournament Bot is operational!", content_type="text/plain")
-
-    app.router.add_get("/", health_handler)
-    app.router.add_get("/health", health_handler)
+    app = create_api_app(bot)
 
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info("Health check endpoint listening on 0.0.0.0:%d", port)
+    logger.info("Public Web API and health server listening on 0.0.0.0:%d", port)
     return runner
 
 
@@ -69,11 +64,12 @@ class UDATournamentBot(commands.Bot):
             max_backups=config.max_backups,
         )
         self.tournament_service = TournamentService(self.storage)
+        self.clan_showcase_service = ClanShowcaseService(data_dir=config.data_dir)
 
     async def setup_hook(self) -> None:
         """Invoked before the bot establishes its gateway connection."""
         logger.info("Initializing bot services and loading extensions...")
-        await start_health_server()
+        await start_api_server(self)
         await self.load_extension("cogs.tournaments")
         await self.load_extension("cogs.clan_showcase")
 
