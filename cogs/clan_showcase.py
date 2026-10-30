@@ -10,6 +10,7 @@ import logging
 import re
 import time
 from typing import Optional
+import urllib.request
 
 import discord
 from discord import app_commands
@@ -699,14 +700,92 @@ class ClanReviewButtonsView(discord.ui.View):
             showcase_message_id=showcase_msg.id,
         )
 
+        # Automatic Clan Role Creation & Role Icon Setup
+        created_role = None
+        role_notice = ""
+        applicant = guild.get_member(sub.applicant_id)
+
+        if guild.me and guild.me.guild_permissions.manage_roles:
+            # Check if role with this name already exists
+            existing_role = discord.utils.find(
+                lambda r: r.name.strip().lower() == sub.clan_name.strip().lower(),
+                guild.roles,
+            )
+            role_icon_bytes = None
+            if sub.logo_url:
+                try:
+                    req = urllib.request.Request(
+                        sub.logo_url,
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UDA-Bot/2.0"},
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        content_type = resp.headers.get("Content-Type", "").lower()
+                        # Discord role icons require PNG or JPEG bytes (max 256KB)
+                        if "image" in content_type:
+                            data = resp.read(256 * 1024)
+                            # Ensure it starts with png or jpeg magic bytes
+                            if data.startswith(b"\x89PNG") or data[:3] == b"\xff\xd8\xff":
+                                role_icon_bytes = data
+                except Exception as img_exc:
+                    logger.debug("Could not fetch image for role icon: %s", img_exc)
+
+            role_color = discord.Colour(sub.color_int) if sub.color_int else discord.Colour.default()
+
+            if existing_role:
+                created_role = existing_role
+                role_notice = f"Linked existing role **{existing_role.name}**."
+                # Attempt to update icon if role icons supported and missing
+                if role_icon_bytes and "ROLE_ICONS" in guild.features and not existing_role.display_icon:
+                    try:
+                        await existing_role.edit(display_icon=role_icon_bytes)
+                    except Exception as e:
+                        logger.debug("Could not set existing role icon: %s", e)
+            else:
+                try:
+                    role_kwargs = {
+                        "name": sub.clan_name[:100],
+                        "colour": role_color,
+                        "mentionable": True,
+                        "reason": f"Automatic Clan Role created upon approval of {sub.clan_name} by {interaction.user}",
+                    }
+                    if role_icon_bytes and "ROLE_ICONS" in guild.features:
+                        role_kwargs["display_icon"] = role_icon_bytes
+
+                    created_role = await guild.create_role(**role_kwargs)
+                    role_notice = f"Created new clan role **{created_role.name}**."
+                except Exception as r_exc:
+                    # Fallback without display_icon if server boost level doesn't support ROLE_ICONS
+                    try:
+                        created_role = await guild.create_role(
+                            name=sub.clan_name[:100],
+                            colour=role_color,
+                            mentionable=True,
+                            reason=f"Automatic Clan Role created upon approval of {sub.clan_name} by {interaction.user}",
+                        )
+                        role_notice = f"Created new clan role **{created_role.name}**."
+                    except Exception as fallback_exc:
+                        logger.warning("Failed to automatically create clan role for %s: %s", sub.clan_name, fallback_exc)
+                        role_notice = "*(Bot could not create clan role due to hierarchy or permissions)*"
+
+            # Assign role to clan leader / applicant
+            if created_role and applicant:
+                try:
+                    if created_role < guild.me.top_role:
+                        await applicant.add_roles(created_role, reason=f"Clan Leader of approved clan {sub.clan_name}")
+                        role_notice += f" Assigned to {applicant.mention}."
+                except Exception as assign_exc:
+                    logger.warning("Failed to assign clan role %s to %s: %s", created_role.name, applicant.id, assign_exc)
+
         # Update staff review message: disable buttons and display approver
         try:
+            review_extra = f"\n• **Role:** {role_notice}" if role_notice else ""
             await interaction.message.edit(
                 content=(
                     f"✅ **Approved by {interaction.user.mention}** on <t:{int(time.time())}:f>\n"
                     f"• **Clan:** **{sub.clan_name}**\n"
                     f"• **Applicant:** <@{sub.applicant_id}>\n"
                     f"• **Published in:** {showcase_channel.mention} ([Jump to Post]({showcase_msg.jump_url}))"
+                    f"{review_extra}"
                 ),
                 view=None,
             )
@@ -747,11 +826,13 @@ class ClanReviewButtonsView(discord.ui.View):
 
         if applicant:
             try:
+                role_info = f"\nYour official clan role **@{created_role.name}** has also been created and assigned to you!" if created_role else ""
                 await applicant.send(
                     f"🎉 **Congratulations!** Your clan profile submission for **{sub.clan_name}** "
                     f"has been **approved** by staff in **{guild.name}**!\n\n"
                     f"It is now live in {showcase_channel.mention}!\n"
                     f"View your showcase here: {showcase_msg.jump_url}"
+                    f"{role_info}"
                 )
             except discord.Forbidden:
                 logger.warning(
