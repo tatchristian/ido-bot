@@ -356,12 +356,15 @@ class UndoTournamentSectionView(discord.ui.View):
     )
     async def undo_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
         is_admin = False
-        if isinstance(interaction.user, discord.Member):
-            is_admin = interaction.user.guild_permissions.administrator
+        if interaction.guild:
+            if interaction.user.id == interaction.guild.owner_id:
+                is_admin = True
+            elif isinstance(interaction.user, discord.Member):
+                is_admin = interaction.user.guild_permissions.administrator
 
-        if interaction.user.id != self.author_id and not is_admin:
+        if not is_admin:
             await interaction.response.send_message(
-                "❌ Only administrators can remove the tournament section.",
+                "❌ **Permission Denied**: Only the Server Owner or members with Administrator permissions can remove the tournament section.",
                 ephemeral=True,
             )
             return

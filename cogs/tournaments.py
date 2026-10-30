@@ -1594,13 +1594,13 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="tournament-setup-section",
-        description="[Admin] Construct the official tournament categories, channels, and arenas.",
+        description="[Server Admin] Construct the official tournament categories, channels, and arenas.",
     )
     @app_commands.describe(
         confirm="Set to True to build the tournament section and link bot channels.",
     )
     @app_commands.default_permissions(administrator=True)
-    @is_tournament_admin()
+    @is_server_admin()
     async def setup_tournament_section(self, interaction: discord.Interaction, confirm: bool = False):
         if not interaction.guild:
             await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
@@ -1686,13 +1686,13 @@ class TournamentCog(commands.Cog):
 
     @app_commands.command(
         name="tournament-remove-section",
-        description="[Admin] Safely remove the tournament categories and match arenas.",
+        description="[Server Admin] Safely remove the tournament categories and match arenas.",
     )
     @app_commands.describe(
         confirm="Set to True to confirm removing tournament categories and channels.",
     )
     @app_commands.default_permissions(administrator=True)
-    @is_tournament_admin()
+    @is_server_admin()
     async def remove_tournament_section(self, interaction: discord.Interaction, confirm: bool = False):
         if not interaction.guild:
             await interaction.response.send_message("❌ This command must be used within a server.", ephemeral=True)
