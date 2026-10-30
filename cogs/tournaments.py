@@ -1822,6 +1822,17 @@ class TournamentCog(commands.Cog):
         event_name = name.strip()[:100]
         event_desc = (description or f"Official {config.organization_name} Tournament Event").strip()[:1000]
 
+        create_kwargs = {
+            "name": event_name,
+            "description": event_desc,
+            "start_time": start_time,
+            "end_time": end_time,
+            "privacy_level": discord.PrivacyLevel.guild_only,
+            "reason": f"Scheduled by {interaction.user} via /tournament-schedule-event",
+        }
+        if image_bytes is not None:
+            create_kwargs["image"] = image_bytes
+
         try:
             if channel:
                 entity_type = (
@@ -1829,31 +1840,15 @@ class TournamentCog(commands.Cog):
                     if isinstance(channel, discord.StageChannel)
                     else discord.EntityType.voice
                 )
-                scheduled_event = await guild.create_scheduled_event(
-                    name=event_name,
-                    description=event_desc,
-                    start_time=start_time,
-                    end_time=end_time,
-                    channel=channel,
-                    entity_type=entity_type,
-                    privacy_level=discord.PrivacyLevel.guild_only,
-                    image=image_bytes,
-                    reason=f"Scheduled by {interaction.user} via /tournament-schedule-event",
-                )
+                create_kwargs["channel"] = channel
+                create_kwargs["entity_type"] = entity_type
+                scheduled_event = await guild.create_scheduled_event(**create_kwargs)
                 location_display = channel.mention
             else:
                 loc_text = (location or f"{config.organization_name} Tournament Hub").strip()[:100]
-                scheduled_event = await guild.create_scheduled_event(
-                    name=event_name,
-                    description=event_desc,
-                    start_time=start_time,
-                    end_time=end_time,
-                    location=loc_text,
-                    entity_type=discord.EntityType.external,
-                    privacy_level=discord.PrivacyLevel.guild_only,
-                    image=image_bytes,
-                    reason=f"Scheduled by {interaction.user} via /tournament-schedule-event",
-                )
+                create_kwargs["location"] = loc_text
+                create_kwargs["entity_type"] = discord.EntityType.external
+                scheduled_event = await guild.create_scheduled_event(**create_kwargs)
                 location_display = f"📍 `{loc_text}`"
         except Exception as exc:
             logger.error("Failed to create Discord scheduled event: %s", exc, exc_info=True)
