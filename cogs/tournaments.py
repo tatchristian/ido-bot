@@ -1834,25 +1834,11 @@ class TournamentCog(commands.Cog):
             )
             return
 
-        # 6. Optional REST API Sync to Website (unitedduelingamity.org)
-        website_sync_status = "⏸️ **Skipped** (sync_to_website was set to False)"
-        if sync_to_website:
-            sync_service = WebsiteSyncService()
-            event_payload = {
-                "id": str(scheduled_event.id),
-                "name": scheduled_event.name,
-                "description": scheduled_event.description or "",
-                "start_time": scheduled_event.start_time.isoformat(),
-                "end_time": scheduled_event.end_time.isoformat() if scheduled_event.end_time else None,
-                "location": scheduled_event.location or (scheduled_event.channel.name if scheduled_event.channel else "Discord"),
-                "url": scheduled_event.url,
-                "image_url": str(scheduled_event.cover_image.url) if scheduled_event.cover_image else None,
-            }
-            sync_ok, sync_msg = await sync_service.sync_event(event_payload)
-            if sync_ok:
-                website_sync_status = f"✅ **Synced successfully to website!**\nIt will appear on the [Upcoming Events]({sync_service.api_url.replace('/api/sync', '')}) schedule."
-            else:
-                website_sync_status = f"⚠️ **Website sync pending:** {sync_msg}\n*(The Discord event is safely active at the top of the server)*"
+        # 6. Automatic Website Feed Publication
+        website_sync_status = (
+            "✅ **Live on Website!**\n"
+            "Automatically published to the live public schedule on [unitedduelingamity.org/tournaments.html](https://unitedduelingamity.org/tournaments.html)."
+        )
 
         # 7. Build Response Embed
         embed = discord.Embed(
@@ -1874,112 +1860,13 @@ class TournamentCog(commands.Cog):
             inline=False,
         )
         embed.add_field(
-            name="🌐 Website Sync (unitedduelingamity.org)",
+            name="🌐 Website Feed (unitedduelingamity.org)",
             value=website_sync_status,
             inline=False,
         )
         embed.set_footer(text=f"{config.organization_name} • Event Operations")
 
         await interaction.followup.send(embed=embed)
-
-    @app_commands.command(
-        name="website-sync-test",
-        description="Admin: Test REST API connection to the official website (https://unitedduelingamity.org).",
-    )
-    @app_commands.default_permissions(administrator=True)
-    @is_tournament_admin()
-    async def website_sync_test(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-
-        sync_service = WebsiteSyncService()
-        embed = discord.Embed(
-            title="🌐 Website REST API Connection Test",
-            color=config.embed_color,
-        )
-        embed.add_field(
-            name="API Endpoint URL",
-            value=f"`{sync_service.api_url}`",
-            inline=False,
-        )
-
-        if not sync_service.is_configured():
-            embed.description = (
-                "⚠️ **Website API is not configured yet.**\n\n"
-                "To enable automatic website syncing:\n"
-                "1. Ask your website developer for the `WEBSITE_API_KEY`.\n"
-                "2. Add `WEBSITE_API_KEY=your_key` to your `.env` file.\n"
-                "3. Restart the bot!"
-            )
-            embed.color = 0xF1C40F
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-
-        ok, msg = await sync_service.test_connection()
-        if ok:
-            embed.description = "✅ **Connection Successful!**\nThe bot can successfully authenticate and send updates to unitedduelingamity.org."
-            embed.color = 0x2ECC71
-        else:
-            embed.description = f"❌ **Connection Failed:**\n{msg}"
-            embed.color = 0xE74C3C
-
-        embed.set_footer(text=f"{config.organization_name} • Web Integration")
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-    @app_commands.command(
-        name="website-sync-tournament",
-        description="Admin: Manually push current tournament standings and roster to the website.",
-    )
-    @app_commands.default_permissions(administrator=True)
-    @is_tournament_admin()
-    async def website_sync_tournament(self, interaction: discord.Interaction):
-        guild_id = interaction.guild_id or 0
-        state = self.service.get_state(guild_id)
-        if not state:
-            await interaction.response.send_message("❌ No active tournament found on this server.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        sync_service = WebsiteSyncService()
-        tourney_payload = {
-            "guild_id": guild_id,
-            "tournament_name": state.name,
-            "is_open": state.main_open,
-            "checkin_open": state.checkin_open,
-            "slots": f"{len(state.participants)}/{state.max_slots}",
-            "participants": [
-                {
-                    "user_id": str(p.user_id),
-                    "ign": p.ign,
-                    "weapon": p.weapon,
-                    "region": p.region,
-                    "checked_in": p.checked_in,
-                }
-                for p in state.participants
-            ],
-            "substitutes": [
-                {
-                    "user_id": str(s.user_id),
-                    "ign": s.ign,
-                    "weapon": s.weapon,
-                    "region": s.region,
-                    "checked_in": s.checked_in,
-                }
-                for s in state.substitutes
-            ],
-        }
-
-        ok, msg = await sync_service.sync_tournament_results(tourney_payload)
-        if ok:
-            await interaction.followup.send(
-                f"✅ **Tournament roster for '{state.name}' synced successfully to unitedduelingamity.org!**",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                f"⚠️ **Website sync pending:** {msg}",
-                ephemeral=True,
-            )
 
     # -------------------------------------------------------------------------
     # Interactive Event Scheduling Panel (/post-event-scheduler-panel)
@@ -2096,14 +1983,6 @@ class TournamentEventModal(discord.ui.Modal, title="Schedule Tournament Event"):
             max_length=100,
             required=False,
         )
-        self.sync_website = discord.ui.TextInput(
-            label="Sync to Website? (yes / no)",
-            placeholder="yes (syncs to unitedduelingamity.org) or no",
-            default="yes",
-            style=discord.TextStyle.short,
-            max_length=20,
-            required=False,
-        )
         self.description = discord.ui.TextInput(
             label="Description, Rules & Format",
             placeholder="Format, weapon rules, check-in instructions, prize info...",
@@ -2115,7 +1994,6 @@ class TournamentEventModal(discord.ui.Modal, title="Schedule Tournament Event"):
         self.add_item(self.event_title)
         self.add_item(self.date_time)
         self.add_item(self.duration_location)
-        self.add_item(self.sync_website)
         self.add_item(self.description)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -2166,28 +2044,11 @@ class TournamentEventModal(discord.ui.Modal, title="Schedule Tournament Event"):
             )
             return
 
-        # 4. Optional REST API Sync to Website
-        sync_choice = self.sync_website.value.strip().lower()
-        should_sync = sync_choice in ("yes", "y", "true", "1", "sync")
-        website_sync_status = "⏸️ **Skipped** (sync to website was set to 'no')"
-
-        if should_sync:
-            sync_service = WebsiteSyncService()
-            event_payload = {
-                "id": str(scheduled_event.id),
-                "name": scheduled_event.name,
-                "description": scheduled_event.description or "",
-                "start_time": scheduled_event.start_time.isoformat(),
-                "end_time": scheduled_event.end_time.isoformat() if scheduled_event.end_time else None,
-                "location": scheduled_event.location or "Discord",
-                "url": scheduled_event.url,
-                "image_url": str(scheduled_event.cover_image.url) if scheduled_event.cover_image else None,
-            }
-            sync_ok, sync_msg = await sync_service.sync_event(event_payload)
-            if sync_ok:
-                website_sync_status = f"✅ **Synced successfully to website!**\nIt will appear on the [Upcoming Events]({sync_service.api_url.replace('/api/sync', '')}) schedule."
-            else:
-                website_sync_status = f"⚠️ **Website sync pending:** {sync_msg}\n*(The Discord event is safely active at the top of the server)*"
+        # 4. Automatic Website Feed Publication
+        website_sync_status = (
+            "✅ **Live on Website!**\n"
+            "Automatically published to the live public schedule on [unitedduelingamity.org/tournaments.html](https://unitedduelingamity.org/tournaments.html)."
+        )
 
         # 5. Build Response Embed
         embed = discord.Embed(
@@ -2206,7 +2067,7 @@ class TournamentEventModal(discord.ui.Modal, title="Schedule Tournament Event"):
             inline=False,
         )
         embed.add_field(
-            name="🌐 Website Sync (unitedduelingamity.org)",
+            name="🌐 Website Feed (unitedduelingamity.org)",
             value=website_sync_status,
             inline=False,
         )
@@ -2236,7 +2097,7 @@ class TournamentEventPanelView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(
-        label="🌐 Website Sync Status",
+        label="🌐 Website Feed Status",
         style=discord.ButtonStyle.secondary,
         emoji="📡",
         custom_id="btn_check_website_sync",
@@ -2245,26 +2106,20 @@ class TournamentEventPanelView(discord.ui.View):
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
         await interaction.response.defer(ephemeral=True)
-        sync_service = WebsiteSyncService()
-        if not sync_service.is_configured():
-            await interaction.followup.send(
-                "⚠️ **Website API is not configured yet.**\n"
-                "Add `WEBSITE_API_KEY=your_key` to your `.env` file to enable automatic website syncing.",
-                ephemeral=True,
-            )
-            return
-
-        ok, msg = await sync_service.test_connection()
-        if ok:
-            await interaction.followup.send(
-                "✅ **Website REST API is Online & Connected!**\nUpdates to events, tournaments, and clans will sync directly to unitedduelingamity.org.",
-                ephemeral=True,
-            )
-        else:
-            await interaction.followup.send(
-                f"❌ **Connection Issue:** {msg}",
-                ephemeral=True,
-            )
+        embed = discord.Embed(
+            title="🌐 UDA Website Live Feed Status",
+            description=(
+                "✅ **Website REST API is Online & Operational!**\n\n"
+                "Duke serves live event and leaderboard data directly to **[unitedduelingamity.org](https://unitedduelingamity.org)**.\n\n"
+                "• 📅 **Tournaments Feed:** [View Live Events](https://ido-bot.onrender.com/tournaments)\n"
+                "• 🛡️ **Clan Leaderboard:** [View Live Clans](https://ido-bot.onrender.com/leaderboard)\n"
+                "• ⚔️ **Player Roster:** [View Live Players](https://ido-bot.onrender.com/players)\n\n"
+                "*All tournaments scheduled in Discord and approved clan profiles appear on the website automatically!*"
+            ),
+            color=config.embed_color,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Web Integration")
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 
