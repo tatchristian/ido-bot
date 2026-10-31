@@ -1082,23 +1082,14 @@ class ClanChoiceLauncherModalView(discord.ui.View):
                 prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
                 if prev:
                     initial_data = {
-                        "clan_name_color": f"{prev.clan_name} | {prev.color_hex}",
+                        "clan_name": prev.clan_name,
+                        "clan_color": prev.color_hex,
                         "metadata": prev.metadata_text,
                         "description": prev.description_text,
-                        "activities_motto": prev.activities_motto,
                         "logo_url": prev.logo_url,
                     }
-        view = ClanColorSelectView(self.service, initial_data=initial_data)
-        await interaction.response.send_message(
-            content=(
-                "🎨 **Choose Your Clan Color Preference:**\n"
-                "• Select **Auto-Detect from Clan Logo** to have the bot match your artwork!\n"
-                "• Or select **Custom Hex Code** if you already have an exact `#hex` code.\n"
-                "• Or choose one of the preset color themes below:"
-            ),
-            view=view,
-            ephemeral=True,
-        )
+        modal = ClanSubmissionModal(self.service, initial_data=initial_data)
+        await interaction.response.send_modal(modal)
 
 
 class ClanSubmissionPanelView(discord.ui.View):
@@ -1131,29 +1122,20 @@ class ClanSubmissionPanelView(discord.ui.View):
                     prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
                     if prev:
                         initial_data = {
-                            "clan_name_color": f"{prev.clan_name} | {prev.color_hex}",
+                            "clan_name": prev.clan_name,
+                            "clan_color": prev.color_hex,
                             "metadata": prev.metadata_text,
                             "description": prev.description_text,
-                            "activities_motto": prev.activities_motto,
                             "logo_url": prev.logo_url,
                         }
 
-            view = ClanColorSelectView(self.service, initial_data=initial_data)
-            await interaction.response.send_message(
-                content=(
-                    "🎨 **Choose Your Clan Color Preference:**\n"
-                    "• Select **Auto-Detect from Clan Logo** to have the bot match your artwork automatically!\n"
-                    "• Select **Custom Hex Code** if you want to type an exact `#hex` color.\n"
-                    "• Or pick any preset color from the dropdown below to open the form:"
-                ),
-                view=view,
-                ephemeral=True,
-            )
+            modal = ClanSubmissionModal(self.service, initial_data=initial_data)
+            await interaction.response.send_modal(modal)
         except Exception as exc:
-            logger.error("Failed to open clan submission color picker: %s", exc, exc_info=True)
+            logger.error("Failed to open clan submission modal directly: %s", exc, exc_info=True)
             if not interaction.response.is_done():
                 await interaction.response.send_message(
-                    f"⚠️ An error occurred while opening the color selector: {exc}", ephemeral=True
+                    f"⚠️ An error occurred while opening the form: {exc}", ephemeral=True
                 )
 
     @discord.ui.button(
@@ -1261,21 +1243,8 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 return
             initial_data["logo_url"] = resolved
 
-        if color:
-            modal = ClanSubmissionModal(self.service, initial_data=initial_data, selected_color=color)
-            await interaction.response.send_modal(modal)
-        else:
-            view = ClanColorSelectView(self.service, initial_data=initial_data)
-            await interaction.response.send_message(
-                content=(
-                    "🎨 **Choose Your Clan Color Preference:**\n"
-                    "• Select **Auto-Detect from Clan Logo** to have the bot match your artwork automatically!\n"
-                    "• Select **Custom Hex Code** if you want to type an exact `#hex` color.\n"
-                    "• Or pick any preset color from the dropdown below to open the form:"
-                ),
-                view=view,
-                ephemeral=True,
-            )
+        modal = ClanSubmissionModal(self.service, initial_data=initial_data, selected_color=color)
+        await interaction.response.send_modal(modal)
 
     @commands.command(name="clan_submit")
     async def submit_clan_prefix(
