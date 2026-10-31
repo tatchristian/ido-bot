@@ -300,3 +300,53 @@ def test_clan_draft_confirmation_view_structure():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def test_extract_dominant_color_from_png_and_jpeg():
+    import io
+    from PIL import Image
+    from services.clan_showcase_service import extract_dominant_color_from_bytes
+
+    # Create a red square on black background
+    img = Image.new("RGB", (100, 100), (10, 10, 10))
+    for x in range(30, 70):
+        for y in range(30, 70):
+            img.putpixel((x, y), (230, 60, 20))
+
+    # Test JPEG
+    jpeg_buf = io.BytesIO()
+    img.save(jpeg_buf, format="JPEG")
+    res_jpeg = extract_dominant_color_from_bytes(jpeg_buf.getvalue())
+    assert res_jpeg is not None
+    assert res_jpeg[0].startswith("#")
+
+    # Test PNG
+    png_buf = io.BytesIO()
+    img.save(png_buf, format="PNG")
+    res_png = extract_dominant_color_from_bytes(png_buf.getvalue())
+    assert res_png is not None
+    assert res_png[0].startswith("#")
+
+
+def test_clan_draft_confirmation_view_auto_detect_active():
+    from cogs.clan_showcase import ClanDraftConfirmationView
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        draft = {
+            "clan_name": "Phoenix Order",
+            "clan_color": "#e53b13",
+            "clan_name_color": "Phoenix Order | #e53b13",
+            "metadata": "Region: Global",
+            "description": "Rising from the ashes",
+            "activities_motto": "Motto: Unbroken",
+            "logo_url": "https://example.com/logo.png",
+            "is_auto": True,
+        }
+        view = ClanDraftConfirmationView(service, draft)
+        auto_opt = next(opt for opt in view.color_select.options if opt.value == "auto")
+        assert auto_opt.default is True
+        assert "#E53B13" in auto_opt.label
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+

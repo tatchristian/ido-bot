@@ -23,6 +23,7 @@ from services.clan_showcase_service import (
     ClanSubmission,
     build_clan_showcase_embed,
     extract_dominant_color_from_bytes,
+    fetch_image_bytes,
     parse_name_and_color,
     resolve_image_url,
     validate_image_url,
@@ -113,6 +114,7 @@ class ClanCustomHexModal(discord.ui.Modal, title="Enter Custom Hex Color"):
         _, color_int, color_hex = parse_name_and_color("temp", override_color=color_val)
         self.draft["clan_color"] = color_hex
         self.draft["clan_name_color"] = f"{self.draft['clan_name']} | {color_hex}"
+        self.draft["is_auto"] = False
         if interaction.guild:
             self.service.save_draft(interaction.guild.id, interaction.user.id, self.draft)
 
@@ -229,19 +231,16 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
 
         # 2. Determine initial color (auto-detect from logo or preserve existing draft color)
         color_override = self.selected_color or self.initial_data.get("clan_color")
+        is_auto = False
         if not color_override and resolved_logo_url:
-            try:
-                req = urllib.request.Request(
-                    resolved_logo_url,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UDA-Bot/2.0"},
-                )
-                with urllib.request.urlopen(req, timeout=4) as resp:
-                    raw_img_bytes = resp.read(256 * 1024)
-                    extracted = extract_dominant_color_from_bytes(raw_img_bytes)
-                    if extracted:
-                        color_override = extracted[0]
-            except Exception as ext_exc:
-                logger.debug("Auto color extraction failed, defaulting: %s", ext_exc)
+            raw_img_bytes = fetch_image_bytes(resolved_logo_url)
+            if raw_img_bytes:
+                extracted = extract_dominant_color_from_bytes(raw_img_bytes)
+                if extracted:
+                    color_override = extracted[0]
+                    is_auto = True
+        elif self.initial_data.get("is_auto"):
+            is_auto = True
 
         # 3. Parse Name & Color
         clan_name, color_int, color_hex = parse_name_and_color(
@@ -259,6 +258,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             "activities_motto": self.activities_motto.value,
             "logo_url": resolved_logo_url,
             "selected_color": color_hex,
+            "is_auto": is_auto,
         }
         self.service.save_draft(guild.id, interaction.user.id, draft)
 
@@ -315,9 +315,15 @@ class ClanDraftConfirmationView(discord.ui.View):
 
         # Add theme select menu on row 0
         current_color = draft.get("clan_color", "").lower()
+        is_auto = draft.get("is_auto", False)
         select_options = []
         for val, label, desc in self.COLOR_OPTIONS:
-            is_def = (val.lower() == current_color)
+            if val == "auto":
+                is_def = is_auto
+                if is_auto and current_color:
+                    label = f"🖼️ Auto-Detect ({current_color.upper()})"
+            else:
+                is_def = (not is_auto and val.lower() == current_color)
             select_options.append(
                 discord.SelectOption(
                     label=label,
@@ -343,23 +349,18 @@ class ClanDraftConfirmationView(discord.ui.View):
             extracted_color = None
             logo_url = self.draft.get("logo_url", "")
             if logo_url:
-                try:
-                    req = urllib.request.Request(
-                        logo_url,
-                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UDA-Bot/2.0"},
-                    )
-                    with urllib.request.urlopen(req, timeout=4) as resp:
-                        raw_bytes = resp.read(256 * 1024)
-                        extracted = extract_dominant_color_from_bytes(raw_bytes)
-                        if extracted:
-                            extracted_color = extracted[0]
-                except Exception as exc:
-                    logger.debug("Auto color extraction failed: %s", exc)
+                raw_bytes = fetch_image_bytes(logo_url)
+                if raw_bytes:
+                    extracted = extract_dominant_color_from_bytes(raw_bytes)
+                    if extracted:
+                        extracted_color = extracted[0]
             new_hex = extracted_color or DEFAULT_CLAN_COLOR
             if isinstance(new_hex, int):
                 new_hex = f"#{new_hex:06x}"
+            self.draft["is_auto"] = True
         else:
             new_hex = selected
+            self.draft["is_auto"] = False
 
         self.draft["clan_color"] = new_hex
         self.draft["clan_name_color"] = f"{self.draft['clan_name']} | {new_hex}"

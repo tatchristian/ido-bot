@@ -6,9 +6,11 @@ and approval/rejection lifecycle management.
 
 from __future__ import annotations
 
+import io
 import logging
 import re
 import struct
+import urllib.request
 import uuid
 import zlib
 from dataclasses import asdict, dataclass, field
@@ -48,67 +50,89 @@ NAMED_CLAN_COLORS: Dict[str, Tuple[str, int]] = {
 }
 
 
+def fetch_image_bytes(url: str, timeout: float = 6.0, max_bytes: int = 5 * 1024 * 1024) -> Optional[bytes]:
+    """Downloads image bytes from a URL with browser headers and redirects handling."""
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        return None
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read(max_bytes)
+    except Exception as exc:
+        logger.debug("Failed to fetch image bytes from %s: %s", url, exc)
+        return None
+
+
 def extract_dominant_color_from_bytes(data: bytes) -> Optional[Tuple[str, int]]:
     """
-    Extracts the dominant non-neutral color from raw PNG image bytes.
+    Extracts the dominant vibrant (non-neutral) color from image bytes (PNG, JPEG, WebP, GIF, etc.).
     Returns: (hex_str, color_int) or None if unparseable/neutral.
     """
-    if not data or not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) < 30:
+    if not data or len(data) < 30:
         return None
 
     try:
-        width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
-        if bit_depth != 8 or color_type not in (2, 6):
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(data))
+        im = im.convert("RGBA")
+        im.thumbnail((120, 120))
+
+        raw = im.tobytes()
+        candidates = []
+        for i in range(0, len(raw), 4):
+            r, g, b, a = raw[i:i+4]
+            if a < 100:
+                continue
+            max_c = max(r, g, b)
+            min_c = min(r, g, b)
+            diff = max_c - min_c
+            # Filter out grayscale/neutral pixels
+            if diff < 20:
+                continue
+            # Filter out near-pure blacks and near-pure whites
+            if max_c < 30 or min_c > 240:
+                continue
+            candidates.append((r, g, b))
+
+        if not candidates:
+            # Fallback for monochromatic / grayscale logos
+            for i in range(0, len(raw), 4):
+                r, g, b, a = raw[i:i+4]
+                if a >= 100 and 30 <= r <= 235:
+                    candidates.append((r, g, b))
+
+        if not candidates:
             return None
 
-        idats = []
-        idx = 8
-        while idx < len(data) - 12:
-            length = struct.unpack(">I", data[idx:idx+4])[0]
-            ctype = data[idx+4:idx+8]
-            if ctype == b"IDAT":
-                idats.append(data[idx+8:idx+8+length])
-            idx += 12 + length
+        # Group colors into 16-step buckets to cluster similar shades
+        buckets: Dict[Tuple[int, int, int], int] = {}
+        for r, g, b in candidates:
+            key = ((r // 16) * 16, (g // 16) * 16, (b // 16) * 16)
+            buckets[key] = buckets.get(key, 0) + 1
 
-        if not idats:
-            return None
+        best_bucket = max(buckets.items(), key=lambda item: item[1])[0]
+        in_bucket = [
+            c for c in candidates
+            if (c[0] // 16) * 16 == best_bucket[0]
+            and (c[1] // 16) * 16 == best_bucket[1]
+            and (c[2] // 16) * 16 == best_bucket[2]
+        ]
+        avg_r = sum(c[0] for c in in_bucket) // len(in_bucket)
+        avg_g = sum(c[1] for c in in_bucket) // len(in_bucket)
+        avg_b = sum(c[2] for c in in_bucket) // len(in_bucket)
 
-        decompressed = zlib.decompress(b"".join(idats))
-        bytes_per_pixel = 4 if color_type == 6 else 3
-        stride = 1 + width * bytes_per_pixel
-
-        step_row = max(1, height // 40)
-        colors = []
-        for y in range(0, height, step_row):
-            row_offset = y * stride
-            if row_offset + stride > len(decompressed):
-                break
-            row_pixels = decompressed[row_offset+1:row_offset+stride]
-            step_col = max(1, width // 20)
-            for x in range(0, width, step_col):
-                p_offset = x * bytes_per_pixel
-                if color_type == 6:
-                    r, g, b, a = row_pixels[p_offset:p_offset+4]
-                    if a < 128:
-                        continue
-                else:
-                    r, g, b = row_pixels[p_offset:p_offset+3]
-                # Filter out pure dark / pure light neutrals
-                if (r < 30 and g < 30 and b < 30) or (r > 230 and g > 230 and b > 230):
-                    continue
-                colors.append((r, g, b))
-
-        if not colors:
-            return None
-
-        avg_r = sum(c[0] for c in colors) // len(colors)
-        avg_g = sum(c[1] for c in colors) // len(colors)
-        avg_b = sum(c[2] for c in colors) // len(colors)
-        color_int = (avg_r << 16) + (avg_g << 8) + avg_b
         hex_str = f"#{avg_r:02x}{avg_g:02x}{avg_b:02x}"
+        color_int = (avg_r << 16) + (avg_g << 8) + avg_b
         return hex_str, color_int
     except Exception as exc:
-        logger.debug("Could not extract dominant color from image: %s", exc)
+        logger.debug("Could not extract dominant color from image bytes: %s", exc)
         return None
 
 

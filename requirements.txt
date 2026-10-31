@@ -1,6 +1,7 @@
 # Core Bot Dependencies
 discord.py>=2.3.2,<3.0.0
 python-dotenv>=1.0.0
+pillow>=10.0.0
 
 # Testing
 pytest>=7.4.0
