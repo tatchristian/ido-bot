@@ -107,17 +107,29 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         self.initial_data = initial_data or {}
         self.selected_color = selected_color or self.initial_data.get("selected_color")
 
-        placeholder_text = "Enter your official Clan Name (e.g. Cerberus Elite)"
-        if self.selected_color == "custom_hex":
-            placeholder_text = "Enter Clan Name (or Clan Name | #hex for custom color)"
-
-        self.clan_name_color = discord.ui.TextInput(
+        self.clan_name = discord.ui.TextInput(
             label="Clan Name",
-            placeholder=placeholder_text,
-            default=self.initial_data.get("clan_name_color", ""),
+            placeholder="Enter your official Clan Name (e.g. Cerberus Elite)",
+            default=self.initial_data.get("clan_name", self.initial_data.get("clan_name_color", "").split("|")[0].strip()),
             style=discord.TextStyle.short,
             max_length=100,
             required=True,
+        )
+
+        initial_color_val = self.initial_data.get("clan_color", "")
+        if not initial_color_val:
+            if self.selected_color and self.selected_color != "custom_hex":
+                initial_color_val = self.selected_color
+            elif "|" in self.initial_data.get("clan_name_color", ""):
+                initial_color_val = self.initial_data.get("clan_name_color", "").split("|")[1].strip()
+
+        self.clan_color = discord.ui.TextInput(
+            label="Clan Color / Theme (Optional)",
+            placeholder="Hex code (e.g. #d4af37), color name (e.g. gold, blue), or 'auto'",
+            default=initial_color_val,
+            style=discord.TextStyle.short,
+            max_length=50,
+            required=False,
         )
         self.metadata = discord.ui.TextInput(
             label="Clan Metadata (Region, Leaders, Status)",
@@ -134,24 +146,15 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             required=True,
         )
         self.description = discord.ui.TextInput(
-            label="Clan Description & Philosophy",
-            placeholder="Describe your clan's backstory, vision, philosophy, and goals...",
+            label="Description, Activities & Motto",
+            placeholder=(
+                "Describe your clan's backstory, vision, philosophy, and goals...\n\n"
+                "• Main Activities\n"
+                '• Motto: "Your clan motto here"'
+            ),
             default=self.initial_data.get("description", ""),
             style=discord.TextStyle.paragraph,
-            max_length=1500,
-            required=True,
-        )
-        self.activities_motto = discord.ui.TextInput(
-            label="Activities & Motto",
-            placeholder=(
-                "• Activity 1\n"
-                "• Activity 2\n"
-                "• Activity 3\n\n"
-                'Motto: "Your clan motto here"'
-            ),
-            default=self.initial_data.get("activities_motto", ""),
-            style=discord.TextStyle.paragraph,
-            max_length=1000,
+            max_length=2000,
             required=True,
         )
         self.logo_url = discord.ui.TextInput(
@@ -163,10 +166,10 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             required=True,
         )
 
-        self.add_item(self.clan_name_color)
+        self.add_item(self.clan_name)
+        self.add_item(self.clan_color)
         self.add_item(self.metadata)
         self.add_item(self.description)
-        self.add_item(self.activities_motto)
         self.add_item(self.logo_url)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -191,9 +194,26 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             )
             return
 
-        # 2. Check if Auto-detect from image is requested or if preset color was selected
+        # 2. Check if Auto-detect from image is requested or if color was provided in the color box
+        entered_color = self.clan_color.value.strip()
         color_override = None
-        if self.selected_color and self.selected_color != "custom_hex":
+
+        if entered_color.lower() in ("auto", "detect", "logo") and resolved_logo_url:
+            try:
+                req = urllib.request.Request(
+                    resolved_logo_url,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UDA-Bot/2.0"},
+                )
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    raw_img_bytes = resp.read(256 * 1024)
+                    extracted = extract_dominant_color_from_bytes(raw_img_bytes)
+                    if extracted:
+                        color_override = extracted[0]
+            except Exception as ext_exc:
+                logger.debug("Auto color extraction failed, defaulting: %s", ext_exc)
+        elif entered_color:
+            color_override = entered_color
+        elif self.selected_color and self.selected_color != "custom_hex":
             if self.selected_color == "auto" and resolved_logo_url:
                 try:
                     req = urllib.request.Request(
@@ -210,24 +230,23 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             elif self.selected_color.startswith("#"):
                 color_override = self.selected_color
 
-        # 3. Save draft with resolved URL so user never loses their progress
+        # 3. Parse Name & Color
+        clan_name, color_int, color_hex = parse_name_and_color(
+            self.clan_name.value,
+            override_color=color_override
+        )
+
+        # 4. Save draft with resolved URL so user never loses their progress
         draft = {
-            "clan_name_color": self.clan_name_color.value,
+            "clan_name": clan_name,
+            "clan_color": color_hex,
+            "clan_name_color": f"{clan_name} | {color_hex}",
             "metadata": self.metadata.value,
             "description": self.description.value,
-            "activities_motto": self.activities_motto.value,
+            "activities_motto": "",
             "logo_url": resolved_logo_url,
-            "selected_color": color_override or self.selected_color or "",
+            "selected_color": color_hex,
         }
-        self.service.save_draft(guild.id, interaction.user.id, draft)
-
-        # 4. Build Preview Embed
-        clan_name, color_int, color_hex = parse_name_and_color(
-            self.clan_name_color.value,
-            override_color=color_override or (self.selected_color if self.selected_color and self.selected_color != "custom_hex" and self.selected_color != "auto" else None)
-        )
-        # Update draft clan_name_color with resolved color for display
-        draft["clan_name_color"] = f"{clan_name} | {color_hex}"
         self.service.save_draft(guild.id, interaction.user.id, draft)
 
         preview_embed = build_clan_showcase_embed(
@@ -235,7 +254,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             color_int=color_int,
             metadata_text=self.metadata.value,
             description_text=self.description.value,
-            activities_motto_text=self.activities_motto.value,
+            activities_motto_text="",
             logo_url=resolved_logo_url,
         )
         preview_embed.set_footer(
@@ -511,12 +530,20 @@ class ClanEditModal(discord.ui.Modal):
         self.service = service
         self.submission = submission
 
-        self.clan_name_color = discord.ui.TextInput(
-            label="Clan Name & Color",
-            default=f"{submission.clan_name} | {submission.color_hex}",
-            placeholder="Clan Name (or Clan Name | #hex / color name)",
+        self.clan_name = discord.ui.TextInput(
+            label="Clan Name",
+            default=submission.clan_name,
+            placeholder="Clan Name (e.g. Cerberus Elite)",
             style=discord.TextStyle.short,
             max_length=100,
+            required=True,
+        )
+        self.clan_color = discord.ui.TextInput(
+            label="Clan Color / Theme",
+            default=submission.color_hex,
+            placeholder="Hex code (e.g. #d4af37) or color name (e.g. gold, blue)",
+            style=discord.TextStyle.short,
+            max_length=50,
             required=True,
         )
         self.metadata = discord.ui.TextInput(
@@ -527,17 +554,10 @@ class ClanEditModal(discord.ui.Modal):
             required=True,
         )
         self.description = discord.ui.TextInput(
-            label="Clan Description & Philosophy",
+            label="Description & Philosophy",
             default=submission.description_text,
             style=discord.TextStyle.paragraph,
             max_length=1500,
-            required=True,
-        )
-        self.activities_motto = discord.ui.TextInput(
-            label="Activities & Motto",
-            default=submission.activities_motto,
-            style=discord.TextStyle.paragraph,
-            max_length=1000,
             required=True,
         )
         self.logo_url = discord.ui.TextInput(
@@ -548,10 +568,10 @@ class ClanEditModal(discord.ui.Modal):
             required=True,
         )
 
-        self.add_item(self.clan_name_color)
+        self.add_item(self.clan_name)
+        self.add_item(self.clan_color)
         self.add_item(self.metadata)
         self.add_item(self.description)
-        self.add_item(self.activities_motto)
         self.add_item(self.logo_url)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -567,7 +587,8 @@ class ClanEditModal(discord.ui.Modal):
 
         # 2. Parse Name & Color
         new_name, new_color_int, new_color_hex = parse_name_and_color(
-            self.clan_name_color.value
+            self.clan_name.value,
+            override_color=self.clan_color.value.strip()
         )
 
         # 3. Update database record
@@ -578,7 +599,7 @@ class ClanEditModal(discord.ui.Modal):
             color_int=new_color_int,
             metadata_text=self.metadata.value,
             description_text=self.description.value,
-            activities_motto=self.activities_motto.value,
+            activities_motto=self.submission.activities_motto,
             logo_url=resolved_logo_url,
         )
         if not sub:
