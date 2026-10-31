@@ -192,7 +192,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         )
         self.logo_url = discord.ui.TextInput(
             label="Clan Logo / Emblem (Image Link)",
-            placeholder="Paste image link (or use /clan-submit image to pick file)",
+            placeholder="Paste image link (Pressing Submit opens a preview before full submission)",
             default=self.initial_data.get("logo_url", ""),
             style=discord.TextStyle.short,
             max_length=500,
