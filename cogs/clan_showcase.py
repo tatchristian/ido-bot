@@ -115,7 +115,6 @@ class ClanCustomHexModal(discord.ui.Modal, title="Enter Custom Hex Color"):
         _, color_int, color_hex = parse_name_and_color("temp", override_color=color_val)
         self.draft["clan_color"] = color_hex
         self.draft["clan_name_color"] = f"{self.draft['clan_name']} | {color_hex}"
-        self.draft["is_auto"] = False
         if interaction.guild:
             self.service.save_draft(interaction.guild.id, interaction.user.id, self.draft)
 
@@ -230,26 +229,8 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             )
             return
 
-        # 2. Determine initial color:
-        # Default behavior: Always auto-detect from the logo image unless user explicitly picked a color
-        color_override = self.selected_color
-        is_auto = True if not color_override else False
-
-        if not color_override and resolved_logo_url:
-            raw_img_bytes = await fetch_image_bytes(resolved_logo_url)
-            if raw_img_bytes:
-                extracted = extract_dominant_color_from_bytes(raw_img_bytes)
-                if extracted:
-                    color_override = extracted[0]
-                    is_auto = True
-                    logger.info("Auto-detected color %s for clan '%s' from logo", color_override, self.clan_name.value)
-
-        # Fallback to previously chosen manual color if auto-extract couldn't find a saturated shade
-        if not color_override:
-            prev_color = self.initial_data.get("clan_color")
-            if prev_color and not self.initial_data.get("is_auto"):
-                color_override = prev_color
-                is_auto = False
+        # 2. Determine initial color (preserve existing draft color or default to Cerberus Gold)
+        color_override = self.selected_color or self.initial_data.get("clan_color") or "#d4af37"
 
         # 3. Parse Name & Color
         clan_name, color_int, color_hex = parse_name_and_color(
@@ -267,7 +248,6 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             "activities_motto": self.activities_motto.value,
             "logo_url": resolved_logo_url,
             "selected_color": color_hex,
-            "is_auto": is_auto,
         }
         self.service.save_draft(guild.id, interaction.user.id, draft)
 
@@ -306,9 +286,8 @@ class ClanDraftConfirmationView(discord.ui.View):
     """
 
     COLOR_OPTIONS = [
-        ("auto", "🖼️ Auto-Detect from Clan Logo", "Extracts the dominant theme from your logo artwork"),
-        ("#10b981", "🟢 Emerald Green (#10B981)", "Official UDA Emerald Green theme"),
         ("#d4af37", "🟡 Cerberus Gold (#D4AF37)", "Official Cerberus Gold theme"),
+        ("#10b981", "🟢 Emerald Green (#10B981)", "Official UDA Emerald Green theme"),
         ("#e74c3c", "🔴 Crimson Red (#E74C3C)", "Bold Crimson Red theme"),
         ("#3498db", "🔵 Sapphire Blue (#3498DB)", "Deep Sapphire Blue theme"),
         ("#9b59b6", "🟣 Royal Purple (#9B59B6)", "Regal Royal Purple theme"),
@@ -324,15 +303,9 @@ class ClanDraftConfirmationView(discord.ui.View):
 
         # Add theme select menu on row 0
         current_color = draft.get("clan_color", "").lower()
-        is_auto = draft.get("is_auto", False)
         select_options = []
         for val, label, desc in self.COLOR_OPTIONS:
-            if val == "auto":
-                is_def = is_auto
-                if is_auto and current_color:
-                    label = f"🖼️ Auto-Detect ({current_color.upper()})"
-            else:
-                is_def = (not is_auto and val.lower() == current_color)
+            is_def = (val.lower() == current_color)
             select_options.append(
                 discord.SelectOption(
                     label=label,
@@ -353,29 +326,7 @@ class ClanDraftConfirmationView(discord.ui.View):
         self.add_item(self.color_select)
 
     async def color_select_callback(self, interaction: discord.Interaction):
-        selected = self.color_select.values[0]
-        if selected == "auto":
-            extracted_color = None
-            logo_url = self.draft.get("logo_url", "")
-            if logo_url:
-                raw_bytes = await fetch_image_bytes(logo_url)
-                if raw_bytes:
-                    extracted = extract_dominant_color_from_bytes(raw_bytes)
-                    if extracted:
-                        extracted_color = extracted[0]
-                        logger.info("Auto-detected color %s from logo %s via dropdown", extracted_color, logo_url)
-                    else:
-                        logger.warning("Could not extract vibrant color from %s bytes for logo %s", len(raw_bytes), logo_url)
-                else:
-                    logger.warning("Failed to fetch image bytes for logo %s", logo_url)
-            new_hex = extracted_color or DEFAULT_CLAN_COLOR
-            if isinstance(new_hex, int):
-                new_hex = f"#{new_hex:06x}"
-            self.draft["is_auto"] = True
-        else:
-            new_hex = selected
-            self.draft["is_auto"] = False
-
+        new_hex = self.color_select.values[0]
         self.draft["clan_color"] = new_hex
         self.draft["clan_name_color"] = f"{self.draft['clan_name']} | {new_hex}"
         if interaction.guild:
@@ -1325,7 +1276,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
                 "• **Clan Name & Info:** Enter your official clan name (e.g. `Cerberus Elite`), metadata (region, leaders), description, and motto.\n"
-                "• **Interactive Color & Theme:** You will be able to preview and select your color theme (or auto-detect from your logo) directly on your live preview card before confirming!\n"
+                "• **Interactive Color & Theme:** You can choose any preset color or enter an exact custom #hex code right on your live preview card before confirming!\n"
                 "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
                 "• **Clan Role Creation:** Your official clan role is created automatically upon approval. Extra customizations (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.\n"
                 "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
@@ -1376,7 +1327,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
                 "• **Clan Name & Info:** Enter your official clan name (e.g. `Cerberus Elite`), metadata (region, leaders), description, and motto.\n"
-                "• **Interactive Color & Theme:** You will be able to preview and select your color theme (or auto-detect from your logo) directly on your live preview card before confirming!\n"
+                "• **Interactive Color & Theme:** You can choose any preset color or enter an exact custom #hex code right on your live preview card before confirming!\n"
                 "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
                 "• **Clan Role Creation:** Your official clan role is created automatically upon approval. Extra customizations (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.\n"
                 "• All submissions are reviewed by staff before being published to the public showcase.\n\n"

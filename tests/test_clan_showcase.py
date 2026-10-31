@@ -326,25 +326,24 @@ def test_extract_dominant_color_from_png_and_jpeg():
     assert res_png[0].startswith("#")
 
 
-def test_clan_draft_confirmation_view_auto_detect_active():
+def test_clan_draft_confirmation_view_preset_selection():
     from cogs.clan_showcase import ClanDraftConfirmationView
     temp_dir = Path(tempfile.mkdtemp())
     try:
         service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
         draft = {
             "clan_name": "Phoenix Order",
-            "clan_color": "#e53b13",
-            "clan_name_color": "Phoenix Order | #e53b13",
+            "clan_color": "#e74c3c",
+            "clan_name_color": "Phoenix Order | #e74c3c",
             "metadata": "Region: Global",
             "description": "Rising from the ashes",
             "activities_motto": "Motto: Unbroken",
             "logo_url": "https://example.com/logo.png",
-            "is_auto": True,
         }
         view = ClanDraftConfirmationView(service, draft)
-        auto_opt = next(opt for opt in view.color_select.options if opt.value == "auto")
-        assert auto_opt.default is True
-        assert "#E53B13" in auto_opt.label
+        red_opt = next(opt for opt in view.color_select.options if opt.value == "#e74c3c")
+        assert red_opt.default is True
+        assert "Crimson Red" in red_opt.label
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
