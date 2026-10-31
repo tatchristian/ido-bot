@@ -229,9 +229,11 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             )
             return
 
-        # 2. Determine initial color (auto-detect from logo or preserve existing draft color)
-        color_override = self.selected_color or self.initial_data.get("clan_color")
-        is_auto = False
+        # 2. Determine initial color:
+        # Default behavior: Always auto-detect from the logo image unless user explicitly picked a color
+        color_override = self.selected_color
+        is_auto = True if not color_override else False
+
         if not color_override and resolved_logo_url:
             raw_img_bytes = fetch_image_bytes(resolved_logo_url)
             if raw_img_bytes:
@@ -239,8 +241,14 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
                 if extracted:
                     color_override = extracted[0]
                     is_auto = True
-        elif self.initial_data.get("is_auto"):
-            is_auto = True
+                    logger.info("Auto-detected color %s for clan '%s' from logo", color_override, self.clan_name.value)
+
+        # Fallback to previously chosen manual color if auto-extract couldn't find a saturated shade
+        if not color_override:
+            prev_color = self.initial_data.get("clan_color")
+            if prev_color and not self.initial_data.get("is_auto"):
+                color_override = prev_color
+                is_auto = False
 
         # 3. Parse Name & Color
         clan_name, color_int, color_hex = parse_name_and_color(
@@ -354,6 +362,11 @@ class ClanDraftConfirmationView(discord.ui.View):
                     extracted = extract_dominant_color_from_bytes(raw_bytes)
                     if extracted:
                         extracted_color = extracted[0]
+                        logger.info("Auto-detected color %s from logo %s via dropdown", extracted_color, logo_url)
+                    else:
+                        logger.warning("Could not extract vibrant color from %s bytes for logo %s", len(raw_bytes), logo_url)
+                else:
+                    logger.warning("Failed to fetch image bytes for logo %s", logo_url)
             new_hex = extracted_color or DEFAULT_CLAN_COLOR
             if isinstance(new_hex, int):
                 new_hex = f"#{new_hex:06x}"

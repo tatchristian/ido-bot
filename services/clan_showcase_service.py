@@ -50,11 +50,16 @@ NAMED_CLAN_COLORS: Dict[str, Tuple[str, int]] = {
 }
 
 
-def fetch_image_bytes(url: str, timeout: float = 6.0, max_bytes: int = 5 * 1024 * 1024) -> Optional[bytes]:
-    """Downloads image bytes from a URL with browser headers and redirects handling."""
+def fetch_image_bytes(url: str, timeout: float = 8.0, max_bytes: int = 5 * 1024 * 1024) -> Optional[bytes]:
+    """Downloads image bytes from a URL with browser headers and SSL handling."""
     if not url or not (url.startswith("http://") or url.startswith("https://")):
         return None
     try:
+        import ssl
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
         req = urllib.request.Request(
             url,
             headers={
@@ -62,10 +67,10 @@ def fetch_image_bytes(url: str, timeout: float = 6.0, max_bytes: int = 5 * 1024 
                 "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             },
         )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             return resp.read(max_bytes)
     except Exception as exc:
-        logger.debug("Failed to fetch image bytes from %s: %s", url, exc)
+        logger.warning("Failed to fetch image bytes from %s: %s", url, exc)
         return None
 
 
