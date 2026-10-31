@@ -6,6 +6,7 @@ and automated publishing matching the official Sapphire-style clan showcase embe
 
 from __future__ import annotations
 
+import io
 import logging
 import re
 import time
@@ -235,7 +236,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         is_auto = True if not color_override else False
 
         if not color_override and resolved_logo_url:
-            raw_img_bytes = fetch_image_bytes(resolved_logo_url)
+            raw_img_bytes = await fetch_image_bytes(resolved_logo_url)
             if raw_img_bytes:
                 extracted = extract_dominant_color_from_bytes(raw_img_bytes)
                 if extracted:
@@ -357,7 +358,7 @@ class ClanDraftConfirmationView(discord.ui.View):
             extracted_color = None
             logo_url = self.draft.get("logo_url", "")
             if logo_url:
-                raw_bytes = fetch_image_bytes(logo_url)
+                raw_bytes = await fetch_image_bytes(logo_url)
                 if raw_bytes:
                     extracted = extract_dominant_color_from_bytes(raw_bytes)
                     if extracted:
@@ -896,18 +897,15 @@ class ClanReviewButtonsView(discord.ui.View):
             role_icon_bytes = None
             if sub.logo_url:
                 try:
-                    req = urllib.request.Request(
-                        sub.logo_url,
-                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UDA-Bot/2.0"},
-                    )
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        content_type = resp.headers.get("Content-Type", "").lower()
-                        # Discord role icons require PNG or JPEG bytes (max 256KB)
-                        if "image" in content_type:
-                            data = resp.read(256 * 1024)
-                            # Ensure it starts with png or jpeg magic bytes
-                            if data.startswith(b"\x89PNG") or data[:3] == b"\xff\xd8\xff":
-                                role_icon_bytes = data
+                    data = await fetch_image_bytes(sub.logo_url)
+                    if data:
+                        from PIL import Image
+                        im = Image.open(io.BytesIO(data)).convert("RGBA")
+                        im.thumbnail((128, 128))
+                        icon_buf = io.BytesIO()
+                        im.save(icon_buf, format="PNG")
+                        if len(icon_buf.getvalue()) < 256 * 1024:
+                            role_icon_bytes = icon_buf.getvalue()
                 except Exception as img_exc:
                     logger.debug("Could not fetch image for role icon: %s", img_exc)
 

@@ -349,4 +349,13 @@ def test_clan_draft_confirmation_view_auto_detect_active():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.asyncio
+async def test_fetch_image_bytes_validation():
+    from services.clan_showcase_service import fetch_image_bytes
+    assert await fetch_image_bytes("invalid_url") is None
+    assert await fetch_image_bytes("") is None
+    assert await fetch_image_bytes("ftp://example.com/logo.png") is None
+
+
+
 

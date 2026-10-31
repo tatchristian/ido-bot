@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+import aiohttp
 import discord
 
 from config import config
@@ -50,25 +51,28 @@ NAMED_CLAN_COLORS: Dict[str, Tuple[str, int]] = {
 }
 
 
-def fetch_image_bytes(url: str, timeout: float = 8.0, max_bytes: int = 5 * 1024 * 1024) -> Optional[bytes]:
-    """Downloads image bytes from a URL with browser headers and SSL handling."""
+async def fetch_image_bytes(
+    url: str, timeout: float = 8.0, max_bytes: int = 5 * 1024 * 1024
+) -> Optional[bytes]:
+    """Asynchronously downloads image bytes from a URL with browser headers and SSL handling."""
     if not url or not (url.startswith("http://") or url.startswith("https://")):
         return None
     try:
-        import ssl
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
-            return resp.read(max_bytes)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        }
+        client_timeout = aiohttp.ClientTimeout(total=timeout)
+        async with aiohttp.ClientSession(timeout=client_timeout) as session:
+            async with session.get(url, headers=headers, ssl=False) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    if len(data) > max_bytes:
+                        data = data[:max_bytes]
+                    return data
+                else:
+                    logger.warning("Failed to fetch image bytes from %s: HTTP %s", url, resp.status)
+                    return None
     except Exception as exc:
         logger.warning("Failed to fetch image bytes from %s: %s", url, exc)
         return None
@@ -98,29 +102,34 @@ def extract_dominant_color_from_bytes(data: bytes) -> Optional[Tuple[str, int]]:
             max_c = max(r, g, b)
             min_c = min(r, g, b)
             diff = max_c - min_c
-            # Filter out grayscale/neutral pixels
-            if diff < 20:
+            # Calculate saturation and perceived brightness
+            sat = diff / (max_c if max_c > 0 else 1)
+            brightness = (r * 299 + g * 587 + b * 114) / 1000.0
+
+            # Exclude dark background noise (brightness < 45) and blown-out whites (brightness > 240)
+            # Also exclude grayish/neutral pixels (sat < 0.25)
+            if brightness < 45 or brightness > 240 or sat < 0.25:
                 continue
-            # Filter out near-pure blacks and near-pure whites
-            if max_c < 30 or min_c > 240:
-                continue
-            candidates.append((r, g, b))
+
+            candidates.append((r, g, b, sat, brightness))
 
         if not candidates:
             # Fallback for monochromatic / grayscale logos
             for i in range(0, len(raw), 4):
                 r, g, b, a = raw[i:i+4]
-                if a >= 100 and 30 <= r <= 235:
-                    candidates.append((r, g, b))
+                if a >= 100 and 40 <= r <= 230:
+                    candidates.append((r, g, b, 0.1, r))
 
         if not candidates:
             return None
 
-        # Group colors into 16-step buckets to cluster similar shades
-        buckets: Dict[Tuple[int, int, int], int] = {}
-        for r, g, b in candidates:
+        # Group colors into 16-step buckets
+        # Weight by saturation * brightness so vibrant logo artwork beats dark background noise
+        buckets: Dict[Tuple[int, int, int], float] = {}
+        for r, g, b, sat, br in candidates:
             key = ((r // 16) * 16, (g // 16) * 16, (b // 16) * 16)
-            buckets[key] = buckets.get(key, 0) + 1
+            weight = (sat ** 1.5) * (br / 255.0)
+            buckets[key] = buckets.get(key, 0.0) + weight
 
         best_bucket = max(buckets.items(), key=lambda item: item[1])[0]
         in_bucket = [
@@ -137,7 +146,7 @@ def extract_dominant_color_from_bytes(data: bytes) -> Optional[Tuple[str, int]]:
         color_int = (avg_r << 16) + (avg_g << 8) + avg_b
         return hex_str, color_int
     except Exception as exc:
-        logger.debug("Could not extract dominant color from image bytes: %s", exc)
+        logger.warning("Could not extract dominant color from image bytes: %s", exc)
         return None
 
 
