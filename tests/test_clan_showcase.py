@@ -273,3 +273,30 @@ def test_clan_showcase_service_lifecycle():
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
+
+def test_clan_draft_confirmation_view_structure():
+    from cogs.clan_showcase import ClanDraftConfirmationView
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        draft = {
+            "clan_name": "Cerberus Elite",
+            "clan_color": "#d4af37",
+            "clan_name_color": "Cerberus Elite | #d4af37",
+            "metadata": "Region: NA\nLeader: Duke",
+            "description": "Premier UDA Clan",
+            "activities_motto": "Motto: Power & Glory",
+            "logo_url": "https://example.com/logo.png",
+        }
+        view = ClanDraftConfirmationView(service, draft)
+        assert view.color_select.row == 0
+        assert any(opt.value == "#d4af37" and opt.default for opt in view.color_select.options)
+        labels = [item.label for item in view.children if hasattr(item, "label")]
+        assert "Confirm & Send to Staff" in labels
+        assert "Custom Hex" in labels
+        assert "Edit Info" in labels
+        assert "Discard Draft" in labels
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+

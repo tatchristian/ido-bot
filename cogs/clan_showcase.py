@@ -90,6 +90,48 @@ def get_submission_from_message(
     return None
 
 
+class ClanCustomHexModal(discord.ui.Modal, title="Enter Custom Hex Color"):
+    """Quick modal for typing a custom hex color code or color name."""
+
+    hex_code = discord.ui.TextInput(
+        label="Hex Color Code or Name",
+        placeholder="e.g. #d4af37, #38bdf8, gold, crimson, cyan...",
+        style=discord.TextStyle.short,
+        max_length=30,
+        required=True,
+    )
+
+    def __init__(self, service: ClanShowcaseService, draft: dict[str, str]):
+        super().__init__()
+        self.service = service
+        self.draft = draft
+        if draft.get("clan_color"):
+            self.hex_code.default = draft.get("clan_color")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        color_val = self.hex_code.value.strip()
+        _, color_int, color_hex = parse_name_and_color("temp", override_color=color_val)
+        self.draft["clan_color"] = color_hex
+        self.draft["clan_name_color"] = f"{self.draft['clan_name']} | {color_hex}"
+        if interaction.guild:
+            self.service.save_draft(interaction.guild.id, interaction.user.id, self.draft)
+
+        clan_name, color_int, _ = parse_name_and_color(self.draft["clan_name_color"])
+        updated_embed = build_clan_showcase_embed(
+            clan_name=clan_name,
+            color_int=color_int,
+            metadata_text=self.draft["metadata"],
+            description_text=self.draft["description"],
+            activities_motto_text=self.draft.get("activities_motto", ""),
+            logo_url=self.draft["logo_url"],
+        )
+        updated_embed.set_footer(
+            text=f"{config.organization_name} • Clan Showcase Draft Preview"
+        )
+        new_view = ClanDraftConfirmationView(self.service, self.draft)
+        await interaction.response.edit_message(embed=updated_embed, view=new_view)
+
+
 class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
     """
     5-field modal form for clan leaders to submit or draft their clan profile.
@@ -105,7 +147,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         super().__init__()
         self.service = service
         self.initial_data = initial_data or {}
-        self.selected_color = selected_color or self.initial_data.get("selected_color")
+        self.selected_color = selected_color or self.initial_data.get("selected_color") or self.initial_data.get("clan_color")
 
         self.clan_name = discord.ui.TextInput(
             label="Clan Name",
@@ -114,22 +156,6 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             style=discord.TextStyle.short,
             max_length=100,
             required=True,
-        )
-
-        initial_color_val = self.initial_data.get("clan_color", "")
-        if not initial_color_val:
-            if self.selected_color and self.selected_color != "custom_hex":
-                initial_color_val = self.selected_color
-            elif "|" in self.initial_data.get("clan_name_color", ""):
-                initial_color_val = self.initial_data.get("clan_name_color", "").split("|")[1].strip()
-
-        self.clan_color = discord.ui.TextInput(
-            label="Clan Color / Theme (Optional)",
-            placeholder="Hex code (e.g. #d4af37), color name (e.g. gold, blue), or 'auto'",
-            default=initial_color_val,
-            style=discord.TextStyle.short,
-            max_length=50,
-            required=False,
         )
         self.metadata = discord.ui.TextInput(
             label="Clan Metadata (Region, Leaders, Status)",
@@ -146,16 +172,23 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             required=True,
         )
         self.description = discord.ui.TextInput(
-            label="Description, Activities & Motto",
-            placeholder=(
-                "Describe your clan's backstory, vision, philosophy, and goals...\n\n"
-                "• Main Activities\n"
-                '• Motto: "Your clan motto here"'
-            ),
+            label="Clan Description & Backstory",
+            placeholder="Describe your clan's backstory, vision, philosophy, and goals...",
             default=self.initial_data.get("description", ""),
             style=discord.TextStyle.paragraph,
-            max_length=2000,
+            max_length=1500,
             required=True,
+        )
+        self.activities_motto = discord.ui.TextInput(
+            label="Activities & Motto (Optional)",
+            placeholder=(
+                "• Main Activities (Tournaments, Scrims)\n"
+                '• Motto: "Your clan motto here"'
+            ),
+            default=self.initial_data.get("activities_motto", ""),
+            style=discord.TextStyle.paragraph,
+            max_length=1000,
+            required=False,
         )
         self.logo_url = discord.ui.TextInput(
             label="Clan Logo / Emblem (Image Link)",
@@ -167,9 +200,9 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         )
 
         self.add_item(self.clan_name)
-        self.add_item(self.clan_color)
         self.add_item(self.metadata)
         self.add_item(self.description)
+        self.add_item(self.activities_motto)
         self.add_item(self.logo_url)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -194,11 +227,9 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             )
             return
 
-        # 2. Check if Auto-detect from image is requested or if color was provided in the color box
-        entered_color = self.clan_color.value.strip()
-        color_override = None
-
-        if entered_color.lower() in ("auto", "detect", "logo") and resolved_logo_url:
+        # 2. Determine initial color (auto-detect from logo or preserve existing draft color)
+        color_override = self.selected_color or self.initial_data.get("clan_color")
+        if not color_override and resolved_logo_url:
             try:
                 req = urllib.request.Request(
                     resolved_logo_url,
@@ -211,24 +242,6 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
                         color_override = extracted[0]
             except Exception as ext_exc:
                 logger.debug("Auto color extraction failed, defaulting: %s", ext_exc)
-        elif entered_color:
-            color_override = entered_color
-        elif self.selected_color and self.selected_color != "custom_hex":
-            if self.selected_color == "auto" and resolved_logo_url:
-                try:
-                    req = urllib.request.Request(
-                        resolved_logo_url,
-                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UDA-Bot/2.0"},
-                    )
-                    with urllib.request.urlopen(req, timeout=4) as resp:
-                        raw_img_bytes = resp.read(256 * 1024)
-                        extracted = extract_dominant_color_from_bytes(raw_img_bytes)
-                        if extracted:
-                            color_override = extracted[0]
-                except Exception as ext_exc:
-                    logger.debug("Auto color extraction failed, defaulting: %s", ext_exc)
-            elif self.selected_color.startswith("#"):
-                color_override = self.selected_color
 
         # 3. Parse Name & Color
         clan_name, color_int, color_hex = parse_name_and_color(
@@ -243,7 +256,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             "clan_name_color": f"{clan_name} | {color_hex}",
             "metadata": self.metadata.value,
             "description": self.description.value,
-            "activities_motto": "",
+            "activities_motto": self.activities_motto.value,
             "logo_url": resolved_logo_url,
             "selected_color": color_hex,
         }
@@ -254,20 +267,21 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             color_int=color_int,
             metadata_text=self.metadata.value,
             description_text=self.description.value,
-            activities_motto_text="",
+            activities_motto_text=self.activities_motto.value,
             logo_url=resolved_logo_url,
         )
         preview_embed.set_footer(
             text=f"{config.organization_name} • Clan Showcase Draft Preview"
         )
 
-        # 4. Show ephemeral preview with Confirm, Edit, and Discard buttons
+        # 5. Show ephemeral preview with interactive color dropdown and action buttons
         confirm_view = ClanDraftConfirmationView(self.service, draft)
         await interaction.response.send_message(
             content=(
                 "🔍 **Clan Profile Draft Preview**\n"
-                "Review how your showcase looks below. **Your submission is NOT final until you click Confirm & Send to Staff.**\n"
-                "If you need to make adjustments or fix a typo, click **Edit Draft** below:"
+                "Review how your showcase looks below!\n"
+                "• 🎨 Use the **dropdown** or **Custom Hex** button below to change your theme color.\n"
+                "• When you're ready, click **🚀 Confirm & Send to Staff** to submit!"
             ),
             embed=preview_embed,
             view=confirm_view,
@@ -278,19 +292,101 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
 class ClanDraftConfirmationView(discord.ui.View):
     """
     Interactive ephemeral view allowing applicants to review their preview embed,
-    edit their draft, or confirm official submission to staff.
+    instantly change their clan theme/color via an interactive dropdown or custom hex button,
+    edit form details, or confirm official submission to staff.
     """
+
+    COLOR_OPTIONS = [
+        ("auto", "🖼️ Auto-Detect from Clan Logo", "Extracts the dominant theme from your logo artwork"),
+        ("#10b981", "🟢 Emerald Green (#10B981)", "Official UDA Emerald Green theme"),
+        ("#d4af37", "🟡 Cerberus Gold (#D4AF37)", "Official Cerberus Gold theme"),
+        ("#e74c3c", "🔴 Crimson Red (#E74C3C)", "Bold Crimson Red theme"),
+        ("#3498db", "🔵 Sapphire Blue (#3498DB)", "Deep Sapphire Blue theme"),
+        ("#9b59b6", "🟣 Royal Purple (#9B59B6)", "Regal Royal Purple theme"),
+        ("#e67e22", "🟠 Solar Orange (#E67E22)", "Vibrant Solar Orange theme"),
+        ("#2c3e50", "⚫ Shadow Onyx (#2C3E50)", "Dark Slate / Onyx theme"),
+        ("#ecf0f1", "⚪ Ice Silver / White (#ECF0F1)", "Clean Frost / Silver theme"),
+    ]
 
     def __init__(self, service: ClanShowcaseService, draft: dict[str, str]):
         super().__init__(timeout=600)
         self.service = service
         self.draft = draft
 
+        # Add theme select menu on row 0
+        current_color = draft.get("clan_color", "").lower()
+        select_options = []
+        for val, label, desc in self.COLOR_OPTIONS:
+            is_def = (val.lower() == current_color)
+            select_options.append(
+                discord.SelectOption(
+                    label=label,
+                    value=val,
+                    description=desc,
+                    default=is_def,
+                )
+            )
+
+        self.color_select = discord.ui.Select(
+            placeholder="🎨 Change Clan Color Theme...",
+            min_values=1,
+            max_values=1,
+            options=select_options,
+            row=0,
+        )
+        self.color_select.callback = self.color_select_callback
+        self.add_item(self.color_select)
+
+    async def color_select_callback(self, interaction: discord.Interaction):
+        selected = self.color_select.values[0]
+        if selected == "auto":
+            extracted_color = None
+            logo_url = self.draft.get("logo_url", "")
+            if logo_url:
+                try:
+                    req = urllib.request.Request(
+                        logo_url,
+                        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) UDA-Bot/2.0"},
+                    )
+                    with urllib.request.urlopen(req, timeout=4) as resp:
+                        raw_bytes = resp.read(256 * 1024)
+                        extracted = extract_dominant_color_from_bytes(raw_bytes)
+                        if extracted:
+                            extracted_color = extracted[0]
+                except Exception as exc:
+                    logger.debug("Auto color extraction failed: %s", exc)
+            new_hex = extracted_color or DEFAULT_CLAN_COLOR
+            if isinstance(new_hex, int):
+                new_hex = f"#{new_hex:06x}"
+        else:
+            new_hex = selected
+
+        self.draft["clan_color"] = new_hex
+        self.draft["clan_name_color"] = f"{self.draft['clan_name']} | {new_hex}"
+        if interaction.guild:
+            self.service.save_draft(interaction.guild.id, interaction.user.id, self.draft)
+
+        clan_name, color_int, _ = parse_name_and_color(self.draft["clan_name_color"])
+        updated_embed = build_clan_showcase_embed(
+            clan_name=clan_name,
+            color_int=color_int,
+            metadata_text=self.draft["metadata"],
+            description_text=self.draft["description"],
+            activities_motto_text=self.draft.get("activities_motto", ""),
+            logo_url=self.draft["logo_url"],
+        )
+        updated_embed.set_footer(
+            text=f"{config.organization_name} • Clan Showcase Draft Preview"
+        )
+        new_view = ClanDraftConfirmationView(self.service, self.draft)
+        await interaction.response.edit_message(embed=updated_embed, view=new_view)
+
     @discord.ui.button(
         label="Confirm & Send to Staff",
         style=discord.ButtonStyle.success,
         emoji="🚀",
         custom_id="btn_confirm_clan_draft",
+        row=1,
     )
     async def confirm_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -339,7 +435,7 @@ class ClanDraftConfirmationView(discord.ui.View):
                 color_int=color_int,
                 metadata_text=self.draft["metadata"],
                 description_text=self.draft["description"],
-                activities_motto=self.draft["activities_motto"],
+                activities_motto=self.draft.get("activities_motto", ""),
                 logo_url=self.draft["logo_url"],
             )
             if sub and sub.staff_message_id:
@@ -370,7 +466,7 @@ class ClanDraftConfirmationView(discord.ui.View):
                 clan_name_color_raw=self.draft["clan_name_color"],
                 metadata_text=self.draft["metadata"],
                 description_text=self.draft["description"],
-                activities_motto=self.draft["activities_motto"],
+                activities_motto=self.draft.get("activities_motto", ""),
                 logo_url=self.draft["logo_url"],
             )
             preview_embed = sub.to_embed()
@@ -410,10 +506,24 @@ class ClanDraftConfirmationView(discord.ui.View):
         )
 
     @discord.ui.button(
-        label="Edit Draft",
+        label="Custom Hex",
+        style=discord.ButtonStyle.secondary,
+        emoji="🎨",
+        custom_id="btn_custom_hex_draft",
+        row=1,
+    )
+    async def custom_hex_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        modal = ClanCustomHexModal(self.service, self.draft)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="Edit Info",
         style=discord.ButtonStyle.primary,
         emoji="✏️",
         custom_id="btn_edit_clan_draft",
+        row=1,
     )
     async def edit_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -426,6 +536,7 @@ class ClanDraftConfirmationView(discord.ui.View):
         style=discord.ButtonStyle.secondary,
         emoji="🗑️",
         custom_id="btn_discard_clan_draft",
+        row=1,
     )
     async def discard_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
@@ -950,114 +1061,6 @@ class ClanReviewButtonsView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 
-class ClanColorSelectView(discord.ui.View):
-    """
-    Ephemeral view presenting color selection choices before launching the registration modal.
-    1. Auto-Detect from Clan Logo
-    2. Custom Hex Code (second option so people see it clearly!)
-    3. Preset palette options (Emerald, Gold, Crimson, Sapphire, Purple, Orange, Onyx, Silver)
-    """
-
-    def __init__(self, service: ClanShowcaseService, initial_data: Optional[dict[str, str]] = None):
-        super().__init__(timeout=300)
-        self.service = service
-        self.initial_data = initial_data or {}
-
-        # Add the dropdown select
-        self.color_select = discord.ui.Select(
-            placeholder="🎨 Choose your clan color preference...",
-            min_values=1,
-            max_values=1,
-            options=[
-                discord.SelectOption(
-                    label="Auto-Detect from Clan Logo",
-                    value="auto",
-                    emoji="🖼️",
-                    description="Analyzes your logo picture to extract the primary color!",
-                ),
-                discord.SelectOption(
-                    label="Custom Hex Code",
-                    value="custom_hex",
-                    emoji="🎨",
-                    description="Enter a custom hex code or color name (e.g. Cerberus | #d4af37)",
-                ),
-                discord.SelectOption(
-                    label="Emerald Green",
-                    value="#10b981",
-                    emoji="🟢",
-                    description="Official UDA Emerald Green theme",
-                ),
-                discord.SelectOption(
-                    label="Cerberus Gold",
-                    value="#d4af37",
-                    emoji="🟡",
-                    description="Official Cerberus Gold theme",
-                ),
-                discord.SelectOption(
-                    label="Crimson Red",
-                    value="#e74c3c",
-                    emoji="🔴",
-                    description="Bold Crimson Red",
-                ),
-                discord.SelectOption(
-                    label="Sapphire Blue",
-                    value="#3498db",
-                    emoji="🔵",
-                    description="Deep Sapphire Blue",
-                ),
-                discord.SelectOption(
-                    label="Royal Purple",
-                    value="#9b59b6",
-                    emoji="🟣",
-                    description="Regal Royal Purple",
-                ),
-                discord.SelectOption(
-                    label="Solar Orange",
-                    value="#e67e22",
-                    emoji="🟠",
-                    description="Vibrant Solar Orange",
-                ),
-                discord.SelectOption(
-                    label="Shadow Onyx",
-                    value="#2c3e50",
-                    emoji="⚫",
-                    description="Dark Slate / Onyx",
-                ),
-                discord.SelectOption(
-                    label="Ice Silver / White",
-                    value="#ecf0f1",
-                    emoji="⚪",
-                    description="Clean Frost / Silver",
-                ),
-            ],
-        )
-        self.color_select.callback = self.select_callback
-        self.add_item(self.color_select)
-
-    async def select_callback(self, interaction: discord.Interaction):
-        try:
-            selected = self.color_select.values[0]
-            modal = ClanSubmissionModal(
-                service=self.service,
-                initial_data=self.initial_data,
-                selected_color=selected,
-            )
-            await interaction.response.send_modal(modal)
-        except Exception as exc:
-            logger.error("Error sending modal from color select: %s", exc, exc_info=True)
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    f"⚠️ Could not open form: {exc}", ephemeral=True
-                )
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
-        logger.error("Unhandled error in ClanColorSelectView: %s", error, exc_info=True)
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                f"⚠️ Error processing color selection: {error}", ephemeral=True
-            )
-
-
 class ClanChoiceLauncherModalView(discord.ui.View):
     """Ephemeral launcher view offering quick modal opening from the device upload guide."""
 
@@ -1086,6 +1089,7 @@ class ClanChoiceLauncherModalView(discord.ui.View):
                         "clan_color": prev.color_hex,
                         "metadata": prev.metadata_text,
                         "description": prev.description_text,
+                        "activities_motto": prev.activities_motto,
                         "logo_url": prev.logo_url,
                     }
         modal = ClanSubmissionModal(self.service, initial_data=initial_data)
@@ -1126,6 +1130,7 @@ class ClanSubmissionPanelView(discord.ui.View):
                             "clan_color": prev.color_hex,
                             "metadata": prev.metadata_text,
                             "description": prev.description_text,
+                            "activities_motto": prev.activities_motto,
                             "logo_url": prev.logo_url,
                         }
 
@@ -1307,9 +1312,8 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "• **Choice 2 — Paste Image Link in Form:**\n"
                 "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
-                "• **Clan Name:** Enter your official clan name (e.g. `Cerberus Elite`). You can choose your color theme from the dropdown menu!\n"
-                "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
-                "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
+                "• **Clan Name & Info:** Enter your official clan name (e.g. `Cerberus Elite`), metadata (region, leaders), description, and motto.\n"
+                "• **Interactive Color & Theme:** You will be able to preview and select your color theme (or auto-detect from your logo) directly on your live preview card before confirming!\n"
                 "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
                 "• **Clan Role Creation:** Your official clan role is created automatically upon approval. Extra customizations (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.\n"
                 "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
@@ -1359,9 +1363,8 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "• **Choice 2 — Paste Image Link in Form:**\n"
                 "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
-                "• **Clan Name:** Enter your official clan name (e.g. `Cerberus Elite`). You can choose your color theme from the dropdown menu!\n"
-                "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
-                "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
+                "• **Clan Name & Info:** Enter your official clan name (e.g. `Cerberus Elite`), metadata (region, leaders), description, and motto.\n"
+                "• **Interactive Color & Theme:** You will be able to preview and select your color theme (or auto-detect from your logo) directly on your live preview card before confirming!\n"
                 "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
                 "• **Clan Role Creation:** Your official clan role is created automatically upon approval. Extra customizations (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.\n"
                 "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
