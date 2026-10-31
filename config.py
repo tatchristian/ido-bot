@@ -45,7 +45,7 @@ class Config:
     data_dir: Path = Path(os.getenv("DATA_DIR", "data"))
     max_backups: int = int(os.getenv("MAX_BACKUPS", "20"))
     organization_name: str = os.getenv("ORGANIZATION_NAME", "UDA")
-    organization_full_name: str = os.getenv("ORGANIZATION_FULL_NAME", "United Dueling Alliances")
+    organization_full_name: str = os.getenv("ORGANIZATION_FULL_NAME", "United Dueling Amity")
     embed_color: int = int(os.getenv("EMBED_COLOR", "0x10B981"), 16)  # Official UDA Emerald Green
     accent_gold: int = 0xD4AF37  # Official UDA Antique Gold
     primary_emerald: int = 0x10B981  # Official UDA Emerald Gemstone

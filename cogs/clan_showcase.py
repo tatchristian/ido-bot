@@ -107,11 +107,9 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         self.initial_data = initial_data or {}
         self.selected_color = selected_color or self.initial_data.get("selected_color")
 
-        placeholder_text = "Enter Clan Name"
+        placeholder_text = "Enter your official Clan Name (e.g. Cerberus Elite)"
         if self.selected_color == "custom_hex":
-            placeholder_text = "Enter Clan Name | #hex (or plain Clan Name)"
-        elif not self.selected_color:
-            placeholder_text = "Enter Clan Name (or Clan Name | #hex / color name)"
+            placeholder_text = "Enter Clan Name (or Clan Name | #hex for custom color)"
 
         self.clan_name_color = discord.ui.TextInput(
             label="Clan Name",
@@ -516,7 +514,7 @@ class ClanEditModal(discord.ui.Modal):
         self.clan_name_color = discord.ui.TextInput(
             label="Clan Name & Color",
             default=f"{submission.clan_name} | {submission.color_hex}",
-            placeholder="Clan Name (or Clan Name | #hex)",
+            placeholder="Clan Name (or Clan Name | #hex / color name)",
             style=discord.TextStyle.short,
             max_length=100,
             required=True,
@@ -960,7 +958,7 @@ class ClanColorSelectView(discord.ui.View):
                     label="Custom Hex Code",
                     value="custom_hex",
                     emoji="🎨",
-                    description="Enter your custom hex code (e.g. Clan Name | #10b981)",
+                    description="Enter a custom hex code or color name (e.g. Cerberus | #d4af37)",
                 ),
                 discord.SelectOption(
                     label="Emerald Green",
@@ -1305,7 +1303,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "• **Choice 2 — Paste Image Link in Form:**\n"
                 "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
-                "• **Clan Name:** Just enter your clan's name. *(Optional: enter `Clan Name | #hex`, e.g. `Shadow | #d4af37`. Defaults to official UDA emerald-green #10b981!)*\n"
+                "• **Clan Name:** Enter your official clan name (e.g. `Cerberus Elite`). You can choose your color theme from the dropdown menu!\n"
                 "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
                 "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
                 "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
@@ -1357,7 +1355,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "• **Choice 2 — Paste Image Link in Form:**\n"
                 "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
-                "• **Clan Name:** Just enter your clan's name. *(Optional: enter `Clan Name | #hex`, e.g. `Shadow | #d4af37`. Defaults to official UDA emerald-green #10b981!)*\n"
+                "• **Clan Name:** Enter your official clan name (e.g. `Cerberus Elite`). You can choose your color theme from the dropdown menu!\n"
                 "• **Metadata:** Enter region, founded date, and leaders. Plain names, IGNs, and @usernames are all accepted!\n"
                 "• **Description & Motto:** Share your clan's philosophy, backstory, and activities.\n"
                 "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"

@@ -207,7 +207,7 @@ def build_roster_embed(
         inline=False,
     )
 
-    full_name = getattr(config, "organization_full_name", "United Dueling Alliances")
+    full_name = getattr(config, "organization_full_name", "United Dueling Amity")
     embed.set_footer(text=f"{org} • {full_name}")
     return embed
 
@@ -225,7 +225,7 @@ def build_help_embed(
     """
     org = org_name or config.organization_name
     embed_color = color or config.embed_color
-    full_name = getattr(config, "organization_full_name", "United Dueling Alliances")
+    full_name = getattr(config, "organization_full_name", "United Dueling Amity")
 
     embed = discord.Embed(
         title=f"📖 {org} Tournament Bot — Command Manual",
@@ -350,7 +350,7 @@ def build_help_embed(
                 inline=False,
             )
 
-    full_name = getattr(config, "organization_full_name", "United Dueling Alliances")
+    full_name = getattr(config, "organization_full_name", "United Dueling Amity")
     embed.set_footer(text=f"{org} • {full_name}")
     return embed
 
