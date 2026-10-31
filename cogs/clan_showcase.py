@@ -1035,13 +1035,27 @@ class ClanColorSelectView(discord.ui.View):
         self.add_item(self.color_select)
 
     async def select_callback(self, interaction: discord.Interaction):
-        selected = self.color_select.values[0]
-        modal = ClanSubmissionModal(
-            service=self.service,
-            initial_data=self.initial_data,
-            selected_color=selected,
-        )
-        await interaction.response.send_modal(modal)
+        try:
+            selected = self.color_select.values[0]
+            modal = ClanSubmissionModal(
+                service=self.service,
+                initial_data=self.initial_data,
+                selected_color=selected,
+            )
+            await interaction.response.send_modal(modal)
+        except Exception as exc:
+            logger.error("Error sending modal from color select: %s", exc, exc_info=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message(
+                    f"⚠️ Could not open form: {exc}", ephemeral=True
+                )
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item) -> None:
+        logger.error("Unhandled error in ClanColorSelectView: %s", error, exc_info=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                f"⚠️ Error processing color selection: {error}", ephemeral=True
+            )
 
 
 class ClanChoiceLauncherModalView(discord.ui.View):
