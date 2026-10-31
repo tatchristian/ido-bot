@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 import re
+import struct
 import uuid
+import zlib
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,12 +25,100 @@ logger = logging.getLogger("uda_bot.clan_showcase")
 
 DEFAULT_CLAN_COLOR = 0x10B981  # Official UDA Emerald Green (#10b981)
 
+# Named color mapping for easy English names (e.g. "red", "gold", "blue")
+NAMED_CLAN_COLORS: Dict[str, Tuple[str, int]] = {
+    "emerald": ("#10b981", 0x10B981),
+    "green": ("#10b981", 0x10B981),
+    "gold": ("#d4af37", 0xD4AF37),
+    "yellow": ("#f1c40f", 0xF1C40F),
+    "red": ("#e74c3c", 0xE74C3C),
+    "crimson": ("#e74c3c", 0xE74C3C),
+    "blue": ("#3498db", 0x3498DB),
+    "sapphire": ("#3498db", 0x3498DB),
+    "purple": ("#9b59b6", 0x9B59B6),
+    "orange": ("#e67e22", 0xE67E22),
+    "cyan": ("#00e5ff", 0x00E5FF),
+    "aqua": ("#00e5ff", 0x00E5FF),
+    "teal": ("#1abc9c", 0x1ABC9C),
+    "black": ("#2c3e50", 0x2C3E50),
+    "dark": ("#2c3e50", 0x2C3E50),
+    "onyx": ("#2c3e50", 0x2C3E50),
+    "white": ("#ecf0f1", 0xECF0F1),
+    "silver": ("#bdc3c7", 0xBDC3C7),
+}
 
-def parse_name_and_color(raw_str: str) -> Tuple[str, int, str]:
+
+def extract_dominant_color_from_bytes(data: bytes) -> Optional[Tuple[str, int]]:
     """
-    Parses a string formatted like 'Clan Name | #10b981' or 'Clan Name'
-    into (clan_name, color_int, hex_str).
-    Falls back to DEFAULT_CLAN_COLOR (0x10B981) if color is omitted or invalid.
+    Extracts the dominant non-neutral color from raw PNG image bytes.
+    Returns: (hex_str, color_int) or None if unparseable/neutral.
+    """
+    if not data or not data.startswith(b"\x89PNG\r\n\x1a\n") or len(data) < 30:
+        return None
+
+    try:
+        width, height, bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
+        if bit_depth != 8 or color_type not in (2, 6):
+            return None
+
+        idats = []
+        idx = 8
+        while idx < len(data) - 12:
+            length = struct.unpack(">I", data[idx:idx+4])[0]
+            ctype = data[idx+4:idx+8]
+            if ctype == b"IDAT":
+                idats.append(data[idx+8:idx+8+length])
+            idx += 12 + length
+
+        if not idats:
+            return None
+
+        decompressed = zlib.decompress(b"".join(idats))
+        bytes_per_pixel = 4 if color_type == 6 else 3
+        stride = 1 + width * bytes_per_pixel
+
+        step_row = max(1, height // 40)
+        colors = []
+        for y in range(0, height, step_row):
+            row_offset = y * stride
+            if row_offset + stride > len(decompressed):
+                break
+            row_pixels = decompressed[row_offset+1:row_offset+stride]
+            step_col = max(1, width // 20)
+            for x in range(0, width, step_col):
+                p_offset = x * bytes_per_pixel
+                if color_type == 6:
+                    r, g, b, a = row_pixels[p_offset:p_offset+4]
+                    if a < 128:
+                        continue
+                else:
+                    r, g, b = row_pixels[p_offset:p_offset+3]
+                # Filter out pure dark / pure light neutrals
+                if (r < 30 and g < 30 and b < 30) or (r > 230 and g > 230 and b > 230):
+                    continue
+                colors.append((r, g, b))
+
+        if not colors:
+            return None
+
+        avg_r = sum(c[0] for c in colors) // len(colors)
+        avg_g = sum(c[1] for c in colors) // len(colors)
+        avg_b = sum(c[2] for c in colors) // len(colors)
+        color_int = (avg_r << 16) + (avg_g << 8) + avg_b
+        hex_str = f"#{avg_r:02x}{avg_g:02x}{avg_b:02x}"
+        return hex_str, color_int
+    except Exception as exc:
+        logger.debug("Could not extract dominant color from image: %s", exc)
+        return None
+
+
+def parse_name_and_color(raw_str: str, override_color: Optional[str] = None) -> Tuple[str, int, str]:
+    """
+    Parses a clan name string with optional color override or embedded '| #hex' or color name.
+    Supports:
+    1. override_color passed directly from dropdown (e.g. '#3498db', 'auto', or 'red')
+    2. 'Clan Name | #hex' or 'Clan Name | red'
+    3. Plain 'Clan Name' (defaults to DEFAULT_CLAN_COLOR)
     """
     cleaned = raw_str.strip()
     if "|" in cleaned:
@@ -43,19 +133,26 @@ def parse_name_and_color(raw_str: str) -> Tuple[str, int, str]:
         name = cleaned
         color_candidate = ""
 
-    # Parse hex color
+    # Override takes precedence if provided and valid
+    target_candidate = override_color.strip() if override_color else color_candidate
+
     hex_str = "#10b981"
     color_int = DEFAULT_CLAN_COLOR
 
-    if color_candidate:
-        clean_hex = re.sub(r"[^0-9a-fA-F]", "", color_candidate)
-        if len(clean_hex) == 6:
-            try:
-                color_int = int(clean_hex, 16)
-                hex_str = f"#{clean_hex.lower()}"
-            except ValueError:
-                color_int = DEFAULT_CLAN_COLOR
-                hex_str = "#10b981"
+    if target_candidate:
+        cand_lower = target_candidate.lower().strip()
+        # Check named colors (e.g. 'gold', 'red', 'blue')
+        if cand_lower in NAMED_CLAN_COLORS:
+            hex_str, color_int = NAMED_CLAN_COLORS[cand_lower]
+        else:
+            clean_hex = re.sub(r"[^0-9a-fA-F]", "", target_candidate)
+            if len(clean_hex) == 6:
+                try:
+                    color_int = int(clean_hex, 16)
+                    hex_str = f"#{clean_hex.lower()}"
+                except ValueError:
+                    color_int = DEFAULT_CLAN_COLOR
+                    hex_str = "#10b981"
 
     return name or "Unnamed Clan", color_int, hex_str
 

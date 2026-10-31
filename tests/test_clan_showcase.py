@@ -63,6 +63,25 @@ def test_parse_name_and_color_fallback():
     assert hex_str2 == "#10b981"
 
 
+def test_parse_name_and_color_override_and_names():
+    # Test named colors
+    name, color_int, hex_str = parse_name_and_color("Cerberus | gold")
+    assert name == "Cerberus"
+    assert color_int == 0xD4AF37
+    assert hex_str == "#d4af37"
+
+    name_blue, color_int_blue, hex_blue = parse_name_and_color("Aquila | blue")
+    assert name_blue == "Aquila"
+    assert color_int_blue == 0x3498DB
+    assert hex_blue == "#3498db"
+
+    # Test override_color argument (from dropdown selector)
+    name_ov, color_int_ov, hex_ov = parse_name_and_color("Apex", override_color="#e74c3c")
+    assert name_ov == "Apex"
+    assert color_int_ov == 0xE74C3C
+    assert hex_ov == "#e74c3c"
+
+
 def test_validate_image_url():
     valid, _ = validate_image_url("https://cdn.discordapp.com/attachments/123/456/logo.png")
     assert valid is True
