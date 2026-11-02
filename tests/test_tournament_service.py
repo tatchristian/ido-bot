@@ -559,3 +559,34 @@ def test_event_and_tournament_role_isolation(service: TournamentService):
     assert check_is_tournament_admin(user_tourney_only, guild, bot) is True
     assert check_is_event_admin(user_tourney_only, guild, bot) is False
     assert is_staff_user(user_tourney_only, guild) is False
+
+
+def test_tournament_time_and_reminder_state(service: TournamentService):
+    state = service.get_state()
+    assert state.start_time is None
+    assert state.start_timestamp is None
+
+    # Set tournament time
+    start_iso = '2026-11-15T18:00:00+00:00'
+    start_ts = 1794500000
+    msg = service.set_tournament_time(start_time=start_iso, start_timestamp=start_ts, event_id=888999)
+    assert f'<t:{start_ts}:F>' in msg
+    assert service.get_state().start_time == start_iso
+    assert service.get_state().start_timestamp == start_ts
+    assert service.get_state().event_id == 888999
+
+    # Test DM marking
+    service.mark_dm_sent(12345, 'day_of')
+    service.mark_dm_sent(12345, '30_min')
+    assert 12345 in service.get_state().day_of_dm_sent
+    assert 12345 in service.get_state().thirty_min_dm_sent
+
+    # Updating time clears DM records
+    service.set_tournament_time(start_time='2026-11-16T18:00:00+00:00', start_timestamp=1794586400)
+    assert len(service.get_state().day_of_dm_sent) == 0
+    assert len(service.get_state().thirty_min_dm_sent) == 0
+
+    # Clear tournament resets time
+    service.clear_tournament()
+    assert service.get_state().start_time is None
+    assert service.get_state().start_timestamp is None

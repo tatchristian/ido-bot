@@ -12,7 +12,7 @@ from typing import Optional
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from config import config
 from services.server_builder import (
@@ -23,7 +23,9 @@ from services.server_builder import (
 from services.tournament_service import (
     DEFAULT_WEAPONS,
     STANDARD_REGIONS,
+    Participant,
     TournamentService,
+    TournamentState,
 )
 from services.website_sync_service import (
     WebsiteSyncService,
@@ -31,7 +33,12 @@ from services.website_sync_service import (
     parse_duration_and_location,
     parse_event_datetime,
 )
-from utils.ui import build_help_embed, build_roster_embed, build_status_embed
+from utils.ui import (
+    build_help_embed,
+    build_roster_embed,
+    build_status_embed,
+    build_tournament_reminder_embed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -276,6 +283,154 @@ class TournamentCog(commands.Cog):
         panel_view = TournamentEventPanelView()
         self.bot.add_view(panel_view)
         logger.info("Registered persistent tournament event scheduler view.")
+        if not self.tournament_reminder_task.is_running():
+            self.tournament_reminder_task.start()
+            logger.info("Started tournament match day & 30-minute reminder background task.")
+
+    def cog_unload(self) -> None:
+        """Cancel background tasks on cog unload."""
+        if self.tournament_reminder_task.is_running():
+            self.tournament_reminder_task.cancel()
+
+    # -------------------------------------------------------------------------
+    # Automated Contestant Reminders (Day-Of & 30-Minute Warnings)
+    # -------------------------------------------------------------------------
+
+    @tasks.loop(minutes=1)
+    async def tournament_reminder_task(self):
+        """Periodic background loop that monitors upcoming tournament start times
+        and dispatches Day-Of and 30-Minute DM reminders to contestants."""
+        await self._check_and_send_reminders()
+
+    @tournament_reminder_task.before_loop
+    async def before_tournament_reminder_task(self):
+        await self.bot.wait_until_ready()
+
+    async def _check_and_send_reminders(self) -> None:
+        """Checks each guild's active tournament and dispatches Day-Of and 30-Minute DMs to contestants."""
+        for guild in self.bot.guilds:
+            try:
+                state = self.service.get_state(guild.id)
+                if not state.participants and not state.substitutes:
+                    continue
+
+                start_ts = state.start_timestamp
+
+                # Auto-sync with Discord scheduled events if present
+                active_events = getattr(guild, "scheduled_events", [])
+                matched_event = None
+                if state.event_id:
+                    matched_event = discord.utils.get(active_events, id=state.event_id)
+                if not matched_event and state.name:
+                    matched_event = discord.utils.find(
+                        lambda ev: ev.name.strip().lower() == state.name.strip().lower(),
+                        active_events,
+                    )
+                if matched_event and matched_event.start_time:
+                    start_ts = int(matched_event.start_time.timestamp())
+                    if state.start_timestamp != start_ts or state.event_id != matched_event.id:
+                        state.start_timestamp = start_ts
+                        state.start_time = matched_event.start_time.isoformat()
+                        state.event_id = matched_event.id
+                        self.service._persist(guild.id)
+
+                if not start_ts:
+                    continue
+
+                now_utc = datetime.now(timezone.utc)
+                event_dt = datetime.fromtimestamp(start_ts, tz=timezone.utc)
+                diff_seconds = (event_dt - now_utc).total_seconds()
+
+                # If event already ended more than 2 hours ago, skip
+                if diff_seconds < -7200:
+                    continue
+
+                # 1. 30-Minute Warning Reminder (0 to 30 minutes before matches start)
+                if 0 <= diff_seconds <= 1800:
+                    await self._dispatch_reminder_to_guild(
+                        guild=guild,
+                        state=state,
+                        start_ts=start_ts,
+                        reminder_type="30_min",
+                    )
+
+                # 2. Day-Of Match Reminder (on the calendar day of the tournament, > 30 minutes out)
+                elif 1800 < diff_seconds <= 86400:
+                    is_same_day = (
+                        event_dt.date() == now_utc.date()
+                        or event_dt.astimezone().date() == now_utc.astimezone().date()
+                    )
+                    if is_same_day:
+                        await self._dispatch_reminder_to_guild(
+                            guild=guild,
+                            state=state,
+                            start_ts=start_ts,
+                            reminder_type="day_of",
+                        )
+
+            except Exception as exc:
+                logger.error("Error in tournament reminder loop for guild %s: %s", guild.id, exc, exc_info=True)
+
+    async def _dispatch_reminder_to_guild(
+        self,
+        guild: discord.Guild,
+        state: TournamentState,
+        start_ts: int,
+        reminder_type: str,
+    ) -> None:
+        already_sent = (
+            state.thirty_min_dm_sent if reminder_type == "30_min" else state.day_of_dm_sent
+        )
+
+        # Main bracket participants
+        for p in list(state.participants):
+            if p.user_id in already_sent:
+                continue
+            embed = build_tournament_reminder_embed(
+                participant=p,
+                state=state,
+                reminder_type=reminder_type,
+                start_timestamp=start_ts,
+                is_sub=False,
+            )
+            await self._send_single_dm(guild, p.user_id, embed)
+            self.service.mark_dm_sent(p.user_id, reminder_type, guild.id)
+
+        # Standby substitutes
+        for s in list(state.substitutes):
+            if s.user_id in already_sent:
+                continue
+            embed = build_tournament_reminder_embed(
+                participant=s,
+                state=state,
+                reminder_type=reminder_type,
+                start_timestamp=start_ts,
+                is_sub=True,
+            )
+            await self._send_single_dm(guild, s.user_id, embed)
+            self.service.mark_dm_sent(s.user_id, reminder_type, guild.id)
+
+    async def _send_single_dm(
+        self, guild: discord.Guild, user_id: int, embed: discord.Embed
+    ) -> bool:
+        member = guild.get_member(user_id)
+        if not member:
+            try:
+                member = await self.bot.fetch_user(user_id)
+            except Exception:
+                member = None
+        if not member:
+            return False
+
+        try:
+            await member.send(embed=embed)
+            return True
+        except discord.Forbidden:
+            logger.info("Could not send tournament reminder DM to %s (DMs closed or blocked)", user_id)
+            return False
+        except Exception as exc:
+            logger.warning("Failed to DM contestant %s: %s", user_id, exc)
+            return False
 
     async def cog_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -803,11 +958,15 @@ class TournamentCog(commands.Cog):
         region_3="Additional allowed region tag",
         custom_regions="Optional: Type custom comma-separated regions if not using tags",
         open_subs="Whether to open substitute signups immediately (default: False)",
+        date="Optional: Match day date (e.g. 2026-11-15 or 11/15/2026) for contestant reminders",
+        time="Optional: Match start time (e.g. 18:00 or 6:00 PM)",
+        timezone="Timezone for match day (defaults to EST)",
     )
     @app_commands.choices(
         region_1=REGION_FILTER_CHOICES,
         region_2=REGION_CHOICES,
         region_3=REGION_CHOICES,
+        timezone=TIMEZONE_CHOICES,
     )
     @is_tournament_admin()
     async def open_tournament(
@@ -820,6 +979,9 @@ class TournamentCog(commands.Cog):
         region_3: Optional[app_commands.Choice[str]] = None,
         custom_regions: Optional[str] = None,
         open_subs: bool = False,
+        date: Optional[str] = None,
+        time: Optional[str] = None,
+        timezone: Optional[app_commands.Choice[str]] = None,
     ):
         selected_regions: list[str] | None = None
         tag_list = [r.value for r in (region_1, region_2, region_3) if r]
@@ -827,6 +989,17 @@ class TournamentCog(commands.Cog):
             selected_regions = list(tag_list)
             if custom_regions:
                 selected_regions.extend(self.service.parse_regions(custom_regions))
+
+        parsed_start_time = None
+        parsed_start_ts = None
+        if date and time:
+            tz_str = timezone.value if timezone else "EST"
+            valid, start_dt, err = parse_event_datetime(date, time, tz_str)
+            if not valid or not start_dt:
+                await interaction.response.send_message(f"❌ {err}", ephemeral=True)
+                return
+            parsed_start_time = start_dt.isoformat()
+            parsed_start_ts = int(start_dt.timestamp())
         try:
             guild_id = interaction.guild_id or 0
             current_state = self.service.get_state(guild_id)
@@ -860,6 +1033,8 @@ class TournamentCog(commands.Cog):
                 open_subs=open_subs,
                 participant_role_id=p_role_id,
                 participant_role_name=p_role_name,
+                start_time=parsed_start_time,
+                start_timestamp=parsed_start_ts,
                 guild_id=guild_id,
             )
 
@@ -1593,6 +1768,143 @@ class TournamentCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
+        name="tournament-set-time",
+        description="[Admin] Set or update the official match day date, time, and timezone for contestant reminders.",
+    )
+    @app_commands.describe(
+        date="Date of tournament (e.g. 2026-11-15 or 11/15/2026)",
+        time="Start time (e.g. 18:00 or 6:00 PM)",
+        timezone="Timezone for the start time (defaults to EST)",
+    )
+    @app_commands.choices(timezone=TIMEZONE_CHOICES)
+    @is_tournament_admin()
+    async def set_tournament_time_cmd(
+        self,
+        interaction: discord.Interaction,
+        date: str,
+        time: str,
+        timezone: Optional[app_commands.Choice[str]] = None,
+    ):
+        tz_str = timezone.value if timezone else "EST"
+        valid, start_dt, err = parse_event_datetime(date, time, tz_str)
+        if not valid or not start_dt:
+            await interaction.response.send_message(f"❌ {err}", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        ts = int(start_dt.timestamp())
+        msg = self.service.set_tournament_time(
+            start_time=start_dt.isoformat(),
+            start_timestamp=ts,
+            guild_id=guild_id,
+        )
+
+        embed = discord.Embed(
+            title="⏰ Tournament Match Day Schedule Configured",
+            description=(
+                f"{msg}\n\n"
+                f"**Configured Start Time:** <t:{ts}:F> (<t:{ts}:R>)\n"
+                f"**Timezone:** `{tz_str}`\n\n"
+                f"📬 **Automated Contestant Direct Messages:**\n"
+                f"• **Match Day Morning / Day-Of:** All registered contestants receive a personalized match-day DM with their registered region, tournament rules, and dynamic countdown.\n"
+                f"• **30 Minutes Prior:** All contestants receive an urgent 30-minute alert to join tournament channels and confirm check-in.\n"
+                f"• *Each contestant's notification highlights their specific selected region!*"
+            ),
+            color=0x10B981,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Match Day Reminders")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="tournament-view-time",
+        description="View scheduled tournament start time, dynamic timestamps, and contestant reminder status.",
+    )
+    async def view_tournament_time_cmd(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+
+        if not state.start_timestamp:
+            await interaction.response.send_message(
+                "ℹ️ No match day start time is currently set for this tournament.\n"
+                "Use `/tournament-set-time` or `/tournament-schedule-event` to configure one.",
+                ephemeral=True,
+            )
+            return
+
+        ts = state.start_timestamp
+        day_of_count = len(state.day_of_dm_sent)
+        thirty_min_count = len(state.thirty_min_dm_sent)
+        total_contestants = len(state.participants) + len(state.substitutes)
+
+        embed = discord.Embed(
+            title=f"⏰ Match Day Schedule & Reminders — {state.name}",
+            description=(
+                f"**Starts At:** <t:{ts}:F>\n"
+                f"**Countdown:** <t:{ts}:R>\n"
+                f"**Allowed Regions:** `{', '.join(state.allowed_regions)}`\n\n"
+                f"📊 **Automated Contestant DM Tracker:**\n"
+                f"• **Day-Of Match Reminders Sent:** `{day_of_count} / {total_contestants}`\n"
+                f"• **30-Minute Warnings Sent:** `{thirty_min_count} / {total_contestants}`\n\n"
+                f"💡 *Registered contestants are personally DM'd on the day of the tournament and 30 minutes before matches begin.*"
+            ),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Match Day Reminders")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="tournament-test-reminder",
+        description="[Admin] Send yourself a preview DM of the Day-Of or 30-Minute reminder message.",
+    )
+    @app_commands.describe(
+        reminder_type="Choose which reminder notification to preview in your DMs"
+    )
+    @app_commands.choices(
+        reminder_type=[
+            app_commands.Choice(name="📅 Day-Of Match Reminder", value="day_of"),
+            app_commands.Choice(name="🚨 30-Minute Warning Reminder", value="30_min"),
+        ]
+    )
+    @is_tournament_admin()
+    async def test_tournament_reminder_cmd(
+        self,
+        interaction: discord.Interaction,
+        reminder_type: app_commands.Choice[str],
+    ):
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        start_ts = state.start_timestamp or int((datetime.now(timezone.utc) + timedelta(minutes=30)).timestamp())
+
+        # Create mock/sample participant from the user
+        sample_part = Participant(
+            user_id=interaction.user.id,
+            user_mention=interaction.user.mention,
+            ign=getattr(interaction.user, "display_name", str(interaction.user)),
+            weapon=state.approved_weapons[0] if state.approved_weapons else "Katana",
+            region=state.allowed_regions[0] if state.allowed_regions else "GLOBAL",
+        )
+
+        embed = build_tournament_reminder_embed(
+            participant=sample_part,
+            state=state,
+            reminder_type=reminder_type.value,
+            start_timestamp=start_ts,
+            is_sub=False,
+        )
+
+        try:
+            await interaction.user.send(embed=embed)
+            await interaction.response.send_message(
+                f"✅ Sent preview `{reminder_type.name}` directly to your DMs!",
+                ephemeral=True,
+            )
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Could not deliver preview DM. Please ensure your Discord privacy settings allow Direct Messages from server members.",
+                ephemeral=True,
+            )
+
+    @app_commands.command(
         name="tournament-announce",
         description="[Admin] Ping and announce tournament information to registered players.",
     )
@@ -2020,13 +2332,21 @@ class TournamentCog(commands.Cog):
             )
             return
 
-        # 6. Automatic Website Feed Publication
+        # 6. Automatic Tournament Schedule & Reminders Sync
+        self.service.set_tournament_time(
+            start_time=start_time.isoformat(),
+            start_timestamp=int(start_time.timestamp()),
+            event_id=scheduled_event.id,
+            guild_id=guild.id,
+        )
+
+        # 7. Automatic Website Feed Publication
         website_sync_status = (
             "✅ **Live on Website!**\n"
             "Automatically published to the live public schedule on [unitedduelingamity.org/tournaments.html](https://unitedduelingamity.org/tournaments.html)."
         )
 
-        # 7. Build Response Embed
+        # 8. Build Response Embed
         embed = discord.Embed(
             title="📅 Tournament Event Scheduled!",
             description=(
@@ -2043,6 +2363,11 @@ class TournamentCog(commands.Cog):
         embed.add_field(
             name="📌 Discord Event Banner",
             value=f"Listed at the **top of the server**! Members can click **[Interested]({scheduled_event.url})** to receive Discord reminders before it starts.",
+            inline=False,
+        )
+        embed.add_field(
+            name="📬 Automated Contestant DMs",
+            value="Contestants will automatically receive **Day-Of** and **30-Minute** warning DMs with their registered region and dynamic countdown!",
             inline=False,
         )
         embed.add_field(

@@ -76,6 +76,8 @@ def build_status_embed(
         f"🛡️ **Substitutes on Deck:** `{sub_count}` standby players",
         f"🌍 **Allowed Regions:** `{regions_str}`",
     ]
+    if getattr(state, "start_timestamp", None):
+        desc_lines.append(f"⏰ **Match Day Start:** <t:{state.start_timestamp}:F> (<t:{state.start_timestamp}:R>)")
     if state.checkin_open:
         main_checked = sum(1 for p in state.participants if p.checked_in)
         sub_checked = sum(1 for s in state.substitutes if s.checked_in)
@@ -212,6 +214,76 @@ def build_roster_embed(
     return embed
 
 
+def build_tournament_reminder_embed(
+    participant: Participant,
+    state: TournamentState,
+    reminder_type: str,  # "day_of" or "30_min"
+    start_timestamp: int,
+    is_sub: bool = False,
+    org_name: str | None = None,
+) -> discord.Embed:
+    """
+    Builds the personalized direct message (DM) embed sent to contestants:
+    1. On tournament match day ("day_of").
+    2. 30 minutes before event begins ("30_min").
+    Includes:
+    - Notification that tournament is today
+    - Tournament name and all allowed regions
+    - Contestant's specific registered region (satisfies "if multiple regions use the region player selected")
+    - Discord dynamic auto-adjusting timestamp (<t:{start_timestamp}:F> and <t:{start_timestamp}:R>)
+    - Contestant's weapon and entry status (Main Bracket or Standby Substitute)
+    """
+    org = org_name or config.organization_name
+    tourney_name = state.name
+    regions_display = ", ".join(state.allowed_regions) if state.allowed_regions else "GLOBAL"
+    player_region = participant.region or "GLOBAL"
+    entry_type = "Standby Substitute" if is_sub else "Main Bracket Contestant"
+    weapon_display = participant.weapon or "Any"
+
+    if reminder_type == "day_of":
+        title = f"📅 Tournament Today: {tourney_name}"
+        header_text = (
+            f"👋 Greetings **{participant.ign}**!\n\n"
+            f"This is an official match-day alert: **{tourney_name}** takes place **TODAY**!"
+        )
+        call_to_action = (
+            "💡 **Reminders & Preparation:**\n"
+            "• Keep notifications active in the server for when check-in opens.\n"
+            "• You will receive a final reminder **30 minutes** before matches begin!\n"
+            "• If you can no longer attend, please unregister to allow substitutes to play."
+        )
+        embed_color = 0x10B981  # Emerald Green
+    else:  # "30_min"
+        title = f"🚨 30-Minute Warning: {tourney_name} Starting Soon!"
+        header_text = (
+            f"⚠️ Urgent Alert for **{participant.ign}**!\n\n"
+            f"**{tourney_name}** begins in approximately **30 minutes**!"
+        )
+        call_to_action = (
+            "⚡ **Immediate Actions:**\n"
+            "• Head over to the tournament channel now!\n"
+            "• Confirm your tournament check-in if check-in is active.\n"
+            "• Be ready in Discord for match callouts and bracket assignments."
+        )
+        embed_color = 0xE67E22  # High-visibility warning Orange
+
+    embed = discord.Embed(
+        title=title,
+        description=(
+            f"{header_text}\n\n"
+            f"⏰ **Start Time:** <t:{start_timestamp}:F> (<t:{start_timestamp}:R>)\n"
+            f"🌍 **Tournament Regions:** `{regions_display}`\n"
+            f"📍 **Your Registered Region:** **{player_region}**\n"
+            f"⚔️ **Your Weapon:** `{weapon_display}`\n"
+            f"📋 **Your Entry:** **{entry_type}**\n\n"
+            f"{call_to_action}"
+        ),
+        color=embed_color,
+    )
+    embed.set_footer(text=f"{org} • Official Match Day Reminders")
+    return embed
+
+
 def build_help_embed(
     section: str = "all",
     org_name: str | None = None,
@@ -284,6 +356,9 @@ def build_help_embed(
                 "• `/tournament-set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
                 "• `/tournament-set-regions` — Update allowed regions filter.\n"
                 "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
+                "• `/tournament-set-time` — Set match day start date & time for automated contestant DMs.\n"
+                "• `/tournament-view-time` — View match day schedule & reminder delivery stats.\n"
+                "• `/tournament-test-reminder` — Send preview Day-Of or 30-min DM to yourself.\n"
                 "• `/tournament-set-role` — Set or link Discord role for participants.\n"
                 "• `/tournament-set-channels` — Configure dedicated channels for tournament.\n"
                 "• `/tournament-set-admin-role` — Set role required for tournament admin commands.\n"

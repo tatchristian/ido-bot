@@ -78,6 +78,11 @@ class TournamentState:
     event_role_name: str | None = None
     participant_role_id: int | None = None
     participant_role_name: str | None = None
+    start_time: str | None = None
+    start_timestamp: int | None = None
+    event_id: int | None = None
+    day_of_dm_sent: list[int] = field(default_factory=list)
+    thirty_min_dm_sent: list[int] = field(default_factory=list)
     announcement_channel_id: int | None = None
     checkin_channel_id: int | None = None
     subs_channel_id: int | None = None
@@ -107,6 +112,11 @@ class TournamentState:
             event_role_name=str(data["event_role_name"]) if data.get("event_role_name") is not None else None,
             participant_role_id=int(data["participant_role_id"]) if data.get("participant_role_id") is not None else None,
             participant_role_name=str(data["participant_role_name"]) if data.get("participant_role_name") is not None else None,
+            start_time=str(data["start_time"]) if data.get("start_time") is not None else None,
+            start_timestamp=int(data["start_timestamp"]) if data.get("start_timestamp") is not None else None,
+            event_id=int(data["event_id"]) if data.get("event_id") is not None else None,
+            day_of_dm_sent=[int(uid) for uid in data.get("day_of_dm_sent", [])],
+            thirty_min_dm_sent=[int(uid) for uid in data.get("thirty_min_dm_sent", [])],
             announcement_channel_id=int(data["announcement_channel_id"]) if data.get("announcement_channel_id") is not None else None,
             checkin_channel_id=int(data["checkin_channel_id"]) if data.get("checkin_channel_id") is not None else None,
             subs_channel_id=int(data["subs_channel_id"]) if data.get("subs_channel_id") is not None else None,
@@ -140,6 +150,11 @@ class TournamentState:
             "event_role_name": self.event_role_name,
             "participant_role_id": self.participant_role_id,
             "participant_role_name": self.participant_role_name,
+            "start_time": self.start_time,
+            "start_timestamp": self.start_timestamp,
+            "event_id": self.event_id,
+            "day_of_dm_sent": self.day_of_dm_sent,
+            "thirty_min_dm_sent": self.thirty_min_dm_sent,
             "announcement_channel_id": self.announcement_channel_id,
             "checkin_channel_id": self.checkin_channel_id,
             "subs_channel_id": self.subs_channel_id,
@@ -287,6 +302,9 @@ class TournamentService:
         participant_role_id: int | None = None,
         participant_role_name: str | None = None,
         announcement_channel_id: int | None = None,
+        start_time: str | None = None,
+        start_timestamp: int | None = None,
+        event_id: int | None = None,
         guild_id: int = 0,
     ) -> str:
         """Opens main bracket submissions and updates tournament settings."""
@@ -304,6 +322,13 @@ class TournamentService:
             state.participant_role_name = participant_role_name
         if announcement_channel_id is not None:
             state.announcement_channel_id = announcement_channel_id
+        if start_timestamp is not None:
+            state.start_time = start_time
+            state.start_timestamp = start_timestamp
+            state.day_of_dm_sent.clear()
+            state.thirty_min_dm_sent.clear()
+        if event_id is not None:
+            state.event_id = event_id
 
         state.main_open = True
         state.subs_open = open_subs
@@ -312,12 +337,14 @@ class TournamentService:
         sub_status = "OPEN" if state.subs_open else "CLOSED"
         regions_str = ", ".join(state.allowed_regions)
         role_info = f"\n• Participant Role: `@{state.participant_role_name}`" if state.participant_role_name else ""
+        time_info = f"\n• Match Day Start: <t:{state.start_timestamp}:F> (<t:{state.start_timestamp}:R>)" if state.start_timestamp else ""
         return (
             f"🏆 **{state.name}** is now **OPEN**!\n"
             f"• Max Slots: `{state.max_slots}`\n"
             f"• Allowed Regions: `{regions_str}`\n"
             f"• Substitute Signups: `{sub_status}`"
             f"{role_info}"
+            f"{time_info}"
         )
 
     def close_tournament(self, guild_id: int = 0) -> str:
@@ -440,6 +467,38 @@ class TournamentService:
         self._persist(guild_id)
         return "📁 Tournament dedicated channels cleared."
 
+    def set_tournament_time(
+        self,
+        start_time: str | None,
+        start_timestamp: int | None,
+        event_id: int | None = None,
+        guild_id: int = 0,
+    ) -> str:
+        """Sets or updates the tournament start time, unix timestamp, and optional scheduled event ID."""
+        state = self.get_state(guild_id)
+        state.start_time = start_time
+        state.start_timestamp = start_timestamp
+        if event_id is not None:
+            state.event_id = event_id
+        # Reset DM trackers when time changes so fresh reminders can be dispatched
+        state.day_of_dm_sent.clear()
+        state.thirty_min_dm_sent.clear()
+        self._persist(guild_id)
+        if start_timestamp:
+            return f"⏰ Tournament start time set to <t:{start_timestamp}:F> (<t:{start_timestamp}:R>)."
+        return "⏰ Tournament start time cleared."
+
+    def mark_dm_sent(self, user_id: int, reminder_type: str, guild_id: int = 0) -> None:
+        """Records that a user has been sent a reminder DM ('day_of' or '30_min')."""
+        state = self.get_state(guild_id)
+        if reminder_type == "day_of":
+            if user_id not in state.day_of_dm_sent:
+                state.day_of_dm_sent.append(user_id)
+        elif reminder_type == "30_min":
+            if user_id not in state.thirty_min_dm_sent:
+                state.thirty_min_dm_sent.append(user_id)
+        self._persist(guild_id)
+
     def clear_tournament(self, guild_id: int = 0) -> str:
         """Wipes both main roster, substitute list, and resets participant role."""
         state = self.get_state(guild_id)
@@ -450,6 +509,11 @@ class TournamentService:
         state.checkin_open = False
         state.participant_role_id = None
         state.participant_role_name = None
+        state.start_time = None
+        state.start_timestamp = None
+        state.event_id = None
+        state.day_of_dm_sent.clear()
+        state.thirty_min_dm_sent.clear()
         self._persist(guild_id)
         return f"🧹 Tournament roster wiped clean ({p_count} main players and {s_count} substitutes removed)."
 

@@ -118,3 +118,51 @@ def test_build_help_embed():
     assert "/tournament-complete-event" in embed_events_allowed.fields[0].value
 
     assert all(len(f.value) <= 1024 for f in embed_all_admin.fields)
+
+
+def test_build_tournament_reminder_embed():
+    from utils.ui import build_tournament_reminder_embed
+    from services.tournament_service import Participant, TournamentState
+
+    state = TournamentState(
+        name='UDA Summer Championship',
+        allowed_regions=['NA', 'EU', 'SA'],
+        approved_weapons=['Katana', 'Longsword'],
+    )
+
+    p = Participant(
+        user_id=456,
+        user_mention='<@456>',
+        ign='ShadowDuelist',
+        weapon='Katana',
+        region='SA',
+    )
+    start_ts = 1794500000
+
+    # 1. Day-Of Match Reminder
+    embed_day_of = build_tournament_reminder_embed(
+        participant=p,
+        state=state,
+        reminder_type='day_of',
+        start_timestamp=start_ts,
+        is_sub=False,
+    )
+    assert 'TODAY' in embed_day_of.description
+    assert 'UDA Summer Championship' in embed_day_of.title
+    assert 'NA, EU, SA' in embed_day_of.description
+    assert '**SA**' in embed_day_of.description
+    assert f'<t:{start_ts}:F>' in embed_day_of.description
+    assert f'<t:{start_ts}:R>' in embed_day_of.description
+
+    # 2. 30-Minute Warning Reminder
+    embed_30 = build_tournament_reminder_embed(
+        participant=p,
+        state=state,
+        reminder_type='30_min',
+        start_timestamp=start_ts,
+        is_sub=True,
+    )
+    assert '30 minutes' in embed_30.description
+    assert 'Standby Substitute' in embed_30.description
+    assert '**SA**' in embed_30.description
+    assert f'<t:{start_ts}:F>' in embed_30.description
