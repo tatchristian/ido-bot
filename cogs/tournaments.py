@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Union
 
 import discord
 from discord import app_commands
@@ -36,6 +37,8 @@ from services.website_sync_service import (
 from utils.ui import (
     build_help_embed,
     build_roster_embed,
+    build_staff_guide_embed,
+    build_staff_panel_embed,
     build_status_embed,
     build_tournament_reminder_embed,
 )
@@ -283,6 +286,9 @@ class TournamentCog(commands.Cog):
         panel_view = TournamentEventPanelView()
         self.bot.add_view(panel_view)
         logger.info("Registered persistent tournament event scheduler view.")
+        staff_panel_view = TournamentStaffPanelView()
+        self.bot.add_view(staff_panel_view)
+        logger.info("Registered persistent tournament staff operations panel view.")
         if not self.tournament_reminder_task.is_running():
             self.tournament_reminder_task.start()
             logger.info("Started tournament match day & 30-minute reminder background task.")
@@ -1261,28 +1267,128 @@ class TournamentCog(commands.Cog):
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed)
 
+    def _resolve_user_id(self, user_str: str | None, guild_id: int) -> int | None:
+        """
+        Resolves a user input string to a user_id integer.
+        Accepts:
+          - Pure digit ID (e.g. from autocomplete value or typed raw ID)
+          - Discord mention (<@123456789> or <@!123456789>)
+          - Participant / Substitute IGN (case-insensitive exact or substring match)
+        """
+        if not user_str:
+            return None
+        cleaned = str(user_str).strip()
+        if not cleaned:
+            return None
+
+        mention_match = re.search(r"<@!?(\d+)>", cleaned)
+        if mention_match:
+            return int(mention_match.group(1))
+
+        if cleaned.isdigit():
+            return int(cleaned)
+
+        state = self.service.get_state(guild_id)
+        cleaned_lower = cleaned.lower()
+        all_players = state.participants + state.substitutes
+        for p in all_players:
+            if p.ign and p.ign.lower() == cleaned_lower:
+                return p.user_id
+
+        for p in all_players:
+            if p.ign and cleaned_lower in p.ign.lower():
+                return p.user_id
+
+        return None
+
+    async def _kick_participants_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        choices: list[app_commands.Choice[str]] = []
+        current_lower = current.strip().lower()
+
+        pool = [("Main", p) for p in state.participants] + [("Sub", p) for p in state.substitutes]
+        for tag, p in pool:
+            ign = p.ign or f"User {p.user_id}"
+            label = f"[{tag}] {ign} ({p.region}) • {p.weapon}"[:100]
+            if not current_lower or current_lower in ign.lower() or current_lower in str(p.user_id):
+                choices.append(app_commands.Choice(name=label, value=str(p.user_id)))
+                if len(choices) >= 25:
+                    break
+        return choices
+
+    async def _substitute_candidates_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        choices: list[app_commands.Choice[str]] = []
+        current_lower = current.strip().lower()
+
+        for idx, p in enumerate(state.substitutes, start=1):
+            ign = p.ign or f"User {p.user_id}"
+            status = "✅ Ready" if p.checked_in else "Standby"
+            label = f"[Sub #{idx}] {ign} ({p.region}) • {status}"[:100]
+            if not current_lower or current_lower in ign.lower() or current_lower in str(p.user_id):
+                choices.append(app_commands.Choice(name=label, value=str(p.user_id)))
+                if len(choices) >= 25:
+                    break
+        return choices
+
+    async def _replace_candidates_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        choices: list[app_commands.Choice[str]] = []
+        current_lower = current.strip().lower()
+
+        for p in state.participants:
+            ign = p.ign or f"User {p.user_id}"
+            status = "✅ Checked-in" if p.checked_in else "⏳ No-show"
+            label = f"[{status}] {ign} ({p.region}) • {p.weapon}"[:100]
+            if not current_lower or current_lower in ign.lower() or current_lower in str(p.user_id):
+                choices.append(app_commands.Choice(name=label, value=str(p.user_id)))
+                if len(choices) >= 25:
+                    break
+        return choices
+
     @app_commands.command(
         name="tournament-kick",
-        description="[Admin] Remove a specific user from either the main bracket or substitute queue.",
+        description="[Admin] Remove a player from the tournament by name, mention, or ID.",
     )
     @app_commands.describe(
-        user="The Discord user to remove",
+        user="Player to kick (search IGN from dropdown, or enter mention / ID)",
         reason="Optional reason for the removal",
     )
     @is_tournament_admin()
     async def kick_user(
         self,
         interaction: discord.Interaction,
-        user: discord.Member,
+        user: str,
         reason: Optional[str] = None,
     ):
         guild_id = interaction.guild_id or 0
-        success, msg = self.service.kick_user(user.id, reason or "", guild_id=guild_id)
+        user_id = self._resolve_user_id(user, guild_id)
+        if not user_id:
+            await interaction.response.send_message(
+                f"❌ Could not find participant `{user}` in this tournament. "
+                "Please select a player from the dropdown or provide a valid mention/ID.",
+                ephemeral=True,
+            )
+            return
+
+        success, msg = self.service.kick_user(user_id, reason or "", guild_id=guild_id)
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
 
-        await self._remove_participant_role(interaction.guild, user)
+        if interaction.guild:
+            target_mem = interaction.guild.get_member(user_id)
+            if target_mem:
+                await self._remove_participant_role(interaction.guild, target_mem)
 
         embed = discord.Embed(
             title="👢 Tournament Removal",
@@ -1291,6 +1397,12 @@ class TournamentCog(commands.Cog):
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed)
+
+    @kick_user.autocomplete("user")
+    async def kick_user_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return await self._kick_participants_autocomplete(interaction, current)
 
     @app_commands.command(
         name="tournament-force-register",
@@ -1348,12 +1460,26 @@ class TournamentCog(commands.Cog):
     async def promote_sub(
         self,
         interaction: discord.Interaction,
-        substitute: Optional[discord.Member] = None,
-        replace: Optional[discord.Member] = None,
+        substitute: Optional[str] = None,
+        replace: Optional[str] = None,
     ):
         guild_id = interaction.guild_id or 0
-        sub_id = substitute.id if substitute else None
-        rep_id = replace.id if replace else None
+        sub_id = self._resolve_user_id(substitute, guild_id) if substitute else None
+        rep_id = self._resolve_user_id(replace, guild_id) if replace else None
+
+        if substitute and not sub_id:
+            await interaction.response.send_message(
+                f"❌ Could not resolve substitute `{substitute}`. Please select from the dropdown or enter an ID/mention.",
+                ephemeral=True,
+            )
+            return
+
+        if replace and not rep_id:
+            await interaction.response.send_message(
+                f"❌ Could not resolve main bracket player `{replace}`. Please select from the dropdown or enter an ID/mention.",
+                ephemeral=True,
+            )
+            return
 
         success, message, promoted = self.service.promote_substitute(
             substitute_user_id=sub_id,
@@ -1370,8 +1496,10 @@ class TournamentCog(commands.Cog):
             if promoted_mem:
                 await self._assign_participant_role(interaction.guild, promoted_mem)
 
-        if replace:
-            await self._remove_participant_role(interaction.guild, replace)
+        if rep_id and interaction.guild:
+            rep_mem = interaction.guild.get_member(rep_id)
+            if rep_mem:
+                await self._remove_participant_role(interaction.guild, rep_mem)
 
         embed = discord.Embed(
             title="🔄 Substitute Promoted",
@@ -1380,6 +1508,18 @@ class TournamentCog(commands.Cog):
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed)
+
+    @promote_sub.autocomplete("substitute")
+    async def promote_sub_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return await self._substitute_candidates_autocomplete(interaction, current)
+
+    @promote_sub.autocomplete("replace")
+    async def promote_replace_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        return await self._replace_candidates_autocomplete(interaction, current)
 
     @app_commands.command(
         name="tournament-set-limit",
@@ -2685,6 +2825,110 @@ class TournamentCog(commands.Cog):
         await target_chan.send(embed=panel_embed, view=view)
         await ctx.send(f"✅ Tournament event scheduler panel posted in {target_chan.mention}!")
 
+    @app_commands.command(
+        name="post-tournament-staff-panel",
+        description="[Admin] Post the interactive 1-click Tournament Staff Operations Panel.",
+    )
+    @app_commands.describe(
+        channel="Optional channel to post the staff operations panel into (default: current channel)",
+    )
+    @is_tournament_admin()
+    async def post_tournament_staff_panel_cmd(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+    ):
+        target_channel = channel or interaction.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "❌ Please run this command in a text channel or specify a valid text channel.",
+                ephemeral=True,
+            )
+            return
+
+        embed = build_staff_panel_embed()
+        view = TournamentStaffPanelView()
+        await target_channel.send(embed=embed, view=view)
+        await interaction.response.send_message(
+            f"✅ Tournament Staff Operations Panel posted to {target_channel.mention}!",
+            ephemeral=True,
+        )
+
+    @commands.command(name="post_tournament_staff_panel", aliases=["post_staff_panel"])
+    async def post_tournament_staff_panel_prefix(
+        self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None
+    ):
+        """Prefix command fallback (!post_tournament_staff_panel / !post_staff_panel)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Administrator permissions or the Tournament Admin role to post this.")
+            return
+
+        target_channel = channel or ctx.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await ctx.send("❌ Target must be a text channel.")
+            return
+
+        embed = build_staff_panel_embed()
+        view = TournamentStaffPanelView()
+        await target_channel.send(embed=embed, view=view)
+        if target_channel != ctx.channel:
+            await ctx.send(f"✅ Tournament Staff Operations Panel posted to {target_channel.mention}!")
+
+    @app_commands.command(
+        name="post-staff-guide",
+        description="[Admin] Post the tournament staff operational cheat sheet and phase guide.",
+    )
+    @app_commands.describe(
+        channel="Optional channel to post the staff guide into (default: current channel)",
+    )
+    @is_tournament_admin()
+    async def post_staff_guide_cmd(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+    ):
+        target_channel = channel or interaction.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "❌ Please run this command in a text channel or specify a valid text channel.",
+                ephemeral=True,
+            )
+            return
+
+        embed = build_staff_guide_embed()
+        await target_channel.send(embed=embed)
+        await interaction.response.send_message(
+            f"📖 Tournament Staff Operations Guide posted to {target_channel.mention}!",
+            ephemeral=True,
+        )
+
+    @commands.command(name="post_staff_guide", aliases=["post_tournament_staff_guide"])
+    async def post_staff_guide_prefix(
+        self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None
+    ):
+        """Prefix command fallback (!post_staff_guide / !post_tournament_staff_guide)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Administrator permissions or the Tournament Admin role to post this.")
+            return
+
+        target_channel = channel or ctx.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await ctx.send("❌ Target must be a text channel.")
+            return
+
+        embed = build_staff_guide_embed()
+        await target_channel.send(embed=embed)
+        if target_channel != ctx.channel:
+            await ctx.send(f"📖 Tournament Staff Operations Guide posted to {target_channel.mention}!")
+
 
 class TournamentEventModal(discord.ui.Modal, title="Schedule Tournament Event"):
     """
@@ -2865,6 +3109,455 @@ class TournamentEventPanelView(discord.ui.View):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+
+
+
+class StaffOpenTournamentModal(discord.ui.Modal, title="Open Tournament Registrations"):
+    def __init__(self, service: TournamentService):
+        super().__init__()
+        self.service = service
+        self.name_input = discord.ui.TextInput(
+            label="Tournament Name",
+            placeholder="e.g. Official Tournament",
+            default="Official Tournament",
+            max_length=100,
+            required=True,
+        )
+        self.slots_input = discord.ui.TextInput(
+            label="Max Participant Slots",
+            placeholder="16",
+            default="16",
+            max_length=4,
+            required=True,
+        )
+        self.regions_input = discord.ui.TextInput(
+            label="Allowed Regions (comma separated)",
+            placeholder="e.g. NA, EU, OCE, ASIA, SA or GLOBAL",
+            default="GLOBAL",
+            max_length=50,
+            required=False,
+        )
+        self.open_subs_input = discord.ui.TextInput(
+            label="Open Substitute Queue? (yes/no)",
+            placeholder="yes or no",
+            default="yes",
+            max_length=5,
+            required=False,
+        )
+        self.add_item(self.name_input)
+        self.add_item(self.slots_input)
+        self.add_item(self.regions_input)
+        self.add_item(self.open_subs_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild_id = interaction.guild_id or 0
+        slots_str = self.slots_input.value.strip()
+        try:
+            slots = int(slots_str)
+            if slots < 2:
+                await interaction.followup.send("❌ Slot capacity must be at least 2.", ephemeral=True)
+                return
+        except ValueError:
+            await interaction.followup.send("❌ Slots must be a valid number.", ephemeral=True)
+            return
+
+        name = self.name_input.value.strip() or "Official Tournament"
+        regions_raw = self.regions_input.value.strip()
+        selected_regions = None
+        if regions_raw and regions_raw.upper() != "GLOBAL":
+            selected_regions = [r.strip().upper() for r in regions_raw.split(",") if r.strip()]
+
+        open_subs = self.open_subs_input.value.strip().lower() in ("yes", "y", "true", "1")
+
+        # Auto-create participant role if needed
+        participant_role = None
+        if interaction.guild:
+            role_name = f"{name} Participant"[:100]
+            participant_role = discord.utils.get(interaction.guild.roles, name=role_name)
+            if not participant_role:
+                participant_role = discord.utils.get(interaction.guild.roles, name=name[:100])
+            if not participant_role and interaction.guild.me.guild_permissions.manage_roles:
+                try:
+                    participant_role = await interaction.guild.create_role(
+                        name=role_name,
+                        mentionable=True,
+                        reason=f"Auto-created tournament participant role for {name}",
+                    )
+                except Exception as exc:
+                    logger.warning("Could not auto-create role for %s: %s", name, exc)
+
+        p_role_id = participant_role.id if participant_role else None
+        p_role_name = participant_role.name if participant_role else None
+
+        msg = self.service.open_tournament(
+            name=name,
+            slots=slots,
+            regions=selected_regions,
+            open_subs=open_subs,
+            participant_role_id=p_role_id,
+            participant_role_name=p_role_name,
+            guild_id=guild_id,
+        )
+
+        embed = discord.Embed(
+            title="🟢 Tournament Registrations Opened!",
+            description=(
+                f"{msg}\n\n"
+                f"• **Capacity:** `{slots}` slots\n"
+                f"• **Regions:** `{', '.join(selected_regions) if selected_regions else 'GLOBAL'}`\n"
+                f"• **Substitutes:** `{'Enabled' if open_subs else 'Disabled'}`\n"
+                f"• **Participant Role:** {participant_role.mention if participant_role else '*None*'}"
+            ),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.followup.send(embed=embed)
+
+
+class StaffAnnounceModal(discord.ui.Modal, title="Broadcast Announcement"):
+    def __init__(self, service: TournamentService):
+        super().__init__()
+        self.service = service
+        self.title_input = discord.ui.TextInput(
+            label="Announcement Title",
+            placeholder="e.g. Match Bracket Released!",
+            default="📢 Tournament Announcement",
+            max_length=100,
+            required=True,
+        )
+        self.message_input = discord.ui.TextInput(
+            label="Announcement Message",
+            placeholder="Type your announcement to all contestants...",
+            style=discord.TextStyle.paragraph,
+            max_length=1500,
+            required=True,
+        )
+        self.ping_input = discord.ui.TextInput(
+            label="Ping Participant Role? (yes/no)",
+            placeholder="yes or no",
+            default="yes",
+            max_length=5,
+            required=False,
+        )
+        self.add_item(self.title_input)
+        self.add_item(self.message_input)
+        self.add_item(self.ping_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+
+        role_mention = ""
+        should_ping = self.ping_input.value.strip().lower() in ("yes", "y", "true", "1")
+        if should_ping and interaction.guild and state.participant_role_id:
+            role = interaction.guild.get_role(state.participant_role_id)
+            if role:
+                role_mention = role.mention
+
+        embed = discord.Embed(
+            title=f"📢 {self.title_input.value.strip()}",
+            description=self.message_input.value.strip(),
+            color=config.embed_color,
+        )
+        embed.set_footer(text=f"{state.name} • Tournament Announcement")
+
+        # Send public announcement in current channel
+        if role_mention:
+            await interaction.channel.send(content=f"🔔 {role_mention}", embed=embed)
+        else:
+            await interaction.channel.send(embed=embed)
+
+        await interaction.followup.send("✅ Announcement successfully broadcasted!", ephemeral=True)
+
+
+class StaffSetTimeModal(discord.ui.Modal, title="Configure Tournament Match Schedule"):
+    def __init__(self, service: TournamentService):
+        super().__init__()
+        self.service = service
+        self.date_input = discord.ui.TextInput(
+            label="Match Date (YYYY-MM-DD)",
+            placeholder="e.g. 2026-11-15",
+            max_length=20,
+            required=True,
+        )
+        self.time_input = discord.ui.TextInput(
+            label="Match Time (HH:MM 24-hour)",
+            placeholder="e.g. 18:00",
+            max_length=10,
+            required=True,
+        )
+        self.timezone_input = discord.ui.TextInput(
+            label="Timezone (EST, CST, PST, UTC, GMT, CET)",
+            placeholder="EST",
+            default="EST",
+            max_length=10,
+            required=False,
+        )
+        self.add_item(self.date_input)
+        self.add_item(self.time_input)
+        self.add_item(self.timezone_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        date_str = self.date_input.value.strip()
+        time_str = self.time_input.value.strip()
+        tz_str = self.timezone_input.value.strip().upper() or "EST"
+
+        valid, start_dt, err = parse_event_datetime(date_str, time_str, tz_str)
+        if not valid or not start_dt:
+            await interaction.followup.send(f"❌ {err}", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        ts = int(start_dt.timestamp())
+        msg = self.service.set_tournament_time(
+            start_time=start_dt.isoformat(),
+            start_timestamp=ts,
+            guild_id=guild_id,
+        )
+
+        embed = discord.Embed(
+            title="⏰ Tournament Match Schedule Configured",
+            description=(
+                f"{msg}\n\n"
+                f"**Configured Start Time:** <t:{ts}:F> (<t:{ts}:R>)\n"
+                f"**Contestant Reminders:** Enabled! Contestants will automatically receive a personal DM "
+                f"on the morning of the tournament and 30 minutes before match time."
+            ),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.followup.send(embed=embed)
+
+
+class TournamentStaffPanelView(discord.ui.View):
+    """
+    Persistent 1-click Tournament Staff Operations Panel.
+    Can be posted to staff channels for rapid bracket and match day operations.
+    """
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    def _get_service(self, interaction: discord.Interaction) -> TournamentService | None:
+        srv = getattr(interaction.client, "tournament_service", None)
+        if not srv:
+            cog = interaction.client.get_cog("TournamentCog")
+            if cog:
+                srv = getattr(cog, "service", None)
+        return srv
+
+    @discord.ui.button(
+        label="Open Registrations",
+        emoji="🟢",
+        style=discord.ButtonStyle.success,
+        custom_id="btn_staff_open_bracket",
+        row=0,
+    )
+    async def open_bracket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message(
+                "❌ You need the Tournament Admin role or Administrator permissions to use staff panel controls.",
+                ephemeral=True,
+            )
+            return
+
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service is unavailable.", ephemeral=True)
+            return
+
+        modal = StaffOpenTournamentModal(service)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="Close Registrations",
+        emoji="🔒",
+        style=discord.ButtonStyle.danger,
+        custom_id="btn_staff_close_bracket",
+        row=0,
+    )
+    async def close_bracket_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message(
+                "❌ You need the Tournament Admin role or Administrator permissions to use staff panel controls.",
+                ephemeral=True,
+            )
+            return
+
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service is unavailable.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        msg = service.close_tournament(guild_id)
+        embed = discord.Embed(
+            title="🔒 Tournament Registrations Closed",
+            description=f"{msg}\n\n*Locked by {interaction.user.mention}*",
+            color=0xE74C3C,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.response.send_message(embed=embed)
+
+    @discord.ui.button(
+        label="Toggle Check-In",
+        emoji="🎟️",
+        style=discord.ButtonStyle.primary,
+        custom_id="btn_staff_toggle_checkin",
+        row=0,
+    )
+    async def toggle_checkin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message(
+                "❌ You need the Tournament Admin role or Administrator permissions to use staff panel controls.",
+                ephemeral=True,
+            )
+            return
+
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service is unavailable.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+
+        if not state.checkin_open:
+            msg = service.open_checkin(checkin_channel_id=interaction.channel_id, guild_id=guild_id)
+            embed = discord.Embed(
+                title="🎟️ Tournament Check-In Opened",
+                description=(
+                    f"{msg}\n\n"
+                    f"Contestants can check in using `/tournament-checkin` or the Check-In button in registration channels.\n\n"
+                    f"*Opened by {interaction.user.mention}*"
+                ),
+                color=0x2ECC71,
+            )
+        else:
+            msg = service.close_checkin(guild_id=guild_id)
+            embed = discord.Embed(
+                title="🔒 Tournament Check-In Closed",
+                description=f"{msg}\n\n*Closed by {interaction.user.mention}*",
+                color=0xE67E22,
+            )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.response.send_message(embed=embed)
+
+    @discord.ui.button(
+        label="Promote Sub",
+        emoji="🔄",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_staff_promote_sub",
+        row=1,
+    )
+    async def promote_sub_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message(
+                "❌ You need the Tournament Admin role or Administrator permissions to use staff panel controls.",
+                ephemeral=True,
+            )
+            return
+
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service is unavailable.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        success, msg, promoted = service.promote_substitute(guild_id=guild_id)
+
+        if not success:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+
+        if promoted and interaction.guild:
+            promoted_mem = interaction.guild.get_member(promoted.user_id)
+            if promoted_mem:
+                cog = interaction.client.get_cog("TournamentCog")
+                if cog and hasattr(cog, "_assign_participant_role"):
+                    await cog._assign_participant_role(interaction.guild, promoted_mem)
+
+        embed = discord.Embed(
+            title="🔄 Standby Substitute Promoted",
+            description=f"{msg}\n\n*Executed by {interaction.user.mention}*",
+            color=0x9B59B6,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.response.send_message(embed=embed)
+
+    @discord.ui.button(
+        label="Announce",
+        emoji="📢",
+        style=discord.ButtonStyle.primary,
+        custom_id="btn_staff_broadcast_announce",
+        row=1,
+    )
+    async def broadcast_announce_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message(
+                "❌ You need the Tournament Admin role or Administrator permissions to use staff panel controls.",
+                ephemeral=True,
+            )
+            return
+
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service is unavailable.", ephemeral=True)
+            return
+
+        modal = StaffAnnounceModal(service)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="Set Match Time",
+        emoji="⏰",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_staff_set_time",
+        row=1,
+    )
+    async def set_time_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message(
+                "❌ You need the Tournament Admin role or Administrator permissions to use staff panel controls.",
+                ephemeral=True,
+            )
+            return
+
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service is unavailable.", ephemeral=True)
+            return
+
+        modal = StaffSetTimeModal(service)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="Roster & Status",
+        emoji="📊",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_staff_live_status",
+        row=1,
+    )
+    async def live_status_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message(
+                "❌ You need the Tournament Admin role or Administrator permissions to use staff panel controls.",
+                ephemeral=True,
+            )
+            return
+
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service is unavailable.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+        embed = build_status_embed(state)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

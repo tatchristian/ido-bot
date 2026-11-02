@@ -432,3 +432,98 @@ def build_help_embed(
     embed.set_footer(text=f"{org} • {full_name}")
     return embed
 
+
+def build_staff_panel_embed(org_name: str | None = None) -> discord.Embed:
+    """Builds the embed for the 1-click Tournament Staff Operations Panel."""
+    org = org_name or config.organization_name
+    embed = discord.Embed(
+        title=f"🛡️ {org} Tournament Staff Operations Panel",
+        description=(
+            f"Welcome to the official **{org}** Tournament Control Center!\n"
+            "Staff and Tournament Admins can manage registrations, check-in, matches, and announcements "
+            "using the interactive buttons below.\n\n"
+            "**Control Center Actions:**\n"
+            "• 🟢 **Open Bracket** — Open registrations, set slots & regions via popup form.\n"
+            "• 🔒 **Close Bracket** — Lock registrations to finalize bracket entries.\n"
+            "• 🎟️ **Toggle Check-In** — Open or close the match day check-in window.\n"
+            "• 🔄 **Promote Standby Sub** — Advance the next substitute in line into the bracket.\n"
+            "• 📢 **Broadcast Announce** — Send a tournament announcement ping to players.\n"
+            "• ⏰ **Set Match Time** — Configure match day date & automated contestant DMs.\n"
+            "• 📊 **Live Roster & Status** — Check active slots, check-in readiness & player list.\n\n"
+            "💡 *Click any button below to execute an operational action!*"
+        ),
+        color=config.embed_color,
+    )
+    embed.set_footer(text=f"{org} • Tournament Operations Center")
+    return embed
+
+
+def build_staff_guide_embed(org_name: str | None = None) -> discord.Embed:
+    """Builds the comprehensive operational cheat sheet designed to be pinned in staff channels."""
+    org = org_name or config.organization_name
+    full_name = getattr(config, "organization_full_name", "United Dueling Amity")
+    embed = discord.Embed(
+        title=f"📖 {org} Tournament Staff Operational Guide & Cheat Sheet",
+        description=(
+            f"Welcome to the **{full_name} ({org})** Staff Operations Manual.\n"
+            "Pin this message in your staff channels for quick access and mod onboarding.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        color=0x3498DB,
+    )
+
+    embed.add_field(
+        name="1️⃣ Phase 1: Pre-Tournament Setup",
+        value=(
+            "• **Open Registrations:** Click `🟢 Open Bracket` on the Staff Panel or `/tournament-open`.\n"
+            "• **Set Match Time:** Set date & time via `/tournament-set-time` so contestants receive automated DMs.\n"
+            "• **Auto-Role:** The bot automatically creates and assigns `@{Tournament} Participant` to registered players.\n"
+            "• **Weapons & Regions:** Set limits with `/tournament-set-weapons` and `/tournament-set-regions`."
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="2️⃣ Phase 2: Registration & Roster Monitoring",
+        value=(
+            "• **Monitor Slots:** Check status with `/tournament-status` or the `📊 Roster & Status` button.\n"
+            "• **Quick Kicking:** Use `/tournament-kick` — **with instant player autocomplete**! Just type the first 2 letters of any player's IGN.\n"
+            "• **Manual Entry:** Use `/tournament-force-register` to add VIPs or participants manually."
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="3️⃣ Phase 3: Match Day & Reminders",
+        value=(
+            "• **Automated DMs:** Contestants automatically receive a DM on tournament day morning and 30 minutes before matches start.\n"
+            "• **Check-In Window:** Click `🎟️ Toggle Check-In` on the panel or `/tournament-open-checkin`.\n"
+            "• **Swap No-Shows:** Use `/tournament-promote-sub` (with instant autocomplete for no-shows and standby subs) or click `🔄 Promote Sub`.\n"
+            "• **Player Pings:** Use `/tournament-announce` to broadcast notices directly into announcement channels."
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="4️⃣ Phase 4: Concluding & Archiving",
+        value=(
+            "• **Record Champions:** Use `/tournament-complete-event` to crown the winner and publish to [unitedduelingamity.org](https://unitedduelingamity.org).\n"
+            "• **Export Records:** Use `/tournament-export` to download Challonge or Excel CSV rosters.\n"
+            "• **Wipe Roster:** Use `/tournament-clear confirm:True` to prep for the next cycle."
+        ),
+        inline=False,
+    )
+
+    embed.add_field(
+        name="🛡️ Role Permissions Reference",
+        value=(
+            "• **Tournament Admin Role (`/tournament-set-admin-role`):** Operations, bracket runner, check-in & kicks.\n"
+            "• **Event & Website Role (`/tournament-set-event-role`):** Server banner events & website publishing.\n"
+            "• **Server Administrator:** System setup, channel builder & role assignments."
+        ),
+        inline=False,
+    )
+
+    embed.set_footer(text=f"{org} • Staff Operations Cheat Sheet")
+    return embed
+

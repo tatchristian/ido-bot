@@ -166,3 +166,28 @@ def test_build_tournament_reminder_embed():
     assert 'Standby Substitute' in embed_30.description
     assert '**SA**' in embed_30.description
     assert f'<t:{start_ts}:F>' in embed_30.description
+
+
+def test_build_staff_panel_embed():
+    from utils.ui import build_staff_panel_embed
+    embed = build_staff_panel_embed(org_name="UDA")
+    assert "Tournament Staff Operations Panel" in embed.title
+    assert "Open Bracket" in embed.description
+    assert "Close Bracket" in embed.description
+    assert "Toggle Check-In" in embed.description
+    assert "Promote Standby Sub" in embed.description
+    assert "Broadcast Announce" in embed.description
+    assert "Set Match Time" in embed.description
+    assert "Live Roster & Status" in embed.description
+
+
+def test_build_staff_guide_embed():
+    from utils.ui import build_staff_guide_embed
+    embed = build_staff_guide_embed(org_name="UDA")
+    assert "Staff Operational Guide & Cheat Sheet" in embed.title
+    field_names = [f.name for f in embed.fields]
+    assert any("Phase 1: Pre-Tournament Setup" in name for name in field_names)
+    assert any("Phase 2: Registration & Roster Monitoring" in name for name in field_names)
+    assert any("Phase 3: Match Day & Reminders" in name for name in field_names)
+    assert any("Phase 4: Concluding & Archiving" in name for name in field_names)
+    assert any("Role Permissions Reference" in name for name in field_names)

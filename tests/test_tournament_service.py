@@ -590,3 +590,42 @@ def test_tournament_time_and_reminder_state(service: TournamentService):
     service.clear_tournament()
     assert service.get_state().start_time is None
     assert service.get_state().start_timestamp is None
+
+
+def test_resolve_user_id_in_cog():
+    from unittest.mock import MagicMock
+    from cogs.tournaments import TournamentCog
+    from services.tournament_service import TournamentService, Participant
+    from utils.storage import StorageManager
+    import tempfile
+    from pathlib import Path
+
+    temp_dir = Path(tempfile.mkdtemp())
+    service = TournamentService(storage=StorageManager(temp_dir / "test_tourney.json"))
+    service.open_tournament(name="Test Cup", slots=8, open_subs=True)
+    service.register_participant(user_id=111, user_mention="<@111>", ign="Shadow", weapon="Katana", region="NA")
+    service.register_substitute(user_id=222, user_mention="<@222>", ign="BackupNinja", weapon="Daggers", region="EU")
+
+    bot = MagicMock()
+    cog = TournamentCog(bot, service)
+
+    # 1. Autocomplete / raw digit ID
+    assert cog._resolve_user_id("111", guild_id=0) == 111
+    assert cog._resolve_user_id("222", guild_id=0) == 222
+
+    # 2. Discord mention format
+    assert cog._resolve_user_id("<@111>", guild_id=0) == 111
+    assert cog._resolve_user_id("<@!222>", guild_id=0) == 222
+
+    # 3. Exact IGN match (case-insensitive)
+    assert cog._resolve_user_id("shadow", guild_id=0) == 111
+    assert cog._resolve_user_id("SHADOW", guild_id=0) == 111
+    assert cog._resolve_user_id("BackupNinja", guild_id=0) == 222
+
+    # 4. Partial IGN match
+    assert cog._resolve_user_id("Backup", guild_id=0) == 222
+
+    # 5. Invalid / Non-existent
+    assert cog._resolve_user_id("unknown_player", guild_id=0) is None
+    assert cog._resolve_user_id("", guild_id=0) is None
+    assert cog._resolve_user_id(None, guild_id=0) is None
