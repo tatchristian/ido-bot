@@ -126,7 +126,9 @@ def check_is_tournament_admin(user: Union[discord.User, discord.Member], guild: 
         )
 
     if threshold_role is not None:
-        if user.top_role.position >= threshold_role.position:
+        if threshold_role in user.roles:
+            return True
+        if any(r.id == threshold_role.id or r.name.strip().lower() == threshold_role.name.strip().lower() for r in user.roles):
             return True
 
     return False
@@ -140,18 +142,56 @@ def is_tournament_admin():
     return app_commands.check(predicate)
 
 
+def check_is_event_admin(
+    user: Union[discord.User, discord.Member],
+    guild: Optional[discord.Guild],
+    client: Optional[commands.Bot] = None,
+) -> bool:
+    """Synchronous predicate to check if a user is server owner, admin, has Manage Events/Guild,
+    or holds the designated Event & Website role.
+    Tournament Referee / Tournament Admin roles alone do NOT grant this permission."""
+    if guild is None:
+        return False
+    if user.id == guild.owner_id:
+        return True
+    if hasattr(user, "guild_permissions"):
+        perms = user.guild_permissions
+        if perms.administrator or perms.manage_events or perms.manage_guild:
+            return True
+    if not isinstance(user, discord.Member):
+        return False
+
+    cog = client.get_cog("TournamentCog") if client else None
+    target_role_id = None
+    target_role_name = getattr(config, "event_role_name", None)
+    if cog and hasattr(cog, "service"):
+        guild_state = cog.service.get_state(guild.id)
+        target_role_id = getattr(guild_state, "event_role_id", None) or getattr(config, "event_role_id", None)
+        target_role_name = getattr(guild_state, "event_role_name", None) or getattr(config, "event_role_name", None)
+    else:
+        target_role_id = getattr(config, "event_role_id", None)
+
+    if target_role_id:
+        target_role = guild.get_role(target_role_id)
+        if target_role and target_role in user.roles:
+            return True
+
+    if target_role_name:
+        target_name_lower = target_role_name.strip().lower()
+        if any(r.name.strip().lower() == target_name_lower for r in user.roles):
+            return True
+
+    return False
+
+
 def is_event_admin():
     """Custom check for Discord Scheduled Events and Website Sync.
-    Requires Server Administrator, Server Ownership, Manage Events, or Manage Guild.
+    Requires Server Administrator, Server Ownership, Manage Events, Manage Guild,
+    or the designated Event & Website role.
     Tournament referee / tournament admin roles alone do NOT grant this.
     """
     async def predicate(interaction: discord.Interaction) -> bool:
-        if interaction.guild is None:
-            return False
-        if interaction.user.id == interaction.guild.owner_id:
-            return True
-        perms = interaction.permissions
-        return perms.administrator or perms.manage_events or perms.manage_guild
+        return check_is_event_admin(interaction.user, interaction.guild, interaction.client)
 
     return app_commands.check(predicate)
 
@@ -207,16 +247,7 @@ class HelpView(discord.ui.View):
 
     @discord.ui.button(label="📅 Events & Website", style=discord.ButtonStyle.secondary, custom_id="help_events_sync")
     async def events_sync_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        perms = interaction.permissions
-        user_is_event_admin = (
-            interaction.guild is not None
-            and (
-                interaction.user.id == interaction.guild.owner_id
-                or perms.administrator
-                or perms.manage_events
-                or perms.manage_guild
-            )
-        )
+        user_is_event_admin = check_is_event_admin(interaction.user, interaction.guild, interaction.client)
         if not user_is_event_admin:
             await interaction.response.send_message(
                 "❌ **Access Denied**: Event Scheduling and Live Website Sync commands are restricted to Server Staff and Event Managers.",
@@ -1324,6 +1355,114 @@ class TournamentCog(commands.Cog):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
+        name="tournament-set-event-role",
+        description="[Server Admin] Set which role can schedule official events and manage website sync.",
+    )
+    @app_commands.describe(
+        role="The Discord role that grants access to event scheduling and website sync commands."
+    )
+    @is_server_admin()
+    async def set_event_role_cmd(
+        self, interaction: discord.Interaction, role: Optional[discord.Role] = None
+    ):
+        guild_id = interaction.guild_id or 0
+        if role:
+            msg = self.service.set_event_role(role_id=role.id, role_name=role.name, guild_id=guild_id)
+            embed = discord.Embed(
+                title="📅 Event & Website Role Configured",
+                description=(
+                    f"{msg}\n\n"
+                    f"Members with **{role.mention}** can now access all Discord scheduled event "
+                    f"and website sync commands (`/tournament-schedule-event`, `/tournament-cancel-event`, "
+                    f"`/tournament-complete-event`, `/tournament-remove-past-result`, `/post-event-scheduler-panel`).\n\n"
+                    f"🛡️ *Note: This role is strictly isolated — it does not grant bracket management or Clan Showcase staff permissions.*"
+                ),
+                color=0x3498DB,
+            )
+        else:
+            msg = self.service.set_event_role(role_id=None, role_name=None, guild_id=guild_id)
+            embed = discord.Embed(
+                title="📅 Event & Website Role Cleared",
+                description=(
+                    f"{msg}\n\n"
+                    f"Only server staff with Administrator, Manage Events, or Manage Server permissions can now access event and website sync controls."
+                ),
+                color=0x3498DB,
+            )
+        embed.set_footer(text=f"{config.organization_name} • Event Operations")
+        await interaction.response.send_message(embed=embed)
+
+    @app_commands.command(
+        name="set-event-role",
+        description="[Server Admin] Set which role can schedule official events and manage website sync.",
+    )
+    @app_commands.describe(
+        role="The Discord role that grants access to event scheduling and website sync commands."
+    )
+    @is_server_admin()
+    async def set_event_role_alias_cmd(
+        self, interaction: discord.Interaction, role: Optional[discord.Role] = None
+    ):
+        await self.set_event_role_cmd(interaction, role)
+
+    @app_commands.command(
+        name="tournament-view-event-role",
+        description="View which role is currently authorized for event scheduling and website sync.",
+    )
+    async def view_event_role_cmd(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        guild_state = self.service.get_state(guild_id)
+        role_id = getattr(guild_state, "event_role_id", None) or getattr(config, "event_role_id", None)
+        role_name = getattr(guild_state, "event_role_name", None) or getattr(config, "event_role_name", None)
+
+        role = interaction.guild.get_role(role_id) if role_id and interaction.guild else None
+        if not role and role_name and interaction.guild:
+            role = discord.utils.find(
+                lambda r: r.name.lower() == role_name.lower(),
+                interaction.guild.roles,
+            )
+
+        role_display = role.mention if role else (f"`{role_name}`" if role_name else "*None configured (Server Administrators & Manage Events only)*")
+
+        embed = discord.Embed(
+            title="📅 Current Event & Website Role",
+            description=(
+                f"**Configured Role:** {role_display}\n\n"
+                f"Members with this role have access to event scheduling, cancellations, completions, "
+                f"and website sync commands.\n\n"
+                f"🛡️ *This role does not grant access to tournament bracket operations or clan showcase controls.*"
+            ),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Event Operations")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="view-event-role",
+        description="View which role is currently authorized for event scheduling and website sync.",
+    )
+    async def view_event_role_alias_cmd(self, interaction: discord.Interaction):
+        await self.view_event_role_cmd(interaction)
+
+    @commands.command(name="set_event_role", aliases=["set_event_website_role", "tournament_set_event_role"])
+    @commands.has_permissions(administrator=True)
+    async def set_event_role_prefix(
+        self, ctx: commands.Context, role: Optional[discord.Role] = None
+    ):
+        """Prefix command fallback (!set_event_role)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        guild_id = ctx.guild.id
+        if role:
+            msg = self.service.set_event_role(role_id=role.id, role_name=role.name, guild_id=guild_id)
+            await ctx.send(f"✅ {msg}\nMembers with **@{role.name}** can now access event and website sync commands.")
+        else:
+            msg = self.service.set_event_role(role_id=None, role_name=None, guild_id=guild_id)
+            await ctx.send(f"✅ {msg}")
+
+    @app_commands.command(
         name="tournament-set-role",
         description="[Admin] Set or link a Discord role assigned to main bracket tournament participants.",
     )
@@ -1792,7 +1931,6 @@ class TournamentCog(commands.Cog):
         image="Optional cover image banner for the Discord event",
     )
     @app_commands.choices(timezone=TIMEZONE_CHOICES)
-    @app_commands.default_permissions(manage_events=True)
     @is_event_admin()
     async def schedule_event(
         self,
@@ -1963,7 +2101,6 @@ class TournamentCog(commands.Cog):
     @app_commands.describe(
         event="The scheduled tournament event to cancel and remove"
     )
-    @app_commands.default_permissions(manage_events=True)
     @is_event_admin()
     async def cancel_event(self, interaction: discord.Interaction, event: str):
         guild = interaction.guild
@@ -2023,7 +2160,6 @@ class TournamentCog(commands.Cog):
         score="Final match score or series result (e.g. 3-1, 2-0)",
         notes="Optional tournament recap or notes",
     )
-    @app_commands.default_permissions(manage_events=True)
     @is_event_admin()
     async def complete_event(
         self,
@@ -2103,7 +2239,6 @@ class TournamentCog(commands.Cog):
     @app_commands.describe(
         result="Select the past result entry to delete"
     )
-    @app_commands.default_permissions(administrator=True)
     @is_event_admin()
     async def remove_past_result_cmd(self, interaction: discord.Interaction, result: str):
         past_service = getattr(self.bot, "past_results_service", None)
@@ -2147,7 +2282,6 @@ class TournamentCog(commands.Cog):
     @app_commands.describe(
         channel="Channel to post the scheduler panel in (defaults to current channel)"
     )
-    @app_commands.default_permissions(manage_guild=True)
     @is_event_admin()
     async def post_event_scheduler_panel_slash(
         self,
@@ -2196,14 +2330,9 @@ class TournamentCog(commands.Cog):
             await ctx.send("❌ This command can only be used in a server.")
             return
 
-        # Restrict to Server Admins / Event Managers
-        perms = ctx.author.guild_permissions if isinstance(ctx.author, discord.Member) else None
-        is_allowed = (
-            ctx.author.id == ctx.guild.owner_id
-            or (perms and (perms.administrator or perms.manage_events or perms.manage_guild))
-        )
-        if not is_allowed:
-            await ctx.send("❌ You need Manage Events, Manage Server, or Administrator permissions to post this panel.")
+        # Restrict to Server Admins / Event Managers / Event Role
+        if not check_is_event_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Manage Events, Administrator permissions, or the Event & Website role to post this panel.")
             return
 
         target_chan = channel or ctx.channel
@@ -2375,16 +2504,9 @@ class TournamentEventPanelView(discord.ui.View):
             await interaction.response.send_message("❌ This button can only be used in a server.", ephemeral=True)
             return
 
-        perms = interaction.permissions
-        is_allowed = (
-            interaction.user.id == interaction.guild.owner_id
-            or perms.administrator
-            or perms.manage_events
-            or perms.manage_guild
-        )
-        if not is_allowed:
+        if not check_is_event_admin(interaction.user, interaction.guild, interaction.client):
             await interaction.response.send_message(
-                "❌ You need Manage Events, Manage Server, or Administrator permissions to schedule official events.",
+                "❌ You need Manage Events, Administrator permissions, or the Event & Website role to schedule official events.",
                 ephemeral=True,
             )
             return

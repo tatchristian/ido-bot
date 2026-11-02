@@ -473,3 +473,89 @@ def test_multi_server_isolation(tmp_path: Path):
     service.clear_tournament(guild_id=guild_test)
     assert len(service.get_state(guild_test).participants) == 0
     assert len(service.get_state(guild_main).participants) == 1
+
+def test_event_role_management(service: TournamentService):
+    state = service.get_state()
+    assert state.event_role_id is None
+    assert state.event_role_name is None
+
+    # 1. Set event role
+    msg = service.set_event_role(role_id=777888999, role_name='Event Coordinator')
+    assert 'Event Coordinator' in msg
+    assert service.get_state().event_role_id == 777888999
+    assert service.get_state().event_role_name == 'Event Coordinator'
+
+    # 2. Clearing tournament roster should NOT clear event role
+    service.clear_tournament()
+    assert service.get_state().event_role_id == 777888999
+
+    # 3. Clear event role
+    clear_msg = service.set_event_role(role_id=None, role_name=None)
+    assert 'cleared' in clear_msg.lower()
+    assert service.get_state().event_role_id is None
+    assert service.get_state().event_role_name is None
+
+
+def test_event_and_tournament_role_isolation(service: TournamentService):
+    from unittest.mock import MagicMock
+    import discord
+    from cogs.tournaments import check_is_tournament_admin, check_is_event_admin
+    from cogs.clan_showcase import is_staff_user
+
+    guild = MagicMock()
+    guild.id = 12345
+    guild.owner_id = 99999
+
+    # Configure Tournament Admin role in service
+    service.set_admin_role(role_id=111, role_name='Tournament Admin', guild_id=guild.id)
+    # Configure Event & Website role in service
+    service.set_event_role(role_id=222, role_name='Event Planner', guild_id=guild.id)
+
+    tourney_role = MagicMock()
+    tourney_role.id = 111
+    tourney_role.name = 'Tournament Admin'
+    tourney_role.position = 10
+
+    event_role = MagicMock()
+    event_role.id = 222
+    event_role.name = 'Event Planner'
+    event_role.position = 10
+
+    guild.roles = [tourney_role, event_role]
+    guild.get_role.side_effect = lambda rid: tourney_role if rid == 111 else (event_role if rid == 222 else None)
+
+    # Mock bot with TournamentCog
+    bot = MagicMock()
+    cog = MagicMock()
+    cog.service = service
+    bot.get_cog.side_effect = lambda name: cog if name == 'TournamentCog' else None
+
+    # User A has ONLY Event Planner role
+    user_event_only = MagicMock(spec=discord.Member)
+    user_event_only.id = 1001
+    user_event_only.roles = [event_role]
+    user_event_only.top_role = event_role
+    user_event_only.guild_permissions.administrator = False
+    user_event_only.guild_permissions.manage_guild = False
+    user_event_only.guild_permissions.manage_channels = False
+    user_event_only.guild_permissions.manage_events = False
+
+    # User B has ONLY Tournament Admin role
+    user_tourney_only = MagicMock(spec=discord.Member)
+    user_tourney_only.id = 1002
+    user_tourney_only.roles = [tourney_role]
+    user_tourney_only.top_role = tourney_role
+    user_tourney_only.guild_permissions.administrator = False
+    user_tourney_only.guild_permissions.manage_guild = False
+    user_tourney_only.guild_permissions.manage_channels = False
+    user_tourney_only.guild_permissions.manage_events = False
+
+    # User A (Event only): CAN access event admin, CANNOT access tournament admin or clan showcase
+    assert check_is_event_admin(user_event_only, guild, bot) is True
+    assert check_is_tournament_admin(user_event_only, guild, bot) is False
+    assert is_staff_user(user_event_only, guild) is False
+
+    # User B (Tournament only): CAN access tournament admin, CANNOT access event admin or clan showcase
+    assert check_is_tournament_admin(user_tourney_only, guild, bot) is True
+    assert check_is_event_admin(user_tourney_only, guild, bot) is False
+    assert is_staff_user(user_tourney_only, guild) is False

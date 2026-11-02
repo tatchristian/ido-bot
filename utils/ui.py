@@ -286,7 +286,8 @@ def build_help_embed(
                 "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
                 "• `/tournament-set-role` — Set or link Discord role for participants.\n"
                 "• `/tournament-set-channels` — Configure dedicated channels for tournament.\n"
-                "• `/tournament-set-admin-role` — Set role required for admin commands.\n"
+                "• `/tournament-set-admin-role` — Set role required for tournament admin commands.\n"
+                "• `/tournament-set-event-role` — Set specific role required for event scheduling & website sync.\n"
                 "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster."
             )
             embed.add_field(
@@ -332,11 +333,13 @@ def build_help_embed(
             if section == "events_sync":
                 embed.add_field(
                     name="🔒 Admin Access Restricted",
-                    value="❌ Event Scheduling and Live Website Sync commands are restricted to Tournament Administrators.",
+                    value="❌ Event Scheduling and Live Website Sync commands are restricted to Server Staff and Event Managers.",
                     inline=False,
                 )
         else:
             events_sync_cmds = (
+                "• `/tournament-set-event-role` (or `/set-event-role`) — Set or clear specific role authorized for event scheduling & website sync.\n"
+                "• `/tournament-view-event-role` — View which role is currently authorized for event controls.\n"
                 "• `/post-event-scheduler-panel` (or `!post_event_scheduler_panel`) — Post interactive 1-click event scheduler panel in staff channels.\n"
                 "• `/tournament-schedule-event` — Schedule an official Discord server event (displayed at the top of the server banner).\n"
                 "• `/tournament-cancel-event` — Cancel and delete an upcoming event (removes from Discord & website schedule).\n"

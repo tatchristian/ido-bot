@@ -74,6 +74,8 @@ class TournamentState:
     approved_weapons: list[str] = field(default_factory=lambda: list(DEFAULT_WEAPONS))
     admin_role_id: int | None = None
     admin_role_name: str | None = None
+    event_role_id: int | None = None
+    event_role_name: str | None = None
     participant_role_id: int | None = None
     participant_role_name: str | None = None
     announcement_channel_id: int | None = None
@@ -101,6 +103,8 @@ class TournamentState:
             approved_weapons=list(data.get("approved_weapons", DEFAULT_WEAPONS)),
             admin_role_id=int(data["admin_role_id"]) if data.get("admin_role_id") is not None else None,
             admin_role_name=str(data["admin_role_name"]) if data.get("admin_role_name") is not None else None,
+            event_role_id=int(data["event_role_id"]) if data.get("event_role_id") is not None else None,
+            event_role_name=str(data["event_role_name"]) if data.get("event_role_name") is not None else None,
             participant_role_id=int(data["participant_role_id"]) if data.get("participant_role_id") is not None else None,
             participant_role_name=str(data["participant_role_name"]) if data.get("participant_role_name") is not None else None,
             announcement_channel_id=int(data["announcement_channel_id"]) if data.get("announcement_channel_id") is not None else None,
@@ -132,6 +136,8 @@ class TournamentState:
             "approved_weapons": self.approved_weapons,
             "admin_role_id": self.admin_role_id,
             "admin_role_name": self.admin_role_name,
+            "event_role_id": self.event_role_id,
+            "event_role_name": self.event_role_name,
             "participant_role_id": self.participant_role_id,
             "participant_role_name": self.participant_role_name,
             "announcement_channel_id": self.announcement_channel_id,
@@ -378,6 +384,18 @@ class TournamentService:
         state.admin_role_name = role_name
         self._persist(guild_id)
         return f"🛡️ Tournament Admin threshold set to role: **{role_name}** (or higher)."
+
+    def set_event_role(
+        self, role_id: int | None, role_name: str | None = None, guild_id: int = 0
+    ) -> str:
+        """Sets or clears the role required for event scheduling and website sync controls."""
+        state = self.get_state(guild_id)
+        state.event_role_id = role_id
+        state.event_role_name = role_name
+        self._persist(guild_id)
+        if role_name:
+            return f"📅 Event & Website Admin role set to: **{role_name}**."
+        return "📅 Event & Website Admin role cleared (Server Administrators & Event Managers only)."
 
     def set_participant_role(
         self, role_id: int | None, role_name: str | None = None, guild_id: int = 0

@@ -32,6 +32,12 @@ class Config:
         else None
     )
     admin_role_name: str = os.getenv("ADMIN_ROLE_NAME", "Tournament Admin")
+    event_role_id: int | None = (
+        int(os.getenv("EVENT_ROLE_ID"))
+        if os.getenv("EVENT_ROLE_ID") and os.getenv("EVENT_ROLE_ID").strip().isdigit()
+        else None
+    )
+    event_role_name: str | None = os.getenv("EVENT_ROLE_NAME", None)
     showcase_channel_id: int | None = (
         int(os.getenv("SHOWCASE_CHANNEL_ID"))
         if os.getenv("SHOWCASE_CHANNEL_ID") and os.getenv("SHOWCASE_CHANNEL_ID").strip().isdigit()
