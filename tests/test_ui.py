@@ -183,7 +183,19 @@ def test_build_staff_panel_embed():
 
 def test_build_staff_guide_embed():
     from utils.ui import build_staff_guide_embed
-    embed = build_staff_guide_embed(org_name="UDA")
+    # 1. Overview
+    overview_embed = build_staff_guide_embed(section="overview", org_name="UDA")
+    assert "Staff Operational Guide" in overview_embed.title
+    assert "Operational Phase Directory" in overview_embed.description
+
+    # 2. Individual phases
+    p1 = build_staff_guide_embed(section="phase_1", org_name="UDA")
+    assert "Phase 1: Pre-Tournament Setup" in p1.title
+    p3 = build_staff_guide_embed(section="phase_3", org_name="UDA")
+    assert "Phase 3: Match Day" in p3.title
+
+    # 3. All / Cheat Sheet
+    embed = build_staff_guide_embed(section="all", org_name="UDA")
     assert "Staff Operational Guide & Cheat Sheet" in embed.title
     field_names = [f.name for f in embed.fields]
     assert any("Phase 1: Pre-Tournament Setup" in name for name in field_names)
@@ -191,3 +203,20 @@ def test_build_staff_guide_embed():
     assert any("Phase 3: Match Day & Reminders" in name for name in field_names)
     assert any("Phase 4: Concluding & Archiving" in name for name in field_names)
     assert any("Role Permissions Reference" in name for name in field_names)
+
+
+def test_staff_guide_view_structure():
+    import discord
+    from cogs.tournaments import TournamentStaffGuideView
+    view = TournamentStaffGuideView(current_section="overview")
+    select_items = [i for i in view.children if isinstance(i, discord.ui.Select)]
+    assert len(select_items) == 1
+    select = select_items[0]
+    assert select.custom_id == "select_staff_guide_page"
+    values = [opt.value for opt in select.options]
+    assert "overview" in values
+    assert "phase_1" in values
+    assert "phase_2" in values
+    assert "phase_3" in values
+    assert "phase_4" in values
+    assert "roles" in values

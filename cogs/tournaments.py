@@ -289,6 +289,9 @@ class TournamentCog(commands.Cog):
         staff_panel_view = TournamentStaffPanelView()
         self.bot.add_view(staff_panel_view)
         logger.info("Registered persistent tournament staff operations panel view.")
+        guide_view = TournamentStaffGuideView()
+        self.bot.add_view(guide_view)
+        logger.info("Registered persistent tournament staff guide view.")
         if not self.tournament_reminder_task.is_running():
             self.tournament_reminder_task.start()
             logger.info("Started tournament match day & 30-minute reminder background task.")
@@ -1122,7 +1125,7 @@ class TournamentCog(commands.Cog):
             color=0xE74C3C,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-open-subs",
@@ -1158,7 +1161,7 @@ class TournamentCog(commands.Cog):
             inline=False,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-close-subs",
@@ -1185,7 +1188,7 @@ class TournamentCog(commands.Cog):
             color=0xE74C3C,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-open-checkin",
@@ -1265,7 +1268,7 @@ class TournamentCog(commands.Cog):
             color=0xE74C3C,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     def _resolve_user_id(self, user_str: str | None, guild_id: int) -> int | None:
         """
@@ -1396,7 +1399,7 @@ class TournamentCog(commands.Cog):
             color=0xE74C3C,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @kick_user.autocomplete("user")
     async def kick_user_autocomplete(
@@ -1446,7 +1449,7 @@ class TournamentCog(commands.Cog):
             color=0xF1C40F,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-promote-sub",
@@ -1507,7 +1510,7 @@ class TournamentCog(commands.Cog):
             color=0x9B59B6,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @promote_sub.autocomplete("substitute")
     async def promote_sub_autocomplete(
@@ -1594,7 +1597,7 @@ class TournamentCog(commands.Cog):
             color=0x3498DB,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-set-weapons",
@@ -1613,7 +1616,7 @@ class TournamentCog(commands.Cog):
             color=0xF1C40F,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-set-admin-role",
@@ -1636,7 +1639,7 @@ class TournamentCog(commands.Cog):
             color=0xF1C40F,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-view-admin-role",
@@ -1816,7 +1819,7 @@ class TournamentCog(commands.Cog):
             color=0x2ECC71,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-view-role",
@@ -1884,7 +1887,7 @@ class TournamentCog(commands.Cog):
             color=0x2ECC71,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-view-channels",
@@ -2206,7 +2209,7 @@ class TournamentCog(commands.Cog):
             color=0xE67E22,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="tournament-setup-section",
@@ -2899,8 +2902,9 @@ class TournamentCog(commands.Cog):
             )
             return
 
-        embed = build_staff_guide_embed()
-        await target_channel.send(embed=embed)
+        embed = build_staff_guide_embed(section="overview")
+        view = TournamentStaffGuideView(current_section="overview")
+        await target_channel.send(embed=embed, view=view)
         await interaction.response.send_message(
             f"📖 Tournament Staff Operations Guide posted to {target_channel.mention}!",
             ephemeral=True,
@@ -2924,8 +2928,9 @@ class TournamentCog(commands.Cog):
             await ctx.send("❌ Target must be a text channel.")
             return
 
-        embed = build_staff_guide_embed()
-        await target_channel.send(embed=embed)
+        embed = build_staff_guide_embed(section="overview")
+        view = TournamentStaffGuideView(current_section="overview")
+        await target_channel.send(embed=embed, view=view)
         if target_channel != ctx.channel:
             await ctx.send(f"📖 Tournament Staff Operations Guide posted to {target_channel.mention}!")
 
@@ -3112,6 +3117,77 @@ class TournamentEventPanelView(discord.ui.View):
 
 
 
+
+class TournamentStaffGuideSelect(discord.ui.Select):
+    def __init__(self, current_section: str = "overview"):
+        options = [
+            discord.SelectOption(
+                label="Overview & Directory",
+                value="overview",
+                emoji="📖",
+                description="Staff guide directory and phase overview",
+                default=(current_section == "overview"),
+            ),
+            discord.SelectOption(
+                label="Phase 1: Pre-Tournament Setup",
+                value="phase_1",
+                emoji="1️⃣",
+                description="Bracket setup, match time scheduling & auto-roles",
+                default=(current_section == "phase_1"),
+            ),
+            discord.SelectOption(
+                label="Phase 2: Registration & Roster",
+                value="phase_2",
+                emoji="2️⃣",
+                description="Capacity monitoring & player kicks with autocomplete",
+                default=(current_section == "phase_2"),
+            ),
+            discord.SelectOption(
+                label="Phase 3: Match Day & Reminders",
+                value="phase_3",
+                emoji="3️⃣",
+                description="Automated contestant DMs, check-in & substitute swaps",
+                default=(current_section == "phase_3"),
+            ),
+            discord.SelectOption(
+                label="Phase 4: Concluding & Archiving",
+                value="phase_4",
+                emoji="4️⃣",
+                description="Crown champions, website sync & clean bracket reset",
+                default=(current_section == "phase_4"),
+            ),
+            discord.SelectOption(
+                label="Role Permissions Reference",
+                value="roles",
+                emoji="🛡️",
+                description="Tournament Admin vs Event & Website role boundaries",
+                default=(current_section == "roles"),
+            ),
+        ]
+        super().__init__(
+            placeholder="📑 Choose an operational guide section...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="select_staff_guide_page",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        selected = self.values[0]
+        embed = build_staff_guide_embed(section=selected)
+        view = TournamentStaffGuideView(current_section=selected)
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class TournamentStaffGuideView(discord.ui.View):
+    """
+    Persistent interactive view for navigating the tournament staff operations manual.
+    """
+    def __init__(self, current_section: str = "overview"):
+        super().__init__(timeout=None)
+        self.add_item(TournamentStaffGuideSelect(current_section=current_section))
+
+
 class StaffOpenTournamentModal(discord.ui.Modal, title="Open Tournament Registrations"):
     def __init__(self, service: TournamentService):
         super().__init__()
@@ -3212,7 +3288,7 @@ class StaffOpenTournamentModal(discord.ui.Modal, title="Open Tournament Registra
             color=0x2ECC71,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class StaffAnnounceModal(discord.ui.Modal, title="Broadcast Announcement"):
@@ -3263,13 +3339,22 @@ class StaffAnnounceModal(discord.ui.Modal, title="Broadcast Announcement"):
         )
         embed.set_footer(text=f"{state.name} • Tournament Announcement")
 
-        # Send public announcement in current channel
-        if role_mention:
-            await interaction.channel.send(content=f"🔔 {role_mention}", embed=embed)
-        else:
-            await interaction.channel.send(embed=embed)
+        # Determine target channel (use dedicated announcement channel if configured, otherwise current)
+        target_channel = interaction.channel
+        if interaction.guild and state.announcement_channel_id:
+            configured_channel = interaction.guild.get_channel(state.announcement_channel_id)
+            if configured_channel:
+                target_channel = configured_channel
 
-        await interaction.followup.send("✅ Announcement successfully broadcasted!", ephemeral=True)
+        if role_mention:
+            await target_channel.send(content=f"🔔 {role_mention}", embed=embed)
+        else:
+            await target_channel.send(embed=embed)
+
+        await interaction.followup.send(
+            f"✅ Announcement successfully broadcasted to {target_channel.mention}!",
+            ephemeral=True,
+        )
 
 
 class StaffSetTimeModal(discord.ui.Modal, title="Configure Tournament Match Schedule"):
@@ -3329,7 +3414,7 @@ class StaffSetTimeModal(discord.ui.Modal, title="Configure Tournament Match Sche
             color=0x3498DB,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
-        await interaction.followup.send(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class TournamentStaffPanelView(discord.ui.View):
@@ -3400,7 +3485,7 @@ class TournamentStaffPanelView(discord.ui.View):
             color=0xE74C3C,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(
         label="Toggle Check-In",
@@ -3444,7 +3529,7 @@ class TournamentStaffPanelView(discord.ui.View):
                 color=0xE67E22,
             )
         embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(
         label="Promote Sub",
@@ -3486,7 +3571,7 @@ class TournamentStaffPanelView(discord.ui.View):
             color=0x9B59B6,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
-        await interaction.response.send_message(embed=embed)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(
         label="Announce",
