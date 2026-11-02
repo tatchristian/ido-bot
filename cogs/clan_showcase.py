@@ -35,7 +35,7 @@ logger = logging.getLogger("uda_bot.clan_showcase_cog")
 
 
 def is_staff_user(user: discord.User | discord.Member, guild: discord.Guild) -> bool:
-    """Checks whether the user has administrator or staff privileges in the guild."""
+    """Checks whether the user has administrator or server staff privileges in the guild."""
     if not isinstance(user, discord.Member):
         member = guild.get_member(user.id)
         if not member:
@@ -50,18 +50,6 @@ def is_staff_user(user: discord.User | discord.Member, guild: discord.Guild) -> 
         or member.guild_permissions.manage_guild
         or member.guild_permissions.manage_channels
     ):
-        return True
-
-    threshold_role = None
-    if config.admin_role_id:
-        threshold_role = guild.get_role(config.admin_role_id)
-    if not threshold_role and config.admin_role_name:
-        target_name = config.admin_role_name.strip().lower()
-        threshold_role = discord.utils.find(
-            lambda r: r.name.strip().lower() == target_name,
-            guild.roles,
-        )
-    if threshold_role and member.top_role.position >= threshold_role.position:
         return True
 
     return False

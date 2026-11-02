@@ -140,6 +140,22 @@ def is_tournament_admin():
     return app_commands.check(predicate)
 
 
+def is_event_admin():
+    """Custom check for Discord Scheduled Events and Website Sync.
+    Requires Server Administrator, Server Ownership, Manage Events, or Manage Guild.
+    Tournament referee / tournament admin roles alone do NOT grant this.
+    """
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if interaction.guild is None:
+            return False
+        if interaction.user.id == interaction.guild.owner_id:
+            return True
+        perms = interaction.permissions
+        return perms.administrator or perms.manage_events or perms.manage_guild
+
+    return app_commands.check(predicate)
+
+
 def is_server_admin():
     """Strict check: requires Server Administrator permission or Server Ownership."""
     async def predicate(interaction: discord.Interaction) -> bool:
@@ -191,10 +207,19 @@ class HelpView(discord.ui.View):
 
     @discord.ui.button(label="📅 Events & Website", style=discord.ButtonStyle.secondary, custom_id="help_events_sync")
     async def events_sync_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
-        if not user_is_admin:
+        perms = interaction.permissions
+        user_is_event_admin = (
+            interaction.guild is not None
+            and (
+                interaction.user.id == interaction.guild.owner_id
+                or perms.administrator
+                or perms.manage_events
+                or perms.manage_guild
+            )
+        )
+        if not user_is_event_admin:
             await interaction.response.send_message(
-                "❌ **Access Denied**: Event Scheduling and Live Website Sync commands are restricted to Tournament Administrators.",
+                "❌ **Access Denied**: Event Scheduling and Live Website Sync commands are restricted to Server Staff and Event Managers.",
                 ephemeral=True,
             )
             return
@@ -1768,7 +1793,7 @@ class TournamentCog(commands.Cog):
     )
     @app_commands.choices(timezone=TIMEZONE_CHOICES)
     @app_commands.default_permissions(manage_events=True)
-    @is_tournament_admin()
+    @is_event_admin()
     async def schedule_event(
         self,
         interaction: discord.Interaction,
@@ -1939,7 +1964,7 @@ class TournamentCog(commands.Cog):
         event="The scheduled tournament event to cancel and remove"
     )
     @app_commands.default_permissions(manage_events=True)
-    @is_tournament_admin()
+    @is_event_admin()
     async def cancel_event(self, interaction: discord.Interaction, event: str):
         guild = interaction.guild
         if not guild:
@@ -1999,7 +2024,7 @@ class TournamentCog(commands.Cog):
         notes="Optional tournament recap or notes",
     )
     @app_commands.default_permissions(manage_events=True)
-    @is_tournament_admin()
+    @is_event_admin()
     async def complete_event(
         self,
         interaction: discord.Interaction,
@@ -2079,7 +2104,7 @@ class TournamentCog(commands.Cog):
         result="Select the past result entry to delete"
     )
     @app_commands.default_permissions(administrator=True)
-    @is_tournament_admin()
+    @is_event_admin()
     async def remove_past_result_cmd(self, interaction: discord.Interaction, result: str):
         past_service = getattr(self.bot, "past_results_service", None)
         if not past_service:
@@ -2123,7 +2148,7 @@ class TournamentCog(commands.Cog):
         channel="Channel to post the scheduler panel in (defaults to current channel)"
     )
     @app_commands.default_permissions(manage_guild=True)
-    @is_tournament_admin()
+    @is_event_admin()
     async def post_event_scheduler_panel_slash(
         self,
         interaction: discord.Interaction,
@@ -2169,6 +2194,16 @@ class TournamentCog(commands.Cog):
         """Prefix command fallback (!post_event_scheduler_panel)."""
         if not ctx.guild:
             await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        # Restrict to Server Admins / Event Managers
+        perms = ctx.author.guild_permissions if isinstance(ctx.author, discord.Member) else None
+        is_allowed = (
+            ctx.author.id == ctx.guild.owner_id
+            or (perms and (perms.administrator or perms.manage_events or perms.manage_guild))
+        )
+        if not is_allowed:
+            await ctx.send("❌ You need Manage Events, Manage Server, or Administrator permissions to post this panel.")
             return
 
         target_chan = channel or ctx.channel
@@ -2336,6 +2371,24 @@ class TournamentEventPanelView(discord.ui.View):
     async def schedule_event_button(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This button can only be used in a server.", ephemeral=True)
+            return
+
+        perms = interaction.permissions
+        is_allowed = (
+            interaction.user.id == interaction.guild.owner_id
+            or perms.administrator
+            or perms.manage_events
+            or perms.manage_guild
+        )
+        if not is_allowed:
+            await interaction.response.send_message(
+                "❌ You need Manage Events, Manage Server, or Administrator permissions to schedule official events.",
+                ephemeral=True,
+            )
+            return
+
         modal = TournamentEventModal()
         await interaction.response.send_modal(modal)
 
