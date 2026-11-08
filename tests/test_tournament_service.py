@@ -37,6 +37,50 @@ def test_register_when_closed(service: TournamentService):
     assert p is None
 
 
+def test_configure_tournament_without_opening(service: TournamentService):
+    # Configure parameters
+    msg = service.configure_tournament(
+        name="Asia Championship",
+        slots=32,
+        regions="ASIA, OCE",
+        participant_role_id=999,
+        participant_role_name="Asia Participant",
+        registration_channel_id=888,
+    )
+    assert "configured" in msg.lower()
+
+    state = service.get_state()
+    assert state.name == "Asia Championship"
+    assert state.max_slots == 32
+    assert state.allowed_regions == ["ASIA", "OCE"]
+    assert state.participant_role_id == 999
+    assert state.registration_channel_id == 888
+    # Main bracket is still CLOSED until staff explicitly opens it
+    assert state.main_open is False
+
+    # Open registrations directly (keeps configured parameters)
+    open_msg = service.open_tournament()
+    assert "open" in open_msg.lower()
+    assert service.get_state().main_open is True
+    assert service.get_state().name == "Asia Championship"
+    assert service.get_state().max_slots == 32
+
+
+def test_toggle_subs_methods(service: TournamentService):
+    assert service.get_state().subs_open is False
+
+    # Open subs
+    open_msg = service.open_subs(subs_channel_id=777)
+    assert "open" in open_msg.lower()
+    assert service.get_state().subs_open is True
+    assert service.get_state().subs_channel_id == 777
+
+    # Close subs
+    close_msg = service.close_subs()
+    assert "closed" in close_msg.lower()
+    assert service.get_state().subs_open is False
+
+
 def test_register_success_and_capacity_limit(service: TournamentService):
     service.open_tournament(name="UDA Cup", slots=2, regions="GLOBAL", open_subs=True)
 

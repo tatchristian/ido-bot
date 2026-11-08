@@ -293,12 +293,48 @@ class TournamentService:
     # ---------------------------------------------------------
     # Admin Controls: Lifecycle & Configuration
     # ---------------------------------------------------------
+    def configure_tournament(
+        self,
+        name: str | None = None,
+        slots: int | None = None,
+        regions: str | list[str] | None = None,
+        participant_role_id: int | None = None,
+        participant_role_name: str | None = None,
+        registration_channel_id: int | None = None,
+        guild_id: int = 0,
+    ) -> str:
+        """Configures tournament parameters without altering registration open/closed status."""
+        state = self.get_state(guild_id)
+        if name:
+            state.name = name.strip()
+        if slots is not None:
+            if slots < 2:
+                raise ValueError("Tournament slot capacity must be at least 2.")
+            state.max_slots = slots
+        if regions is not None:
+            state.allowed_regions = self.parse_regions(regions)
+        if participant_role_id is not None:
+            state.participant_role_id = participant_role_id
+            state.participant_role_name = participant_role_name
+        if registration_channel_id is not None:
+            state.registration_channel_id = registration_channel_id
+        self._persist(guild_id)
+
+        regions_str = ", ".join(state.allowed_regions)
+        role_info = f"\n• Participant Role: `@{state.participant_role_name}`" if state.participant_role_name else ""
+        return (
+            f"⚙️ **{state.name}** tournament settings configured!\n"
+            f"• Max Slots: `{state.max_slots}`\n"
+            f"• Allowed Regions: `{regions_str}`"
+            f"{role_info}"
+        )
+
     def open_tournament(
         self,
         name: str | None = None,
         slots: int | None = None,
         regions: str | list[str] | None = None,
-        open_subs: bool = False,
+        open_subs: bool | None = None,
         participant_role_id: int | None = None,
         participant_role_name: str | None = None,
         announcement_channel_id: int | None = None,
@@ -331,7 +367,8 @@ class TournamentService:
             state.event_id = event_id
 
         state.main_open = True
-        state.subs_open = open_subs
+        if open_subs is not None:
+            state.subs_open = open_subs
         self._persist(guild_id)
 
         sub_status = "OPEN" if state.subs_open else "CLOSED"

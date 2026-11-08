@@ -184,8 +184,10 @@ def test_build_staff_panel_embed():
     from utils.ui import build_staff_panel_embed
     embed = build_staff_panel_embed(org_name="UDA")
     assert "Tournament Staff Operations Panel" in embed.title
+    assert "Create Tournament" in embed.description
     assert "Open Bracket" in embed.description
     assert "Close Bracket" in embed.description
+    assert "Toggle Subs" in embed.description
     assert "Toggle Check-In" in embed.description
     assert "Promote Standby Sub" in embed.description
     assert "Broadcast Announce" in embed.description

@@ -41,6 +41,12 @@ Rooted in the official **UDA Cerberus emblem** (3-headed white wolf with gold co
   - Broadcast targeted announcements to main players or substitutes via `/tournament-announce`.
 - **📁 1-Click Tournament Bracket Export**:
   - Download formatted roster files ready for bulk import into **Challonge**, **Start.gg**, **Battlefy (CSV)**, or Plain Text.
+- **🛡️ 1-Click Staff Operations Control Center (`/post-tournament-staff-panel`)**:
+  - Persistent control center panel for staff channels with instant 1-click actions and private (ephemeral) operational receipts.
+  - Dedicated **`⚙️ Create Tournament`** configuration form (sets title, capacity, regions, and channel without opening registrations prematurely).
+  - 1-click **`🟢 Open Registrations`** (instantly opens signups, unlocks `#tournament-registration`, and broadcasts welcome banner).
+  - 1-click **`🛡️ Toggle Subs`** (instantly toggles standby substitute bench and auto-posts substitute banner).
+  - 1-click **`🔒 Close Registrations`**, **`🎟️ Toggle Check-In`**, **`🔄 Promote Sub`**, and **`📊 Roster & Status`**.
 
 ---
 
