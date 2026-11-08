@@ -173,6 +173,8 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 | `/tournament-set-role` | `/tournament-set-role role:@Role` | Configure or link the Discord role auto-assigned to tournament participants upon registration. |
 | `/tournament-view-role` | `/tournament-view-role` | View current participant role. |
 | `/post-tournament-staff-panel`| `/post-tournament-staff-panel [channel]` | Post the 1-click interactive Staff Operations Control Center with buttons in staff channels *(Prefix: `!post_tournament_staff_panel`)*. |
+| `/post-registration-panel` | `/post-registration-panel [channel]` | Post or refresh the live interactive Player Registration Hub with entry modal, live progress bar, and slot counter *(Prefix: `!post_registration_panel`)*. |
+| `/post-subs-panel` | `/post-subs-panel [channel]` | Post or refresh the live interactive Standby Substitute Hub with queue modal and position tracker *(Prefix: `!post_subs_panel`)*. |
 | `/post-staff-guide` | `/post-staff-guide [channel]` | Post the interactive Tournament Staff Guide & Cheat Sheet with phase dropdown selector *(Prefix: `!post_staff_guide`)*. |
 | `/post-event-scheduler-panel` | `/post-event-scheduler-panel [channel]` | Post 1-click interactive Event Scheduler panel for top-of-server banners and website sync *(Prefix: `!post_event_scheduler_panel`)*. |
 | `/post-clan-submission-panel` | `/post-clan-submission-panel [channel]` | Post interactive Clan Showcase intake portal panel *(Prefix: `!post_clan_submission_panel`)*. |

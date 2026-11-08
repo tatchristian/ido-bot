@@ -36,10 +36,14 @@ from services.website_sync_service import (
 )
 from utils.ui import (
     build_help_embed,
+    build_registration_closed_embed,
+    build_registration_panel_embed,
     build_roster_embed,
     build_staff_guide_embed,
     build_staff_panel_embed,
     build_status_embed,
+    build_subs_closed_embed,
+    build_subs_panel_embed,
     build_tournament_reminder_embed,
 )
 
@@ -107,6 +111,7 @@ HELP_SECTION_CHOICES = [
     app_commands.Choice(name="Overview (All Commands)", value="all"),
     app_commands.Choice(name="Participant Commands", value="participants"),
     app_commands.Choice(name="Admin Controls", value="admin"),
+    app_commands.Choice(name="Setup & Server Configuration", value="setup"),
     app_commands.Choice(name="Weapons, Regions & Rules", value="weapons_regions"),
     app_commands.Choice(name="Clan Showcase & Submissions", value="clans"),
     app_commands.Choice(name="Events & Website Live Sync", value="events_sync"),
@@ -314,6 +319,18 @@ class TournamentCog(commands.Cog):
         guide_view = TournamentStaffGuideView()
         self.bot.add_view(guide_view)
         logger.info("Registered persistent tournament staff guide view.")
+        reg_panel_view = TournamentRegistrationPanelView()
+        self.bot.add_view(reg_panel_view)
+        logger.info("Registered persistent tournament registration panel view.")
+        subs_panel_view = TournamentSubsPanelView()
+        self.bot.add_view(subs_panel_view)
+        logger.info("Registered persistent tournament subs panel view.")
+        closed_reg_view = TournamentClosedRegistrationView()
+        self.bot.add_view(closed_reg_view)
+        logger.info("Registered persistent tournament closed registration view.")
+        closed_subs_view = TournamentClosedSubsView()
+        self.bot.add_view(closed_subs_view)
+        logger.info("Registered persistent tournament closed subs view.")
         if not self.tournament_reminder_task.is_running():
             self.tournament_reminder_task.start()
             logger.info("Started tournament match day & 30-minute reminder background task.")
@@ -592,6 +609,142 @@ class TournamentCog(commands.Cog):
             logger.warning("Failed to update permissions for channel %s: %s", channel_id, e)
             return False
 
+    async def _post_or_update_registration_panel(
+        self, guild: discord.Guild, channel: discord.TextChannel
+    ) -> discord.Message:
+        """
+        Posts or updates the live player registration panel in the specified channel.
+        Stores the message ID in the tournament state.
+        """
+        state = self.service.get_state(guild.id)
+        state.registration_channel_id = channel.id
+        embed = build_registration_panel_embed(state, guild)
+        view = TournamentRegistrationPanelView()
+
+        msg = None
+        if state.registration_message_id:
+            try:
+                existing = await channel.fetch_message(state.registration_message_id)
+                await existing.edit(embed=embed, view=view)
+                msg = existing
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                msg = None
+
+        if not msg:
+            msg = await channel.send(embed=embed, view=view)
+            state.registration_message_id = msg.id
+
+        self.service._persist(guild.id)
+        return msg
+
+    async def _update_registration_panel(self, guild: Optional[discord.Guild]) -> None:
+        """Dynamically edits the live player registration panel in the designated channel."""
+        if not guild:
+            return
+        state = self.service.get_state(guild.id)
+        if not state.registration_channel_id or not state.registration_message_id:
+            return
+        channel = guild.get_channel(state.registration_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return
+        try:
+            msg = await channel.fetch_message(state.registration_message_id)
+            if state.main_open:
+                embed = build_registration_panel_embed(state, guild)
+                view = TournamentRegistrationPanelView()
+            else:
+                embed = build_registration_closed_embed(state, guild)
+                view = TournamentClosedRegistrationView(guild=guild, state=state)
+            await msg.edit(embed=embed, view=view)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            logger.debug("Could not live-update registration panel: %s", exc)
+
+    async def _close_registration_panel(self, guild: Optional[discord.Guild]) -> None:
+        """Edits the active registration panel into the closed notice with links to subs."""
+        if not guild:
+            return
+        state = self.service.get_state(guild.id)
+        if not state.registration_channel_id or not state.registration_message_id:
+            return
+        channel = guild.get_channel(state.registration_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return
+        try:
+            msg = await channel.fetch_message(state.registration_message_id)
+            embed = build_registration_closed_embed(state, guild)
+            view = TournamentClosedRegistrationView(guild=guild, state=state)
+            await msg.edit(embed=embed, view=view)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            logger.debug("Could not edit registration panel to closed: %s", exc)
+
+    async def _post_or_update_subs_panel(
+        self, guild: discord.Guild, channel: discord.TextChannel
+    ) -> discord.Message:
+        """
+        Posts or updates the live standby substitute queue panel in the specified channel.
+        Stores the message ID in the tournament state.
+        """
+        state = self.service.get_state(guild.id)
+        state.subs_channel_id = channel.id
+        embed = build_subs_panel_embed(state, guild)
+        view = TournamentSubsPanelView()
+
+        msg = None
+        if state.subs_message_id:
+            try:
+                existing = await channel.fetch_message(state.subs_message_id)
+                await existing.edit(embed=embed, view=view)
+                msg = existing
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                msg = None
+
+        if not msg:
+            msg = await channel.send(embed=embed, view=view)
+            state.subs_message_id = msg.id
+
+        self.service._persist(guild.id)
+        return msg
+
+    async def _update_subs_panel(self, guild: Optional[discord.Guild]) -> None:
+        """Dynamically edits the live standby substitute queue panel in the designated channel."""
+        if not guild:
+            return
+        state = self.service.get_state(guild.id)
+        if not state.subs_channel_id or not state.subs_message_id:
+            return
+        channel = guild.get_channel(state.subs_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return
+        try:
+            msg = await channel.fetch_message(state.subs_message_id)
+            if state.subs_open:
+                embed = build_subs_panel_embed(state, guild)
+                view = TournamentSubsPanelView()
+            else:
+                embed = build_subs_closed_embed(state, guild)
+                view = TournamentClosedSubsView()
+            await msg.edit(embed=embed, view=view)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            logger.debug("Could not live-update substitute panel: %s", exc)
+
+    async def _close_subs_panel(self, guild: Optional[discord.Guild]) -> None:
+        """Edits the active standby substitute panel into the closed notice."""
+        if not guild:
+            return
+        state = self.service.get_state(guild.id)
+        if not state.subs_channel_id or not state.subs_message_id:
+            return
+        channel = guild.get_channel(state.subs_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return
+        try:
+            msg = await channel.fetch_message(state.subs_message_id)
+            embed = build_subs_closed_embed(state, guild)
+            view = TournamentClosedSubsView()
+            await msg.edit(embed=embed, view=view)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            logger.debug("Could not edit substitute panel to closed: %s", exc)
+
     # =========================================================================
     # Help & Guidance
     # =========================================================================
@@ -695,6 +848,7 @@ class TournamentCog(commands.Cog):
             return
 
         await self._assign_participant_role(interaction.guild, interaction.user)
+        await self._update_registration_panel(interaction.guild)
 
         state = self.service.get_state(guild_id)
         embed = discord.Embed(
@@ -722,6 +876,7 @@ class TournamentCog(commands.Cog):
             return
 
         await self._remove_participant_role(interaction.guild, interaction.user)
+        await self._update_registration_panel(interaction.guild)
 
         state = self.service.get_state(guild_id)
         embed = discord.Embed(
@@ -766,6 +921,8 @@ class TournamentCog(commands.Cog):
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
 
+        await self._update_subs_panel(interaction.guild)
+
         state = self.service.get_state(guild_id)
         embed = discord.Embed(
             title="🛡️ Registered as Standby Substitute",
@@ -806,6 +963,8 @@ class TournamentCog(commands.Cog):
         if not success:
             await interaction.response.send_message(f"❌ {message}", ephemeral=True)
             return
+
+        await self._update_subs_panel(interaction.guild)
 
         state = self.service.get_state(guild_id)
         embed = discord.Embed(
@@ -872,6 +1031,9 @@ class TournamentCog(commands.Cog):
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
 
+        await self._update_registration_panel(interaction.guild)
+        await self._update_subs_panel(interaction.guild)
+
         embed = discord.Embed(
             title="✏️ Entry Updated",
             description=msg,
@@ -890,6 +1052,9 @@ class TournamentCog(commands.Cog):
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
+
+        await self._update_registration_panel(interaction.guild)
+        await self._update_subs_panel(interaction.guild)
 
         embed = discord.Embed(
             title="🎟️ Tournament Check-In",
@@ -926,6 +1091,9 @@ class TournamentCog(commands.Cog):
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
+
+        await self._update_registration_panel(interaction.guild)
+        await self._update_subs_panel(interaction.guild)
 
         embed = discord.Embed(
             title="🛡️ Substitute Check-In Confirmed",
@@ -1108,29 +1276,33 @@ class TournamentCog(commands.Cog):
 
             # Dynamically unlock registration channel (and subs channel if open_subs is True)
             curr_state = self.service.get_state(guild_id)
-            if curr_state.registration_channel_id:
-                await self._update_channel_permission(
-                    interaction.guild,
-                    curr_state.registration_channel_id,
-                    can_send=True,
-                    reason=f"Registrations opened for {tourney_name}",
-                )
-            if open_subs and curr_state.subs_channel_id:
-                await self._update_channel_permission(
-                    interaction.guild,
-                    curr_state.subs_channel_id,
-                    can_send=True,
-                    reason=f"Substitutes opened for {tourney_name}",
-                )
-
-            # If registration channel is separate from current command channel, post announcement to it
-            if curr_state.registration_channel_id and curr_state.registration_channel_id != interaction.channel_id and interaction.guild:
+            if curr_state.registration_channel_id and interaction.guild:
                 target_reg = interaction.guild.get_channel(curr_state.registration_channel_id)
                 if isinstance(target_reg, discord.TextChannel):
+                    await self._update_channel_permission(
+                        interaction.guild,
+                        curr_state.registration_channel_id,
+                        can_send=True,
+                        reason=f"Registrations opened for {tourney_name}",
+                    )
                     try:
-                        await target_reg.send(embed=embed)
-                    except Exception:
-                        pass
+                        await self._post_or_update_registration_panel(interaction.guild, target_reg)
+                    except Exception as exc:
+                        logger.warning("Could not auto-post registration panel: %s", exc)
+
+            if open_subs and curr_state.subs_channel_id and interaction.guild:
+                target_subs = interaction.guild.get_channel(curr_state.subs_channel_id)
+                if isinstance(target_subs, discord.TextChannel):
+                    await self._update_channel_permission(
+                        interaction.guild,
+                        curr_state.subs_channel_id,
+                        can_send=True,
+                        reason=f"Substitutes opened for {tourney_name}",
+                    )
+                    try:
+                        await self._post_or_update_subs_panel(interaction.guild, target_subs)
+                    except Exception as exc:
+                        logger.warning("Could not auto-post subs panel: %s", exc)
 
             await interaction.response.send_message(embed=embed)
         except ValueError as e:
@@ -1145,15 +1317,16 @@ class TournamentCog(commands.Cog):
         guild_id = interaction.guild_id or 0
         msg = self.service.close_tournament(guild_id=guild_id)
 
-        # Dynamically lock registration channel
+        # Dynamically lock registration channel and edit panel
         curr_state = self.service.get_state(guild_id)
-        if curr_state.registration_channel_id:
+        if curr_state.registration_channel_id and interaction.guild:
             await self._update_channel_permission(
                 interaction.guild,
                 curr_state.registration_channel_id,
                 can_send=False,
                 reason="Main bracket registrations closed",
             )
+            await self._close_registration_panel(interaction.guild)
 
         embed = discord.Embed(
             title="🔒 Main Bracket Closed",
@@ -1172,15 +1345,21 @@ class TournamentCog(commands.Cog):
         guild_id = interaction.guild_id or 0
         msg = self.service.open_subs(guild_id=guild_id)
 
-        # Dynamically unlock substitutes channel
+        # Dynamically unlock substitutes channel and post panel
         curr_state = self.service.get_state(guild_id)
-        if curr_state.subs_channel_id:
+        if curr_state.subs_channel_id and interaction.guild:
             await self._update_channel_permission(
                 interaction.guild,
                 curr_state.subs_channel_id,
                 can_send=True,
                 reason="Substitute signups opened",
             )
+            target_subs = interaction.guild.get_channel(curr_state.subs_channel_id)
+            if isinstance(target_subs, discord.TextChannel):
+                try:
+                    await self._post_or_update_subs_panel(interaction.guild, target_subs)
+                except Exception as exc:
+                    logger.warning("Could not auto-post subs panel: %s", exc)
 
         embed = discord.Embed(
             title="🟢 Substitute Signups Opened",
@@ -1208,7 +1387,16 @@ class TournamentCog(commands.Cog):
         guild_id = interaction.guild_id or 0
         msg = self.service.close_subs(guild_id=guild_id)
 
-        # Dynamically lock substitutes channel
+        # Dynamically lock substitutes channel and edit panel
+        curr_state = self.service.get_state(guild_id)
+        if curr_state.subs_channel_id and interaction.guild:
+            await self._update_channel_permission(
+                interaction.guild,
+                curr_state.subs_channel_id,
+                can_send=False,
+                reason="Substitute signups closed",
+            )
+            await self._close_subs_panel(interaction.guild)
         curr_state = self.service.get_state(guild_id)
         if curr_state.subs_channel_id:
             await self._update_channel_permission(
@@ -1429,6 +1617,9 @@ class TournamentCog(commands.Cog):
             if target_mem:
                 await self._remove_participant_role(interaction.guild, target_mem)
 
+        await self._update_registration_panel(interaction.guild)
+        await self._update_subs_panel(interaction.guild)
+
         embed = discord.Embed(
             title="👢 Tournament Removal",
             description=msg,
@@ -1478,6 +1669,10 @@ class TournamentCog(commands.Cog):
 
         if success and not as_sub:
             await self._assign_participant_role(interaction.guild, user)
+
+        if success:
+            await self._update_registration_panel(interaction.guild)
+            await self._update_subs_panel(interaction.guild)
 
         embed = discord.Embed(
             title="👑 Admin Force Registration",
@@ -1540,6 +1735,9 @@ class TournamentCog(commands.Cog):
             if rep_mem:
                 await self._remove_participant_role(interaction.guild, rep_mem)
 
+        await self._update_registration_panel(interaction.guild)
+        await self._update_subs_panel(interaction.guild)
+
         embed = discord.Embed(
             title="🔄 Substitute Promoted",
             description=message,
@@ -1570,6 +1768,7 @@ class TournamentCog(commands.Cog):
         try:
             guild_id = interaction.guild_id or 0
             msg = self.service.set_limit(limit, guild_id=guild_id)
+            await self._update_registration_panel(interaction.guild)
             embed = discord.Embed(
                 title="📊 Capacity Limit Updated",
                 description=msg,
@@ -1627,6 +1826,8 @@ class TournamentCog(commands.Cog):
 
         guild_id = interaction.guild_id or 0
         msg = self.service.set_regions(selected_regions, guild_id=guild_id)
+        await self._update_registration_panel(interaction.guild)
+        await self._update_subs_panel(interaction.guild)
         embed = discord.Embed(
             title="🌍 Allowed Regions Updated",
             description=msg,
@@ -1646,6 +1847,8 @@ class TournamentCog(commands.Cog):
     async def set_weapons(self, interaction: discord.Interaction, weapons: Optional[str] = None):
         guild_id = interaction.guild_id or 0
         msg = self.service.set_approved_weapons(weapons or "", guild_id=guild_id)
+        await self._update_registration_panel(interaction.guild)
+        await self._update_subs_panel(interaction.guild)
         embed = discord.Embed(
             title="⚔️ Tournament Weapons Updated",
             description=msg,
@@ -2305,6 +2508,27 @@ class TournamentCog(commands.Cog):
     async def clear_tournament(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id or 0
         state = self.service.get_state(guild_id)
+
+        # Clean up active registration panel message if it exists
+        if interaction.guild and state.registration_channel_id and state.registration_message_id:
+            reg_ch = interaction.guild.get_channel(state.registration_channel_id)
+            if isinstance(reg_ch, discord.TextChannel):
+                try:
+                    old_reg_msg = await reg_ch.fetch_message(state.registration_message_id)
+                    await old_reg_msg.delete()
+                except Exception:
+                    pass
+
+        # Clean up active substitutes panel message if it exists
+        if interaction.guild and state.subs_channel_id and state.subs_message_id:
+            subs_ch = interaction.guild.get_channel(state.subs_channel_id)
+            if isinstance(subs_ch, discord.TextChannel):
+                try:
+                    old_subs_msg = await subs_ch.fetch_message(state.subs_message_id)
+                    await old_subs_msg.delete()
+                except Exception:
+                    pass
+
         if interaction.guild and state.participant_role_id:
             role = interaction.guild.get_role(state.participant_role_id)
             if (
@@ -2997,6 +3221,116 @@ class TournamentCog(commands.Cog):
             await ctx.send(f"✅ Tournament Staff Operations Panel posted to {target_channel.mention}!")
 
     @app_commands.command(
+        name="post-registration-panel",
+        description="[Admin] Post or refresh the live interactive Player Registration Hub in a channel.",
+    )
+    @app_commands.describe(
+        channel="Optional channel to post into (defaults to configured registration channel or current channel)"
+    )
+    @is_tournament_admin()
+    async def post_registration_panel_cmd(
+        self, interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be run inside a server.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        target_channel = channel or (interaction.guild.get_channel(state.registration_channel_id) if state.registration_channel_id else None) or interaction.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await interaction.response.send_message("❌ Target must be a valid text channel.", ephemeral=True)
+            return
+
+        perms = target_channel.permissions_for(interaction.guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            await interaction.response.send_message(
+                f"❌ Missing Send Messages or Embed Links permission in {target_channel.mention}.",
+                ephemeral=True,
+            )
+            return
+
+        await self._post_or_update_registration_panel(interaction.guild, target_channel)
+        await interaction.response.send_message(
+            f"✅ Player Registration Hub posted to {target_channel.mention}!", ephemeral=True
+        )
+
+    @commands.command(name="post_registration_panel", aliases=["post_reg_panel"])
+    @commands.guild_only()
+    async def post_registration_panel_prefix(
+        self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None
+    ):
+        """Prefix command to post the interactive Player Registration Hub."""
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You do not have permission to use this command.")
+            return
+
+        guild_id = ctx.guild.id
+        state = self.service.get_state(guild_id)
+        target_channel = channel or (ctx.guild.get_channel(state.registration_channel_id) if state.registration_channel_id else None) or ctx.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await ctx.send("❌ Target must be a valid text channel.")
+            return
+
+        await self._post_or_update_registration_panel(ctx.guild, target_channel)
+        await ctx.send(f"✅ Player Registration Hub posted to {target_channel.mention}!")
+
+    @app_commands.command(
+        name="post-subs-panel",
+        description="[Admin] Post or refresh the live interactive Standby Substitute Hub in a channel.",
+    )
+    @app_commands.describe(
+        channel="Optional channel to post into (defaults to configured substitutes channel or current channel)"
+    )
+    @is_tournament_admin()
+    async def post_subs_panel_cmd(
+        self, interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be run inside a server.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        target_channel = channel or (interaction.guild.get_channel(state.subs_channel_id) if state.subs_channel_id else None) or interaction.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await interaction.response.send_message("❌ Target must be a valid text channel.", ephemeral=True)
+            return
+
+        perms = target_channel.permissions_for(interaction.guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            await interaction.response.send_message(
+                f"❌ Missing Send Messages or Embed Links permission in {target_channel.mention}.",
+                ephemeral=True,
+            )
+            return
+
+        await self._post_or_update_subs_panel(interaction.guild, target_channel)
+        await interaction.response.send_message(
+            f"✅ Standby Substitute Hub posted to {target_channel.mention}!", ephemeral=True
+        )
+
+    @commands.command(name="post_subs_panel", aliases=["post_sub_panel"])
+    @commands.guild_only()
+    async def post_subs_panel_prefix(
+        self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None
+    ):
+        """Prefix command to post the interactive Standby Substitute Hub."""
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You do not have permission to use this command.")
+            return
+
+        guild_id = ctx.guild.id
+        state = self.service.get_state(guild_id)
+        target_channel = channel or (ctx.guild.get_channel(state.subs_channel_id) if state.subs_channel_id else None) or ctx.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await ctx.send("❌ Target must be a valid text channel.")
+            return
+
+        await self._post_or_update_subs_panel(ctx.guild, target_channel)
+        await ctx.send(f"✅ Standby Substitute Hub posted to {target_channel.mention}!")
+
+    @app_commands.command(
         name="post-staff-guide",
         description="[Admin] Post the tournament staff operational cheat sheet and phase guide.",
     )
@@ -3651,7 +3985,6 @@ class TournamentStaffPanelView(discord.ui.View):
         reg_posted = False
 
         if reg_channel and interaction.guild:
-            perms = reg_channel.permissions_for(interaction.guild.me)
             cog = interaction.client.get_cog("TournamentCog")
             if cog and hasattr(cog, "_update_channel_permission"):
                 await cog._update_channel_permission(
@@ -3661,45 +3994,18 @@ class TournamentStaffPanelView(discord.ui.View):
                     reason=f"Registrations opened for {state.name}",
                 )
 
-            p_role = interaction.guild.get_role(state.participant_role_id) if state.participant_role_id else None
-            reg_embed = discord.Embed(
-                title=f"🏆 {state.name} Registration Is Open!",
-                description=(
-                    f"Welcome duelist! Registrations for **{state.name}** are officially open.\n\n"
-                    f"To register for {state.name}, use `/tournament-register` in this channel. Hope to see you compete!\n\n"
-                    f"**Tournament Details:**\n"
-                    f"• **Capacity:** `{state.max_slots}` player slots\n"
-                    f"• **Allowed Regions:** `{', '.join(state.allowed_regions) if state.allowed_regions else 'GLOBAL'}`\n"
-                    f"• **Substitutes:** `{'Active' if state.subs_open else 'Disabled'}`\n"
-                    f"• **Participant Role:** {p_role.mention if p_role else '*None*'}\n\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "**📝 Helpful Tournament Tips:**\n"
-                    "• Use `/tournament-register` in this channel with your IGN, Weapon, and Region to enter!\n"
-                    "• Use `/tournament-status` to view open slots, regions, and weapon stats.\n"
-                    "• Use `/tournament-unregister` if you need to withdraw and free your slot for another duelist.\n"
-                    "• If you need help with commands, run `/help` and click on **Participants** to see all available commands!"
-                ),
-                color=0x2ECC71,
-            )
-            reg_embed.set_footer(text=f"{config.organization_name} • Official Tournament Registration")
-            try:
-                if perms.send_messages and perms.embed_links:
-                    await reg_channel.send(embed=reg_embed)
+            if cog and hasattr(cog, "_post_or_update_registration_panel"):
+                try:
+                    await cog._post_or_update_registration_panel(interaction.guild, reg_channel)
                     reg_posted = True
-                elif perms.send_messages:
-                    await reg_channel.send(
-                        f"🏆 **{state.name} Registration Is Open!**\n"
-                        f"Use `/tournament-register` in this channel to enter!"
-                    )
-                    reg_posted = True
-            except Exception as exc:
-                logger.warning("Could not auto-post to registration channel: %s", exc)
+                except Exception as exc:
+                    logger.warning("Could not auto-post registration panel to %s: %s", reg_channel.name, exc)
 
         status_lines = [
             f"🏆 **{state.name}** registrations are now **OPEN**!\n",
             f"• **Capacity:** `{state.max_slots}` slots",
             f"• **Regions:** `{', '.join(state.allowed_regions) if state.allowed_regions else 'GLOBAL'}`",
-            f"• **Registration Channel:** {reg_channel.mention + ' (✅ Broadcast Posted)' if reg_posted else ('⚠️ Could not post' if reg_channel else '*None found (use /tournament-set-channel)*')}",
+            f"• **Registration Channel:** {reg_channel.mention + ' (✅ Live Hub Posted)' if reg_posted else ('⚠️ Could not post' if reg_channel else '*None found (use /tournament-set-channel)*')}",
         ]
         embed = discord.Embed(
             title="🟢 Tournament Registrations Opened!",
@@ -3740,15 +4046,18 @@ class TournamentStaffPanelView(discord.ui.View):
 
         msg = service.close_tournament(guild_id)
 
-        # Dynamically lock registration channel
+        # Dynamically lock registration channel and edit panel
         cog = interaction.client.get_cog("TournamentCog")
-        if cog and hasattr(cog, "_update_channel_permission") and state.registration_channel_id and interaction.guild:
-            await cog._update_channel_permission(
-                interaction.guild,
-                state.registration_channel_id,
-                can_send=False,
-                reason=f"Registrations closed for {state.name}",
-            )
+        if cog and state.registration_channel_id and interaction.guild:
+            if hasattr(cog, "_update_channel_permission"):
+                await cog._update_channel_permission(
+                    interaction.guild,
+                    state.registration_channel_id,
+                    can_send=False,
+                    reason=f"Registrations closed for {state.name}",
+                )
+            if hasattr(cog, "_close_registration_panel"):
+                await cog._close_registration_panel(interaction.guild)
 
         embed = discord.Embed(
             title="🔒 Tournament Registrations Closed",
@@ -3810,41 +4119,18 @@ class TournamentStaffPanelView(discord.ui.View):
                         reason=f"Substitutes opened for {state.name}",
                     )
 
-                perms = subs_channel.permissions_for(interaction.guild.me)
-                subs_embed = discord.Embed(
-                    title=f"🛡️ {state.name} — Standby Substitute Signups OPEN!",
-                    description=(
-                        f"The standby substitute bench for **{state.name}** is now active.\n\n"
-                        "**How the Substitute Queue Works:**\n"
-                        "• If the main bracket fills up or you cannot commit to the full schedule, join as a substitute!\n"
-                        "• On match day, substitutes who check in are automatically promoted if any main player no-shows.\n\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "**🛡️ How to Join the Standby Bench:**\n"
-                        "• Use `/tournament-sub-register` with your IGN, Weapon, and Region.\n"
-                        "• Use `/tournament-status` to check your queue position.\n"
-                        "• If you need help, run `/help` and click on **Participants**!"
-                    ),
-                    color=0x3498DB,
-                )
-                subs_embed.set_footer(text=f"{config.organization_name} • Standby Substitutes Bench")
-                try:
-                    if perms.send_messages and perms.embed_links:
-                        await subs_channel.send(embed=subs_embed)
+                if cog and hasattr(cog, "_post_or_update_subs_panel"):
+                    try:
+                        await cog._post_or_update_subs_panel(interaction.guild, subs_channel)
                         subs_posted = True
-                    elif perms.send_messages:
-                        await subs_channel.send(
-                            f"🛡️ **{state.name} — Standby Substitute Signups OPEN!**\n"
-                            "Use `/tournament-sub-register` to join the substitute queue!"
-                        )
-                        subs_posted = True
-                except Exception as exc:
-                    logger.warning("Could not auto-post to substitutes channel: %s", exc)
+                    except Exception as exc:
+                        logger.warning("Could not auto-post substitutes panel to %s: %s", subs_channel.name, exc)
 
             embed = discord.Embed(
                 title="🛡️ Standby Substitute Signups Opened",
                 description=(
                     f"{msg}\n\n"
-                    f"• **Channel:** {subs_channel.mention + ' (✅ Broadcast Posted)' if subs_posted else ('⚠️ Could not post' if subs_channel else '*None found (use /tournament-set-channel)*')}\n\n"
+                    f"• **Channel:** {subs_channel.mention + ' (✅ Live Hub Posted)' if subs_posted else ('⚠️ Could not post' if subs_channel else '*None found (use /tournament-set-channel)*')}\n\n"
                     f"*Opened by {interaction.user.mention}*"
                 ),
                 color=0x3498DB,
@@ -3859,12 +4145,17 @@ class TournamentStaffPanelView(discord.ui.View):
                         can_send=False,
                         reason=f"Substitutes closed for {state.name}",
                     )
+                if cog and hasattr(cog, "_close_subs_panel"):
+                    await cog._close_subs_panel(interaction.guild)
 
             embed = discord.Embed(
                 title="🔒 Standby Substitute Signups Closed",
                 description=f"{msg}\n\n*Closed by {interaction.user.mention}*",
                 color=0xE67E22,
             )
+
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
         embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -3947,6 +4238,13 @@ class TournamentStaffPanelView(discord.ui.View):
                 if cog and hasattr(cog, "_assign_participant_role"):
                     await cog._assign_participant_role(interaction.guild, promoted_mem)
 
+        cog = interaction.client.get_cog("TournamentCog")
+        if cog:
+            if hasattr(cog, "_update_registration_panel"):
+                await cog._update_registration_panel(interaction.guild)
+            if hasattr(cog, "_update_subs_panel"):
+                await cog._update_subs_panel(interaction.guild)
+
         embed = discord.Embed(
             title="🔄 Standby Substitute Promoted",
             description=f"{msg}\n\n*Executed by {interaction.user.mention}*",
@@ -4024,6 +4322,576 @@ class TournamentStaffPanelView(discord.ui.View):
         guild_id = interaction.guild_id or 0
         state = service.get_state(guild_id)
         embed = build_status_embed(state)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class UserRegistrationModal(discord.ui.Modal, title="Register for Tournament"):
+    """Interactive modal popup for contestants to enter the tournament main bracket."""
+
+    def __init__(self, service: TournamentService, state: TournamentState):
+        super().__init__()
+        self.service = service
+        self.state = state
+
+        self.ign_input = discord.ui.TextInput(
+            label="In-Game Name (IGN)",
+            placeholder="Enter your exact in-game duelist name",
+            max_length=50,
+            required=True,
+        )
+        weapon_sample = state.approved_weapons[0] if state.approved_weapons else "Katana"
+        self.weapon_input = discord.ui.TextInput(
+            label="Approved Weapon",
+            placeholder=f"e.g. {weapon_sample}",
+            max_length=50,
+            required=True,
+        )
+        reg_default = state.allowed_regions[0] if (state.allowed_regions and len(state.allowed_regions) == 1) else ""
+        reg_placeholder = f"e.g. {', '.join(state.allowed_regions[:3])}" if state.allowed_regions else "e.g. NA, EU, ASIA"
+        self.region_input = discord.ui.TextInput(
+            label="Region Tag",
+            placeholder=reg_placeholder,
+            default=reg_default,
+            max_length=20,
+            required=True,
+        )
+        self.add_item(self.ign_input)
+        self.add_item(self.weapon_input)
+        self.add_item(self.region_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild_id = interaction.guild_id or 0
+        ign = self.ign_input.value.strip()
+        weapon = self.weapon_input.value.strip()
+        region = self.region_input.value.strip().upper()
+
+        success, message, participant = self.service.register_participant(
+            user_id=interaction.user.id,
+            user_mention=interaction.user.mention,
+            ign=ign,
+            weapon=weapon,
+            region=region,
+            guild_id=guild_id,
+        )
+
+        if not success:
+            await interaction.followup.send(f"❌ {message}", ephemeral=True)
+            return
+
+        cog = interaction.client.get_cog("TournamentCog")
+        if cog and hasattr(cog, "_assign_participant_role"):
+            await cog._assign_participant_role(interaction.guild, interaction.user)
+
+        if cog and hasattr(cog, "_update_registration_panel"):
+            await cog._update_registration_panel(interaction.guild)
+
+        state = self.service.get_state(guild_id)
+        embed = discord.Embed(
+            title="🎟️ Registration Confirmed!",
+            description=(
+                f"Welcome **{participant.ign}** to **{state.name}**!\n\n"
+                f"• **Weapon:** `{participant.weapon}`\n"
+                f"• **Region:** `{participant.region}`\n"
+                f"• **Bracket Slot:** `{len(state.participants)}/{state.max_slots}` registered\n\n"
+                "💡 *Need to adjust your weapon or IGN? Run `/tournament-edit-entry` or click Withdraw on the panel.*"
+            ),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Player Registration Hub")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+class TournamentRegistrationPanelView(discord.ui.View):
+    """
+    Persistent interactive Player Registration Hub posted in #tournament-registration.
+    Allows duelists to register via modal form, withdraw, view roster, and check-in.
+    """
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    def _get_service(self, interaction: discord.Interaction) -> TournamentService | None:
+        srv = getattr(interaction.client, "tournament_service", None)
+        if not srv:
+            cog = interaction.client.get_cog("TournamentCog")
+            if cog:
+                srv = getattr(cog, "service", None)
+        return srv
+
+    @discord.ui.button(
+        label="Register for Tournament",
+        emoji="⚔️",
+        style=discord.ButtonStyle.success,
+        custom_id="btn_user_reg_hub",
+        row=0,
+    )
+    async def register_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+
+        if not state.main_open:
+            await interaction.response.send_message(
+                f"⛔ Main bracket registrations for **{state.name}** are currently closed.",
+                ephemeral=True,
+            )
+            return
+
+        if any(p.user_id == interaction.user.id for p in state.participants):
+            await interaction.response.send_message(
+                f"ℹ️ You are already registered for **{state.name}**!\n"
+                "Use the **`🚪 Withdraw`** button if you need to release your slot.",
+                ephemeral=True,
+            )
+            return
+
+        if len(state.participants) >= state.max_slots:
+            subs_ch = interaction.guild.get_channel(state.subs_channel_id) if (interaction.guild and state.subs_channel_id) else None
+            subs_mention = subs_ch.mention if subs_ch else "the substitute channel"
+            await interaction.response.send_message(
+                f"⚠️ **Bracket is Full!** ({len(state.participants)}/{state.max_slots} slots taken).\n"
+                f"If substitute signups are open, please join the Standby Bench in {subs_mention}.",
+                ephemeral=True,
+            )
+            return
+
+        modal = UserRegistrationModal(service, state)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="Withdraw",
+        emoji="🚪",
+        style=discord.ButtonStyle.danger,
+        custom_id="btn_user_withdraw_hub",
+        row=0,
+    )
+    async def withdraw_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.followup.send("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        success, message = service.unregister_participant(interaction.user.id, guild_id=guild_id)
+        if not success:
+            await interaction.followup.send(f"❌ {message}", ephemeral=True)
+            return
+
+        cog = interaction.client.get_cog("TournamentCog")
+        if cog and hasattr(cog, "_remove_participant_role"):
+            await cog._remove_participant_role(interaction.guild, interaction.user)
+
+        if cog and hasattr(cog, "_update_registration_panel"):
+            await cog._update_registration_panel(interaction.guild)
+
+        state = service.get_state(guild_id)
+        embed = discord.Embed(
+            title="👋 Tournament Withdrawal Confirmed",
+            description=(
+                f"{message}\n\n"
+                f"Your slot in **{state.name}** has been released.\n"
+                f"📊 Current slots: `{len(state.participants)}/{state.max_slots}`"
+            ),
+            color=0xE74C3C,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Player Withdrawal")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(
+        label="View Roster",
+        emoji="📊",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_user_roster_hub",
+        row=0,
+    )
+    async def roster_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+        embed = build_roster_embed(state)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(
+        label="Check-In",
+        emoji="🎟️",
+        style=discord.ButtonStyle.primary,
+        custom_id="btn_user_checkin_hub",
+        row=1,
+    )
+    async def checkin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.followup.send("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+        if not state.checkin_open:
+            await interaction.followup.send(
+                f"⏳ Tournament check-in for **{state.name}** is not currently open.",
+                ephemeral=True,
+            )
+            return
+
+        success, message, is_sub = service.check_in_participant(interaction.user.id, guild_id=guild_id)
+        if not success:
+            await interaction.followup.send(f"❌ {message}", ephemeral=True)
+            return
+
+        cog = interaction.client.get_cog("TournamentCog")
+        if cog and hasattr(cog, "_update_registration_panel"):
+            await cog._update_registration_panel(interaction.guild)
+
+        embed = discord.Embed(
+            title="🎟️ Check-In Confirmed",
+            description=f"✅ {message}\n\nYou are marked as **READY** for **{state.name}**!",
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Match Day Check-In")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(
+        label="Help & Rules",
+        emoji="❓",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_user_help_hub",
+        row=1,
+    )
+    async def help_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        embed = build_help_embed("participants", is_admin=user_is_admin)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class TournamentClosedRegistrationView(discord.ui.View):
+    """
+    Persistent view attached to the closed registration panel in #tournament-registration.
+    Features a disabled indicator, optional link button jumping to the substitutes channel, and roster inspection.
+    """
+
+    def __init__(self, guild: Optional[discord.Guild] = None, state: Any = None):
+        super().__init__(timeout=None)
+        if guild and state and state.subs_channel_id:
+            subs_ch = guild.get_channel(state.subs_channel_id)
+            if subs_ch:
+                self.add_item(
+                    discord.ui.Button(
+                        label="🛡️ Go to Substitute Bench",
+                        style=discord.ButtonStyle.link,
+                        url=f"https://discord.com/channels/{guild.id}/{state.subs_channel_id}",
+                        row=0,
+                    )
+                )
+
+    @discord.ui.button(
+        label="Registrations Closed",
+        emoji="🔒",
+        style=discord.ButtonStyle.secondary,
+        disabled=True,
+        custom_id="btn_closed_reg_hub",
+        row=0,
+    )
+    async def closed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass
+
+    @discord.ui.button(
+        label="View Final Roster",
+        emoji="📊",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_closed_roster_hub",
+        row=0,
+    )
+    async def roster_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        srv = getattr(interaction.client, "tournament_service", None)
+        if not srv:
+            cog = interaction.client.get_cog("TournamentCog")
+            if cog:
+                srv = getattr(cog, "service", None)
+        if not srv:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = srv.get_state(guild_id)
+        embed = build_roster_embed(state)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class UserSubRegistrationModal(discord.ui.Modal, title="Join Standby Substitute Bench"):
+    """Interactive modal popup for contestants to enter the standby substitute queue."""
+
+    def __init__(self, service: TournamentService, state: TournamentState):
+        super().__init__()
+        self.service = service
+        self.state = state
+
+        self.ign_input = discord.ui.TextInput(
+            label="In-Game Name (IGN)",
+            placeholder="Enter your exact in-game duelist name",
+            max_length=50,
+            required=True,
+        )
+        weapon_sample = state.approved_weapons[0] if state.approved_weapons else "Katana"
+        self.weapon_input = discord.ui.TextInput(
+            label="Approved Weapon",
+            placeholder=f"e.g. {weapon_sample}",
+            max_length=50,
+            required=True,
+        )
+        reg_default = state.allowed_regions[0] if (state.allowed_regions and len(state.allowed_regions) == 1) else ""
+        reg_placeholder = f"e.g. {', '.join(state.allowed_regions[:3])}" if state.allowed_regions else "e.g. NA, EU, ASIA"
+        self.region_input = discord.ui.TextInput(
+            label="Region Tag",
+            placeholder=reg_placeholder,
+            default=reg_default,
+            max_length=20,
+            required=True,
+        )
+        self.add_item(self.ign_input)
+        self.add_item(self.weapon_input)
+        self.add_item(self.region_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild_id = interaction.guild_id or 0
+        ign = self.ign_input.value.strip()
+        weapon = self.weapon_input.value.strip()
+        region = self.region_input.value.strip().upper()
+
+        success, message, sub = self.service.register_substitute(
+            user_id=interaction.user.id,
+            user_mention=interaction.user.mention,
+            ign=ign,
+            weapon=weapon,
+            region=region,
+            guild_id=guild_id,
+        )
+
+        if not success:
+            await interaction.followup.send(f"❌ {message}", ephemeral=True)
+            return
+
+        cog = interaction.client.get_cog("TournamentCog")
+        if cog and hasattr(cog, "_update_subs_panel"):
+            await cog._update_subs_panel(interaction.guild)
+
+        state = self.service.get_state(guild_id)
+        pos = len(state.substitutes)
+        embed = discord.Embed(
+            title="🛡️ Standby Substitute Bench Joined!",
+            description=(
+                f"Welcome **{sub.ign}** to the standby queue for **{state.name}**!\n\n"
+                f"• **Weapon:** `{sub.weapon}`\n"
+                f"• **Region:** `{sub.region}`\n"
+                f"• **Queue Position:** `#{pos}` in line\n\n"
+                "💡 *On match day, if any main players fail to check in, substitutes are promoted in order.*"
+            ),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Standby Substitute Queue")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+class TournamentSubsPanelView(discord.ui.View):
+    """
+    Persistent interactive Standby Substitute Queue Hub posted in #substitutes-bench.
+    Allows standby duelists to join the queue via modal, leave queue, or check position.
+    """
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    def _get_service(self, interaction: discord.Interaction) -> TournamentService | None:
+        srv = getattr(interaction.client, "tournament_service", None)
+        if not srv:
+            cog = interaction.client.get_cog("TournamentCog")
+            if cog:
+                srv = getattr(cog, "service", None)
+        return srv
+
+    @discord.ui.button(
+        label="Join Standby Bench",
+        emoji="🛡️",
+        style=discord.ButtonStyle.primary,
+        custom_id="btn_sub_join_hub",
+        row=0,
+    )
+    async def join_subs_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+
+        if not state.subs_open:
+            await interaction.response.send_message(
+                f"⛔ Standby substitute signups for **{state.name}** are currently closed.",
+                ephemeral=True,
+            )
+            return
+
+        if any(p.user_id == interaction.user.id for p in state.participants):
+            await interaction.response.send_message(
+                f"ℹ️ You are already registered as a main player in **{state.name}**!",
+                ephemeral=True,
+            )
+            return
+
+        if any(s.user_id == interaction.user.id for s in state.substitutes):
+            await interaction.response.send_message(
+                f"ℹ️ You are already on the standby substitute bench for **{state.name}**!",
+                ephemeral=True,
+            )
+            return
+
+        modal = UserSubRegistrationModal(service, state)
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(
+        label="Leave Queue",
+        emoji="🚪",
+        style=discord.ButtonStyle.danger,
+        custom_id="btn_sub_leave_hub",
+        row=0,
+    )
+    async def leave_subs_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.followup.send("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        success, message = service.unregister_substitute(interaction.user.id, guild_id=guild_id)
+        if not success:
+            await interaction.followup.send(f"❌ {message}", ephemeral=True)
+            return
+
+        cog = interaction.client.get_cog("TournamentCog")
+        if cog and hasattr(cog, "_update_subs_panel"):
+            await cog._update_subs_panel(interaction.guild)
+
+        state = service.get_state(guild_id)
+        embed = discord.Embed(
+            title="👋 Removed from Standby Queue",
+            description=f"{message}\n\nStandby substitutes remaining: `{len(state.substitutes)}`",
+            color=0xE74C3C,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Standby Queue")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @discord.ui.button(
+        label="Queue Position",
+        emoji="📊",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_sub_pos_hub",
+        row=0,
+    )
+    async def position_subs_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+        match_idx = None
+        for i, s in enumerate(state.substitutes, start=1):
+            if s.user_id == interaction.user.id:
+                match_idx = i
+                break
+
+        if match_idx is None:
+            await interaction.response.send_message(
+                "❌ You are not currently registered in the standby substitute queue.",
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed(
+            title="📊 Standby Queue Position",
+            description=(
+                f"🛡️ You are currently **#{match_idx}** of **{len(state.substitutes)}** substitutes in line.\n\n"
+                "If any main bracket player no-shows or withdraws, substitutes are called up in FIFO queue order!"
+            ),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Standby Queue")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(
+        label="View Roster",
+        emoji="📊",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_sub_roster_hub",
+        row=1,
+    )
+    async def roster_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+        embed = build_roster_embed(state)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(
+        label="Help & Rules",
+        emoji="❓",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_sub_help_hub",
+        row=1,
+    )
+    async def help_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        embed = build_help_embed("participants", is_admin=user_is_admin)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class TournamentClosedSubsView(discord.ui.View):
+    """
+    Persistent view attached to the closed standby substitute queue message in #substitutes-bench.
+    """
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Substitute Queue Closed",
+        emoji="🔒",
+        style=discord.ButtonStyle.secondary,
+        disabled=True,
+        custom_id="btn_closed_subs_hub",
+        row=0,
+    )
+    async def closed_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        pass
+
+    @discord.ui.button(
+        label="View Roster",
+        emoji="📊",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_closed_subs_roster_hub",
+        row=0,
+    )
+    async def roster_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        srv = getattr(interaction.client, "tournament_service", None)
+        if not srv:
+            cog = interaction.client.get_cog("TournamentCog")
+            if cog:
+                srv = getattr(cog, "service", None)
+        if not srv:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = srv.get_state(guild_id)
+        embed = build_roster_embed(state)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

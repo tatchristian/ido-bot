@@ -87,6 +87,8 @@ class TournamentState:
     checkin_channel_id: int | None = None
     subs_channel_id: int | None = None
     registration_channel_id: int | None = None
+    registration_message_id: int | None = None
+    subs_message_id: int | None = None
     participants: list[Participant] = field(default_factory=list)
     substitutes: list[Participant] = field(default_factory=list)
     created_at: str = field(
@@ -121,6 +123,8 @@ class TournamentState:
             checkin_channel_id=int(data["checkin_channel_id"]) if data.get("checkin_channel_id") is not None else None,
             subs_channel_id=int(data["subs_channel_id"]) if data.get("subs_channel_id") is not None else None,
             registration_channel_id=int(data["registration_channel_id"]) if data.get("registration_channel_id") is not None else None,
+            registration_message_id=int(data["registration_message_id"]) if data.get("registration_message_id") is not None else None,
+            subs_message_id=int(data["subs_message_id"]) if data.get("subs_message_id") is not None else None,
             participants=[
                 Participant.from_dict(p) for p in data.get("participants", [])
             ],
@@ -159,6 +163,8 @@ class TournamentState:
             "checkin_channel_id": self.checkin_channel_id,
             "subs_channel_id": self.subs_channel_id,
             "registration_channel_id": self.registration_channel_id,
+            "registration_message_id": self.registration_message_id,
+            "subs_message_id": self.subs_message_id,
             "participants": [p.to_dict() for p in self.participants],
             "substitutes": [s.to_dict() for s in self.substitutes],
             "created_at": self.created_at,
@@ -551,6 +557,8 @@ class TournamentService:
         state.event_id = None
         state.day_of_dm_sent.clear()
         state.thirty_min_dm_sent.clear()
+        state.registration_message_id = None
+        state.subs_message_id = None
         self._persist(guild_id)
         return f"🧹 Tournament roster wiped clean ({p_count} main players and {s_count} substitutes removed)."
 

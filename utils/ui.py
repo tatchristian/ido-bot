@@ -655,3 +655,172 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
     embed.set_footer(text=f"{org} • Staff Operations Manual")
     return embed
 
+
+def build_registration_panel_embed(state: Any, guild: discord.Guild | None = None) -> discord.Embed:
+    """
+    Builds the interactive live player registration hub embed posted in #tournament-registration.
+    Displays live slot counters, visual progress bar, capacity badges, and instructions.
+    """
+    org = config.organization_name
+    p_count = len(state.participants)
+    max_slots = state.max_slots
+    is_full = p_count >= max_slots
+    slots_left = max(0, max_slots - p_count)
+
+    pct = min(1.0, p_count / max_slots) if max_slots > 0 else 0.0
+    bar_len = 10
+    filled = int(round(pct * bar_len))
+    bar = "█" * filled + "░" * (bar_len - filled)
+
+    role_mention = f"<@&{state.participant_role_id}>" if state.participant_role_id else "*Auto-assigned*"
+    regions_str = ", ".join(state.allowed_regions) if state.allowed_regions else "GLOBAL"
+    weapons_str = ", ".join(f"`{w}`" for w in state.approved_weapons[:6])
+    if len(state.approved_weapons) > 6:
+        weapons_str += f" *(+{len(state.approved_weapons) - 6} more)*"
+
+    time_str = f"<t:{state.start_timestamp}:F> (<t:{state.start_timestamp}:R>)" if state.start_timestamp else "*TBD*"
+
+    if is_full:
+        status_badge = "⚠️ **BRACKET FULL — JOIN STANDBY SUBS**"
+        embed_color = 0xF39C12  # Orange/Gold
+    else:
+        status_badge = "🟢 **REGISTRATIONS ARE OPEN**"
+        embed_color = 0x2ECC71  # Emerald Green
+
+    desc_lines = [
+        f"Welcome duelist! Registrations for **{state.name}** are live.",
+        "",
+        f"### {status_badge}",
+        f"**Capacity Progress:** `[{bar}]` **{p_count}/{max_slots}** ({slots_left} slots remaining)",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "**🏆 Tournament Information:**",
+        f"• **Allowed Regions:** `{regions_str}`",
+        f"• **Approved Weapons:** {weapons_str}",
+        f"• **Auto-Role:** {role_mention}",
+        f"• **Match Start:** {time_str}",
+        f"• **Substitute Bench:** `{'Active' if state.subs_open else 'Disabled'}`",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "**⚔️ How to Enter:**",
+        "• Click **`⚔️ Register for Tournament`** below to open the popup entry form!",
+        "• Click **`🚪 Withdraw`** if you need to leave and free your slot.",
+        "• Click **`📊 View Roster`** to inspect the live bracket entries.",
+    ]
+    if state.checkin_open:
+        desc_lines.append("• 🎟️ **Match Day Check-In is OPEN!** Click **`🎟️ Check-In`** to confirm presence.")
+
+    embed = discord.Embed(
+        title=f"🏆 {state.name} — Player Registration Hub",
+        description="\n".join(desc_lines),
+        color=embed_color,
+    )
+    embed.set_footer(text=f"{org} • Official Tournament Registration Hub")
+    return embed
+
+
+def build_registration_closed_embed(state: Any, guild: discord.Guild | None = None) -> discord.Embed:
+    """
+    Builds the closed registration embed that automatically replaces the active hub
+    when staff closes bracket signups.
+    """
+    org = config.organization_name
+    p_count = len(state.participants)
+    max_slots = state.max_slots
+
+    subs_channel_mention = "*Check with Staff*"
+    if state.subs_channel_id and guild:
+        ch = guild.get_channel(state.subs_channel_id)
+        if ch:
+            subs_channel_mention = ch.mention
+
+    time_str = f"<t:{state.start_timestamp}:F> (<t:{state.start_timestamp}:R>)" if state.start_timestamp else "*TBD*"
+
+    desc_lines = [
+        "## ⛔ REGISTRATION HAS CLOSED. CHECK FOR SUB REGISTRATION IF AVAILABLE!",
+        "",
+        f"Main bracket signups for **{state.name}** have concluded.",
+        f"• **Final Main Entries:** `{p_count}/{max_slots}` registered duelists",
+        f"• **Match Start:** {time_str}",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "**🛡️ Want to Compete as a Standby Substitute?**",
+        "If main players no-show or withdraw on match day, substitutes in line are promoted into the bracket!",
+        f"👉 Head over to {subs_channel_mention} to register for the Standby Substitute Queue.",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "💡 *Click `📊 View Final Roster` below to view the official contestant bracket.*"
+    ]
+
+    embed = discord.Embed(
+        title=f"🔒 {state.name} — Registrations Are CLOSED",
+        description="\n".join(desc_lines),
+        color=0xE74C3C,  # Crimson Red
+    )
+    embed.set_footer(text=f"{org} • Registration Closed")
+    return embed
+
+
+def build_subs_panel_embed(state: Any, guild: discord.Guild | None = None) -> discord.Embed:
+    """
+    Builds the interactive live standby substitute queue hub embed posted in #substitutes-bench.
+    """
+    org = config.organization_name
+    s_count = len(state.substitutes)
+    regions_str = ", ".join(state.allowed_regions) if state.allowed_regions else "GLOBAL"
+    time_str = f"<t:{state.start_timestamp}:F> (<t:{state.start_timestamp}:R>)" if state.start_timestamp else "*TBD*"
+
+    desc_lines = [
+        f"Welcome standby duelist! The substitute bench for **{state.name}** is active.",
+        "",
+        "### 🛡️ **STANDBY SUBSTITUTE QUEUE IS OPEN**",
+        f"**Active Standby Queue:** `{s_count}` duelist(s) waiting in FIFO queue order.",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "**ℹ️ How the Standby Bench Works:**",
+        "• If any main player fails to check in on match day, substitutes who checked in are promoted in queue order.",
+        "• Joining the substitute queue guarantees first priority when open spots appear.",
+        f"• **Allowed Regions:** `{regions_str}`",
+        f"• **Match Start:** {time_str}",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "**🛡️ How to Join:**",
+        "• Click **`🛡️ Join Standby Bench`** below to submit your substitute entry form!",
+        "• Click **`🚪 Leave Queue`** if you are no longer available.",
+        "• Click **`📊 View Queue Position`** to check your spot in line.",
+    ]
+
+    embed = discord.Embed(
+        title=f"🛡️ {state.name} — Standby Substitute Hub",
+        description="\n".join(desc_lines),
+        color=0x3498DB,  # Blue
+    )
+    embed.set_footer(text=f"{org} • Standby Substitute Queue")
+    return embed
+
+
+def build_subs_closed_embed(state: Any, guild: discord.Guild | None = None) -> discord.Embed:
+    """
+    Builds the closed standby substitute embed when substitute signups are locked.
+    """
+    org = config.organization_name
+    s_count = len(state.substitutes)
+
+    desc_lines = [
+        "## ⛔ STANDBY SUBSTITUTE REGISTRATIONS HAVE CLOSED",
+        "",
+        f"Substitute queue signups for **{state.name}** are currently locked.",
+        f"• **Total Standby Subs in Queue:** `{s_count}` duelists",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "💡 *Check announcements in the server for match day start times and further instructions.*"
+    ]
+
+    embed = discord.Embed(
+        title=f"🔒 {state.name} — Substitute Queue CLOSED",
+        description="\n".join(desc_lines),
+        color=0xE67E22,  # Dark Orange
+    )
+    embed.set_footer(text=f"{org} • Substitutes Closed")
+    return embed
+

@@ -234,3 +234,108 @@ def test_staff_guide_view_structure():
     assert "phase_3" in values
     assert "phase_4" in values
     assert "roles" in values
+
+
+def test_registration_and_subs_panel_embeds():
+    from services.tournament_service import TournamentState, Participant
+    from utils.ui import (
+        build_registration_panel_embed,
+        build_registration_closed_embed,
+        build_subs_panel_embed,
+        build_subs_closed_embed,
+    )
+
+    state = TournamentState(
+        name="Asia Championship",
+        max_slots=16,
+        main_open=True,
+        subs_open=True,
+        allowed_regions=["ASIA"],
+        approved_weapons=["Katana", "Naginata"],
+        participants=[
+            Participant(user_id=1, user_mention="<@1>", ign="Shadow", weapon="Katana", region="ASIA")
+        ],
+        substitutes=[
+            Participant(user_id=2, user_mention="<@2>", ign="Blade", weapon="Naginata", region="ASIA")
+        ]
+    )
+
+    # 1. Live Registration Panel Embed
+    reg_embed = build_registration_panel_embed(state)
+    assert "Asia Championship — Player Registration Hub" in reg_embed.title
+    assert "REGISTRATIONS ARE OPEN" in reg_embed.description
+    assert "1/16" in reg_embed.description
+    assert "15 slots remaining" in reg_embed.description
+    assert "ASIA" in reg_embed.description
+    assert "`Katana`" in reg_embed.description
+
+    # 2. Closed Registration Embed
+    closed_reg_embed = build_registration_closed_embed(state)
+    assert "Registrations Are CLOSED" in closed_reg_embed.title
+    assert "REGISTRATION HAS CLOSED. CHECK FOR SUB REGISTRATION IF AVAILABLE!" in closed_reg_embed.description
+
+    # 3. Live Subs Panel Embed
+    subs_embed = build_subs_panel_embed(state)
+    assert "Standby Substitute Hub" in subs_embed.title
+    assert "STANDBY SUBSTITUTE QUEUE IS OPEN" in subs_embed.description
+    assert "`1` duelist(s) waiting in FIFO queue order" in subs_embed.description
+
+    # 4. Closed Subs Embed
+    closed_subs_embed = build_subs_closed_embed(state)
+    assert "Substitute Queue CLOSED" in closed_subs_embed.title
+    assert "STANDBY SUBSTITUTE REGISTRATIONS HAVE CLOSED" in closed_subs_embed.description
+
+
+def test_registration_and_subs_views():
+    import discord
+    from unittest.mock import MagicMock
+    from services.tournament_service import TournamentState
+    from cogs.tournaments import (
+        TournamentRegistrationPanelView,
+        TournamentClosedRegistrationView,
+        TournamentSubsPanelView,
+        TournamentClosedSubsView,
+    )
+
+    # 1. Registration Panel View
+    reg_view = TournamentRegistrationPanelView()
+    custom_ids = [btn.custom_id for btn in reg_view.children if hasattr(btn, "custom_id")]
+    assert "btn_user_reg_hub" in custom_ids
+    assert "btn_user_withdraw_hub" in custom_ids
+    assert "btn_user_roster_hub" in custom_ids
+    assert "btn_user_checkin_hub" in custom_ids
+    assert "btn_user_help_hub" in custom_ids
+
+    # 2. Closed Registration View (without and with subs link)
+    closed_view = TournamentClosedRegistrationView()
+    c_ids = [btn.custom_id for btn in closed_view.children if hasattr(btn, "custom_id")]
+    assert "btn_closed_reg_hub" in c_ids
+    assert "btn_closed_roster_hub" in c_ids
+
+    mock_guild = MagicMock(spec=discord.Guild)
+    mock_guild.id = 9999
+    mock_subs_channel = MagicMock(spec=discord.TextChannel)
+    mock_subs_channel.id = 12345
+    mock_guild.get_channel.return_value = mock_subs_channel
+
+    state = TournamentState(name="Asia Cup", subs_channel_id=12345)
+    closed_view_with_link = TournamentClosedRegistrationView(guild=mock_guild, state=state)
+    link_buttons = [btn for btn in closed_view_with_link.children if getattr(btn, "style", None) == discord.ButtonStyle.link]
+    assert len(link_buttons) == 1
+    assert "https://discord.com/channels/9999/12345" == link_buttons[0].url
+
+    # 3. Subs Panel View
+    subs_view = TournamentSubsPanelView()
+    s_ids = [btn.custom_id for btn in subs_view.children if hasattr(btn, "custom_id")]
+    assert "btn_sub_join_hub" in s_ids
+    assert "btn_sub_leave_hub" in s_ids
+    assert "btn_sub_pos_hub" in s_ids
+    assert "btn_sub_roster_hub" in s_ids
+    assert "btn_sub_help_hub" in s_ids
+
+    # 4. Closed Subs View
+    closed_subs_view = TournamentClosedSubsView()
+    cs_ids = [btn.custom_id for btn in closed_subs_view.children if hasattr(btn, "custom_id")]
+    assert "btn_closed_subs_hub" in cs_ids
+    assert "btn_closed_subs_roster_hub" in cs_ids
+

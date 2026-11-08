@@ -673,3 +673,37 @@ def test_resolve_user_id_in_cog():
     assert cog._resolve_user_id("unknown_player", guild_id=0) is None
     assert cog._resolve_user_id("", guild_id=0) is None
     assert cog._resolve_user_id(None, guild_id=0) is None
+
+
+def test_panel_message_id_persistence():
+    from services.tournament_service import TournamentService
+    from utils.storage import StorageManager
+    import tempfile
+    from pathlib import Path
+
+    temp_dir = Path(tempfile.mkdtemp())
+    service = TournamentService(storage=StorageManager(temp_dir / "test_tourney.json"))
+    service.open_tournament(name="Summer Clash", slots=8, open_subs=True)
+
+    state = service.get_state(0)
+    state.registration_channel_id = 11111
+    state.registration_message_id = 77777
+    state.subs_channel_id = 22222
+    state.subs_message_id = 88888
+    service._persist(0)
+
+    # Reload from storage
+    service2 = TournamentService(storage=StorageManager(temp_dir / "test_tourney.json"))
+    reloaded = service2.get_state(0)
+    assert reloaded.registration_channel_id == 11111
+    assert reloaded.registration_message_id == 77777
+    assert reloaded.subs_channel_id == 22222
+    assert reloaded.subs_message_id == 88888
+
+    # Clear tournament resets message IDs
+    service2.clear_tournament(0)
+    cleared = service2.get_state(0)
+    assert cleared.registration_message_id is None
+    assert cleared.subs_message_id is None
+
+
