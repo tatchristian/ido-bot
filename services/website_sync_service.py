@@ -17,8 +17,10 @@ from config import config
 
 logger = logging.getLogger("uda_bot.website_sync")
 
-# Common timezone offsets from UTC in hours
+# Common timezone offsets from UTC in hours (Standard international timezone codes)
 TIMEZONE_OFFSETS: Dict[str, float] = {
+    "UTC": 0.0,
+    "GMT": 0.0,
     "EST": -5.0,
     "EDT": -4.0,
     "CST": -6.0,
@@ -27,15 +29,65 @@ TIMEZONE_OFFSETS: Dict[str, float] = {
     "MDT": -6.0,
     "PST": -8.0,
     "PDT": -7.0,
-    "UTC": 0.0,
-    "GMT": 0.0,
+    "AKST": -9.0,
+    "AKDT": -8.0,
+    "HST": -10.0,
+    "AST": -4.0,
+    "ADT": -3.0,
+    "BRT": -3.0,
+    "ART": -3.0,
+    "CLT": -3.0,
     "CET": 1.0,
     "CEST": 2.0,
     "BST": 1.0,
+    "WET": 0.0,
+    "WEST": 1.0,
+    "EET": 2.0,
+    "EEST": 3.0,
+    "MSK": 3.0,
+    "GST": 4.0,
+    "PKT": 5.0,
     "IST": 5.5,
+    "ICT": 7.0,
+    "WIB": 7.0,
+    "WITA": 8.0,
+    "WIT": 9.0,
+    "SGT": 8.0,
+    "HKT": 8.0,
+    "PHT": 8.0,
+    "JST": 9.0,
+    "KST": 9.0,
+    "AWST": 8.0,
+    "ACST": 9.5,
+    "ACDT": 10.5,
     "AEST": 10.0,
     "AEDT": 11.0,
+    "NZST": 12.0,
+    "NZDT": 13.0,
 }
+
+
+def resolve_timezone_info(tz_name: str) -> Tuple[timezone, str]:
+    """
+    Resolves standard international timezone abbreviation or offset string (e.g. 'IST', 'UTC+5:30', 'GMT-4')
+    to a python timezone object and canonical code name.
+    """
+    tz_upper = tz_name.strip().upper()
+    if tz_upper in TIMEZONE_OFFSETS:
+        return timezone(timedelta(hours=TIMEZONE_OFFSETS[tz_upper])), tz_upper
+
+    # Check for numeric offsets like UTC+5, UTC+5:30, GMT-4, +05:30, etc.
+    offset_match = re.match(r"^(?:UTC|GMT)?\s*([+-])\s*(\d{1,2})(?::(\d{2}))?$", tz_upper)
+    if offset_match:
+        sign = 1.0 if offset_match.group(1) == "+" else -1.0
+        hours = float(offset_match.group(2))
+        mins = float(offset_match.group(3) or 0)
+        total_hours = sign * (hours + (mins / 60.0))
+        canonical = f"UTC{offset_match.group(1)}{int(hours):02d}:{int(mins):02d}"
+        return timezone(timedelta(hours=total_hours)), canonical
+
+    # Default fallback to EST (-5.0)
+    return timezone(timedelta(hours=-5.0)), tz_upper or "EST"
 
 
 def parse_event_datetime(
@@ -46,45 +98,77 @@ def parse_event_datetime(
     """
     Parses a user-supplied date, time, and timezone into a timezone-aware UTC datetime.
     Supports formats like:
-      Date: 2026-11-15, 11/15/2026, 11/15
+      Date: 2026-11-15, 11/15/2026, 11/15, This Weekend, Saturday, Sunday, Tomorrow, Today
       Time: 18:00, 6:00 PM, 6pm, 7:30am
-      Timezone: EST, CST, PST, UTC, CET, IST, etc.
+      Timezone: Standard international codes (e.g. IST, EST, CST, PST, UTC, CET, JST)
     """
-    tz_upper = tz_name.strip().upper()
-    offset_hours = TIMEZONE_OFFSETS.get(tz_upper, -5.0)  # Default to EST (-5)
-    tz = timezone(timedelta(hours=offset_hours))
+    tz, tz_upper = resolve_timezone_info(tz_name)
 
-    cleaned_date = date_str.strip()
+    cleaned_date = date_str.strip().lower()
     cleaned_time = time_str.strip()
 
-    # 1. Parse Date
     now_utc = datetime.now(timezone.utc)
-    current_year = now_utc.year
+    now_local = now_utc.astimezone(tz)
+    current_year = now_local.year
     parsed_date = None
 
-    date_patterns = [
-        ("%Y-%m-%d", False),
-        ("%m/%d/%Y", False),
-        ("%m-%d-%Y", False),
-        ("%m/%d", True),
-        ("%m-%d", True),
-    ]
+    # 1. Check relative date keywords (Weekends, Tomorrow, Specific Days of Week)
+    weekday_map = {
+        "monday": 0, "mon": 0,
+        "tuesday": 1, "tue": 1,
+        "wednesday": 2, "wed": 2,
+        "thursday": 3, "thu": 3,
+        "friday": 4, "fri": 4,
+        "saturday": 5, "sat": 5,
+        "sunday": 6, "sun": 6,
+    }
 
-    for fmt, needs_year in date_patterns:
-        try:
-            target_str = f"{cleaned_date}/{current_year}" if needs_year else cleaned_date
-            target_fmt = f"{fmt}/%Y" if needs_year else fmt
-            dt = datetime.strptime(target_str, target_fmt)
-            parsed_date = (dt.year, dt.month, dt.day)
-            break
-        except ValueError:
-            continue
+    # Weekend phrases: "this weekend", "the weekend", "weekend", "sat & sun", "saturday & sunday"
+    if cleaned_date in ("this weekend", "the weekend", "weekend", "sat & sun", "saturday & sunday", "saturday and sunday"):
+        # Target upcoming Saturday
+        days_ahead = (5 - now_local.weekday()) % 7
+        target_dt = now_local + timedelta(days=days_ahead)
+        parsed_date = (target_dt.year, target_dt.month, target_dt.day)
+    elif cleaned_date in ("next weekend",):
+        days_ahead = ((5 - now_local.weekday()) % 7) + 7
+        target_dt = now_local + timedelta(days=days_ahead)
+        parsed_date = (target_dt.year, target_dt.month, target_dt.day)
+    elif cleaned_date in ("tomorrow",):
+        target_dt = now_local + timedelta(days=1)
+        parsed_date = (target_dt.year, target_dt.month, target_dt.day)
+    elif cleaned_date in ("today",):
+        parsed_date = (now_local.year, now_local.month, now_local.day)
+    elif cleaned_date in weekday_map:
+        target_wd = weekday_map[cleaned_date]
+        days_ahead = (target_wd - now_local.weekday()) % 7
+        target_dt = now_local + timedelta(days=days_ahead)
+        parsed_date = (target_dt.year, target_dt.month, target_dt.day)
+
+    # If not a relative keyword, parse standard calendar patterns
+    if not parsed_date:
+        date_patterns = [
+            ("%Y-%m-%d", False),
+            ("%m/%d/%Y", False),
+            ("%m-%d-%Y", False),
+            ("%m/%d", True),
+            ("%m-%d", True),
+        ]
+
+        for fmt, needs_year in date_patterns:
+            try:
+                target_str = f"{date_str.strip()}/{current_year}" if needs_year else date_str.strip()
+                target_fmt = f"{fmt}/%Y" if needs_year else fmt
+                dt = datetime.strptime(target_str, target_fmt)
+                parsed_date = (dt.year, dt.month, dt.day)
+                break
+            except ValueError:
+                continue
 
     if not parsed_date:
         return (
             False,
             None,
-            f"Invalid date format `{date_str}`. Please use `YYYY-MM-DD` (e.g. `2026-11-15`) or `MM/DD/YYYY` (e.g. `11/15/2026`).",
+            f"Invalid date format `{date_str}`. Please use `YYYY-MM-DD` (e.g. `2026-11-15`), `MM/DD/YYYY`, or relative keywords like `This Weekend`, `Saturday`, or `Tomorrow`.",
         )
 
     # 2. Parse Time
@@ -127,8 +211,13 @@ def parse_event_datetime(
     except ValueError as exc:
         return False, None, f"Invalid date/time combination: {exc}"
 
+    # If a day of week or weekend was specified and the time has already passed today, advance by 7 days
+    if cleaned_date in weekday_map or cleaned_date in ("this weekend", "the weekend", "weekend", "sat & sun", "saturday & sunday", "saturday and sunday"):
+        if local_dt <= now_local:
+            local_dt += timedelta(days=7)
+
     # 4. Check if in the future
-    if local_dt <= now_utc:
+    if local_dt <= now_local:
         return (
             False,
             None,
@@ -140,21 +229,28 @@ def parse_event_datetime(
 
 def parse_combined_event_datetime(raw_str: str) -> Tuple[bool, Optional[datetime], str]:
     """
-    Parses a single combined string like '2026-11-15 18:00 EST' or '11/15/2026 6:00 PM EST'.
-    Detects timezone, time, and date automatically.
+    Parses a single combined string like '2026-11-15 18:00 EST', 'This Weekend 18:00 IST',
+    or 'Saturday 6:00 PM UTC'. Detects international timezone, time, and date automatically.
     """
     cleaned = raw_str.strip()
     if not cleaned:
         return False, None, "Date and time cannot be empty."
 
-    # Look for timezone abbreviation (e.g. EST, CST, PST, UTC, CET, IST)
+    # Look for timezone abbreviation or offset string (sorted longest first to avoid partial matches)
     tz_str = "EST"
-    for tz_candidate in TIMEZONE_OFFSETS.keys():
+    sorted_tz = sorted(TIMEZONE_OFFSETS.keys(), key=lambda k: len(k), reverse=True)
+    for tz_candidate in sorted_tz:
         pattern = rf"\b{tz_candidate}\b"
         if re.search(pattern, cleaned, re.IGNORECASE):
             tz_str = tz_candidate.upper()
             cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
             break
+    else:
+        # Check for explicit offset e.g. UTC+5:30 or GMT-4
+        offset_match = re.search(r"\b(?:UTC|GMT)?[+-]\d{1,2}(?::\d{2})?\b", cleaned, re.IGNORECASE)
+        if offset_match:
+            tz_str = offset_match.group(0).upper()
+            cleaned = cleaned.replace(offset_match.group(0), "").strip()
 
     # Clean filler words
     cleaned = re.sub(r"\bat\b", " ", cleaned, flags=re.IGNORECASE)
@@ -164,22 +260,27 @@ def parse_combined_event_datetime(raw_str: str) -> Tuple[bool, Optional[datetime
     time_match = re.search(
         r"(\d{1,2}:\d{2}\s*(?:AM|PM)?|\d{1,2}\s*(?:AM|PM))", cleaned, re.IGNORECASE
     )
-    if not time_match:
-        return (
-            False,
-            None,
-            f"Could not find a valid time in `{raw_str}`. Example: `2026-11-15 18:00 EST` or `11/15/2026 6:00 PM EST`.",
-        )
-
-    time_part = time_match.group(1).strip()
-    # Date part is whatever is left after extracting the time
-    date_part = cleaned.replace(time_match.group(0), "").strip()
+    if time_match:
+        time_part = time_match.group(1).strip()
+        date_part = cleaned.replace(time_match.group(0), "").strip()
+    else:
+        # If no time given, check if a weekend / relative keyword was used (default to 18:00)
+        lower_cleaned = cleaned.lower()
+        if any(kw in lower_cleaned for kw in ("weekend", "saturday", "sunday", "friday", "tomorrow")):
+            time_part = "18:00"
+            date_part = cleaned
+        else:
+            return (
+                False,
+                None,
+                f"Could not find a valid time in `{raw_str}`. Example: `2026-11-15 18:00 EST` or `This Weekend 18:00 IST`.",
+            )
 
     if not date_part:
         return (
             False,
             None,
-            f"Could not find a valid date in `{raw_str}`. Example: `2026-11-15 18:00 EST`.",
+            f"Could not find a valid date in `{raw_str}`. Example: `2026-11-15 18:00 EST` or `This Weekend 18:00 IST`.",
         )
 
     return parse_event_datetime(date_part, time_part, tz_str)
@@ -187,34 +288,52 @@ def parse_combined_event_datetime(raw_str: str) -> Tuple[bool, Optional[datetime
 
 def parse_duration_and_location(raw_str: str) -> Tuple[float, str]:
     """
-    Parses 'Duration & Location' field, e.g. '2 hours | UDA Tournament Hub' or '3 | Arena'.
+    Parses 'Duration & Location' field, e.g. '2 hours | UDA Tournament Hub',
+    'Weekend | DUKE Tournament Hub', '3 days | Arena', or '48 hours'.
     Returns (duration_hours, location_string).
     """
     cleaned = raw_str.strip()
     duration = 2.0
     location = f"{config.organization_name} Tournament Hub"
 
+    dur_str = ""
+    loc_str = ""
     if "|" in cleaned:
         parts = cleaned.split("|", 1)
         dur_str = parts[0].strip()
         loc_str = parts[1].strip()
-        num_match = re.search(r"(\d+(?:\.\d+)?)", dur_str)
-        if num_match:
-            try:
-                duration = float(num_match.group(1))
-            except ValueError:
-                duration = 2.0
         if loc_str:
             location = loc_str
     else:
-        num_match = re.match(r"^(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)?$", cleaned, re.IGNORECASE)
-        if num_match:
+        dur_str = cleaned
+
+    dur_lower = dur_str.lower().strip()
+
+    # Check multi-day and weekend keywords
+    if any(k in dur_lower for k in ("full weekend", "weekend", "sat & sun", "saturday & sunday", "2 days", "two days")):
+        duration = 48.0
+    elif any(k in dur_lower for k in ("3 days", "three days", "fri-sun", "friday to sunday")):
+        duration = 72.0
+    elif any(k in dur_lower for k in ("1 day", "one day", "full day", "all day", "24 hours", "24h")):
+        duration = 24.0
+    else:
+        # Check explicit day pattern e.g. "4 days"
+        day_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:days?|d)\b", dur_lower)
+        if day_match:
             try:
-                duration = float(num_match.group(1))
+                duration = float(day_match.group(1)) * 24.0
             except ValueError:
                 duration = 2.0
-        elif cleaned:
-            location = cleaned
+        else:
+            num_match = re.search(r"(\d+(?:\.\d+)?)", dur_str)
+            if num_match:
+                try:
+                    duration = float(num_match.group(1))
+                except ValueError:
+                    duration = 2.0
+            elif not loc_str and cleaned:
+                # If no pipe and no number/keyword matched, treat whole string as location
+                location = cleaned
 
     return max(0.5, duration), location
 

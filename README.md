@@ -125,50 +125,54 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 
 ---
 
-### 🛠️ 3. Tournament Admin Commands *(Staff / Admins Only)*
+### 🛠️ 3. Tournament Admin Controls — Operations *(Staff / Admins Only)*
 
 *Requires Server Administrator permissions or the configured `Tournament Admin` role.*
 
 | Command | Description |
 | :--- | :--- |
-| `/tournament-open` | Open main bracket registrations, set slot capacity, allowed regions, and substitute signups. |
+| `/tournament-open` | Open main bracket registrations, set slot capacity, allowed regions, substitute signups, and optional custom registration channel. Automatically broadcasts announcement banner! |
 | `/tournament-close` | Close main bracket registrations. |
 | `/tournament-open-subs` / `/tournament-close-subs` | Enable or disable standby substitute queue signups. |
 | `/tournament-open-checkin` / `/tournament-close-checkin` | Open or close the check-in window before tournament start. |
-| `/tournament-promote-sub` | Swap a no-show player with a standby sub or promote the next sub in queue. |
-| `/tournament-kick` | Remove a player from either the main bracket or substitute queue. |
+| `/tournament-set-time` | Set official match day date, time, and timezone for automated contestant reminder DMs *(supports relative keywords like `This Weekend` or `Saturday`)*. |
+| `/tournament-view-time` | View scheduled match day date, time, and contestant reminder delivery status. |
+| `/tournament-test-reminder` | Preview and test-send the Day-Of morning reminder or 30-minute reminder DM to yourself. |
+| `/tournament-promote-sub` | Swap a no-show player with a standby sub or promote next sub in queue *(with player autocomplete)*. |
+| `/tournament-kick` | Remove a player from either the main bracket or substitute queue *(with player autocomplete)*. |
 | `/tournament-force-register` | Manually insert a player or VIP into main bracket or substitute queue. |
 | `/tournament-set-limit` | Adjust the maximum participant limit counter (e.g. 16, 32, 64). |
 | `/tournament-set-regions` | Update allowed regions filter (e.g. `GLOBAL`, `NA`, or `NA, EU`). |
 | `/tournament-set-weapons` | Set approved weapon classes for the event. |
-| `/tournament-set-role` / `/tournament-view-role` | Set or view the Discord role auto-assigned to tournament participants. |
-| `/tournament-set-channels` / `/tournament-view-channels` | Configure or view dedicated tournament channels. |
-| `/tournament-set-admin-role` / `/tournament-view-admin-role` | Select which role (and higher) can manage tournaments. |
 | `/tournament-announce` | Ping registered main players, substitutes, or everyone with an announcement. |
-| `/tournament-schedule-event` | Schedule an official Discord server event (displayed at the top of the server) which automatically feeds to `unitedduelingamity.org`. |
-| `/tournament-cancel-event` | Cancel and delete an upcoming event from Discord and automatically remove it from the website schedule. |
-| `/tournament-complete-event` | Conclude a tournament, crown the champion and runner-up, and publish to website Past Results. |
-| `/tournament-remove-past-result` | Remove an event record from the website's Past Results archive. |
-| `/post-event-scheduler-panel` | Post the 1-click interactive Tournament & Event Scheduler panel with persistent modal button in staff channels *(Prefix: `!post_event_scheduler_panel`)*. |
 | `/tournament-export` | Download a roster export formatted for **Challonge**, **Start.gg / Battlefy (CSV)**, or Text. |
-| `/tournament-clear` | Wipe both main roster and substitute list for a fresh event. |
-| `/tournament-setup-section` | Auto-construct complete tournament category, channel layout, and permissions. |
-| `/tournament-remove-section` | Safely clean up and delete the auto-generated tournament section. |
+| `/tournament-clear` | Wipe both main roster and substitute list for a fresh event *(ephemeral confirmation)*. |
 
 ---
 
-### 🔒 4. Clan Showcase Admin Commands *(Staff / Admins Only)*
+### ⚙️ 4. Server Setup & Configuration Commands *(Staff / Admins Only)*
 
-*Requires Server Administrator permissions, Manage Server, or designated Tournament Admin role.*
+*Commands used during server onboarding, channel restructuring, or linking bot components.*
 
 | Command | Usage | Description |
 | :--- | :--- | :--- |
-| `/post-clan-submission-panel` | `/post-clan-submission-panel [channel]` | Post the official clan intake panel with the persistent **`📋 Submit Clan Profile`** button in the target channel *(Prefix fallback: `!post_clan_submission_panel`)*. |
-| `/clan-showcase-channels` | `/clan-showcase-channels [showcase_channel] [staff_review_channel]` | Configure where approved embeds are published and where private staff reviews appear. |
-| `/clan-showcase-view-channels`| `/clan-showcase-view-channels` | Inspect current showcase and review channel routing. |
-| `/clan-showcase-edit` | `/clan-showcase-edit clan:<name_or_id>` | Search and live-edit any clan profile. Automatically edits the live published embed in Discord *(Prefix fallback: `!clan_edit <name>`)*. |
-| **`Approve & Publish` Button** | Click on review message | Instantly publishes finished embed to the public showcase channel, updates the website directory, and notifies the applicant via DM. |
-| **`Reject` Button** | Click on review message | Opens modal for rejection reason, updates staff log, and DMs applicant with the explanation. |
+| `/tournament-setup-section` | `/tournament-setup-section confirm:True` | **1-Click Auto-Builder:** Constructs `🏆 TOURNAMENT HUB`, `⚔️ MATCH ARENAS`, and `🔒 TOURNAMENT OPERATIONS` categories, channels, and permissions *(Prefix: `!tournament_setup_section`)*. |
+| `/tournament-set-channels` | `/tournament-set-channels [announcements] [registration] [checkin] [substitutes]` | Batch-link dedicated channels for announcements, registration, check-in, and substitutes. |
+| `/tournament-set-channel` | `/tournament-set-channel target:[registration\|announcements\|checkin\|substitutes] channel:#channel` | **Quick Channel Routing:** Set or update an individual dedicated channel if channels are deleted, renamed, or recreated *(Prefix: `!set_channel <target> <#channel>`)*. |
+| `/tournament-view-channels` | `/tournament-view-channels` | View current dedicated tournament channel links and status. |
+| `/tournament-set-admin-role` | `/tournament-set-admin-role role:@Role` | Set which staff role is authorized to execute tournament administration controls *(Prefix: `!set_admin_role`)*. |
+| `/tournament-view-admin-role`| `/tournament-view-admin-role` | View current authorized tournament staff admin role. |
+| `/tournament-set-event-role` | `/tournament-set-event-role role:@Role` | Set role authorized for Discord scheduled events & live website sync *(Prefix: `/set-event-role`)*. |
+| `/tournament-view-event-role`| `/tournament-view-event-role` | View current authorized event manager role. |
+| `/tournament-set-role` | `/tournament-set-role role:@Role` | Configure or link the Discord role auto-assigned to tournament participants upon registration. |
+| `/tournament-view-role` | `/tournament-view-role` | View current participant role. |
+| `/post-tournament-staff-panel`| `/post-tournament-staff-panel [channel]` | Post the 1-click interactive Staff Operations Control Center with buttons in staff channels *(Prefix: `!post_tournament_staff_panel`)*. |
+| `/post-staff-guide` | `/post-staff-guide [channel]` | Post the interactive Tournament Staff Guide & Cheat Sheet with phase dropdown selector *(Prefix: `!post_staff_guide`)*. |
+| `/post-event-scheduler-panel` | `/post-event-scheduler-panel [channel]` | Post 1-click interactive Event Scheduler panel for top-of-server banners and website sync *(Prefix: `!post_event_scheduler_panel`)*. |
+| `/post-clan-submission-panel` | `/post-clan-submission-panel [channel]` | Post interactive Clan Showcase intake portal panel *(Prefix: `!post_clan_submission_panel`)*. |
+| `/clan-showcase-channels` | `/clan-showcase-channels [showcase] [staff_review]` | Configure target showcase channel and staff review channel for clan profiles. |
+| `/clan-showcase-view-channels`| `/clan-showcase-view-channels` | Inspect current clan showcase and review channel routing. |
+| `/tournament-remove-section`| `/tournament-remove-section confirm:True` | Safely remove the auto-generated tournament channels and categories without touching other server channels. |
 
 ---
 
@@ -187,8 +191,15 @@ Staff can drop a permanent interactive scheduler panel into any admin channel:
 
 * **`📅 Schedule Tournament Event` Button:** Opens a 4-field modal:
   * **Event Title:** (e.g. `Autumn Clan Cup 2026`)
-  * **Date & Time:** (e.g. `2026-11-15 18:00 EST` or `11/15 6:00 PM EST`)
-  * **Duration & Location:** (e.g. `2 hours | Dueling Grounds Arena`)
+  * **Date & Time (with Timezone):** Supports calendar dates or natural weekend phrases:
+    * Relative: `This Weekend 18:00 IST`, `Saturday 6:00 PM EST`, `Sunday 14:00 UTC`, `Tomorrow 19:00 CST`.
+    * Exact: `2026-11-15 18:00 EST` or `11/15/2026 6:00 PM EST`.
+    * **International Timezone Codes:** Universal support for standard international timezone abbreviations (`IST`, `EST`, `CST`, `PST`, `UTC`, `GMT`, `CET`, `BST`, `GST`, `JST`, `KST`, `SGT`, `HKT`, `AEST`, `BRT`, `NZST`, or numeric `UTC±H(:M)`). Strictly standard codes only—no city names!
+  * **Duration & Location:** Supports multi-day durations and locations:
+    * `Weekend | DUKE Tournament Hub` (automatically computes 48.0 hours).
+    * `3 days | Arena` (72.0 hours).
+    * `1 day | Tournament Hub` (24.0 hours).
+    * `2 hours | Dueling Grounds Arena`.
   * **Description:** Format, weapon rules, and prize info.
 * **`🌐 Website Feed Status` Button:** Ephemeral button that displays the live status of the public REST API and provides direct links to verify upcoming events and leaderboard feeds.
 

@@ -292,8 +292,8 @@ def build_help_embed(
 ) -> discord.Embed:
     """
     Builds the /tournament-help command manual.
-    Sections: 'all', 'participants', 'admin', 'weapons_regions', 'clans', 'events_sync'.
-    Admin and Event Sync sections are strictly restricted to verified administrators.
+    Sections: 'all', 'participants', 'admin', 'setup', 'weapons_regions', 'clans', 'events_sync'.
+    Admin, Setup, and Event Sync sections are strictly restricted to verified administrators.
     """
     org = org_name or config.organization_name
     embed_color = color or config.embed_color
@@ -336,13 +336,12 @@ def build_help_embed(
                 )
         else:
             admin_lifecycle = (
-                "• `/tournament-open` — Open bracket, set capacity & region filters.\n"
+                "• `/tournament-open` — Open bracket, set capacity, regions & optional channel.\n"
                 "• `/tournament-close` — Close main bracket registrations.\n"
                 "• `/tournament-open-subs` / `/tournament-close-subs` — Toggle substitute signups.\n"
                 "• `/tournament-open-checkin` / `/tournament-close-checkin` — Run check-in window.\n"
-                "• `/tournament-promote-sub` — Swap a no-show player with standby sub.\n"
-                "• `/tournament-kick` — Remove player from main or sub queue.\n"
-                "• `/tournament-force-register` — Manually add a participant or VIP.\n"
+                "• `/tournament-promote-sub` — Swap no-show player with standby sub (with autocomplete).\n"
+                "• `/tournament-kick` — Remove player from main or sub queue (with autocomplete).\n"
                 "• `/tournament-announce` — Broadcast announcement to players.\n"
                 "• `/tournament-clear` — Wipe roster clean for next event."
             )
@@ -353,21 +352,58 @@ def build_help_embed(
             )
 
             admin_config = (
+                "• `/tournament-set-time` — Set match day date, time & timezone for contestant reminders.\n"
+                "• `/tournament-view-time` — View match schedule & reminder delivery stats.\n"
+                "• `/tournament-test-reminder` — Send preview Day-Of or 30-min DM to yourself.\n"
+                "• `/tournament-force-register` — Manually add a participant or VIP.\n"
                 "• `/tournament-set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
                 "• `/tournament-set-regions` — Update allowed regions filter.\n"
                 "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
-                "• `/tournament-set-time` — Set match day start date & time for automated contestant DMs.\n"
-                "• `/tournament-view-time` — View match day schedule & reminder delivery stats.\n"
-                "• `/tournament-test-reminder` — Send preview Day-Of or 30-min DM to yourself.\n"
-                "• `/tournament-set-role` — Set or link Discord role for participants.\n"
-                "• `/tournament-set-channels` — Configure dedicated channels for tournament.\n"
-                "• `/tournament-set-admin-role` — Set role required for tournament admin commands.\n"
-                "• `/tournament-set-event-role` — Set specific role required for event scheduling & website sync.\n"
                 "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster."
             )
             embed.add_field(
-                name="⚙️ Tournament Admin Controls — Settings & Export",
+                name="🛠️ Tournament Admin Controls — Roster & Config",
                 value=admin_config,
+                inline=False,
+            )
+
+    if section in ("all", "setup"):
+        if not is_admin:
+            if section == "setup":
+                embed.add_field(
+                    name="🔒 Admin Access Restricted",
+                    value="❌ Server Setup & Configuration commands are restricted to server administrators and Tournament Staff.",
+                    inline=False,
+                )
+        else:
+            setup_channels = (
+                "• `/tournament-setup-section` (or `!tournament_setup_section`) — One-click setup wizard creating category & channels automatically.\n"
+                "• `/tournament-set-channels` — Link dedicated channels for announcements, registration, checkin, subs.\n"
+                "• `/tournament-set-channel` (or `!set_channel`) — Quickly set or re-link a specific channel.\n"
+                "• `/tournament-view-channels` — View configured tournament channels and status.\n"
+                "• `/tournament-set-admin-role` (or `!set_admin_role`) — Configure staff role required for tournament admin.\n"
+                "• `/tournament-view-admin-role` — View current authorized tournament staff role.\n"
+                "• `/tournament-set-event-role` (or `/set-event-role`) — Configure role authorized for event scheduling & sync.\n"
+                "• `/tournament-view-event-role` — View current authorized event manager role.\n"
+                "• `/tournament-set-role` / `/tournament-view-role` — Configure automatic contestant role."
+            )
+            embed.add_field(
+                name="⚙️ Server Setup & Channels",
+                value=setup_channels,
+                inline=False,
+            )
+
+            setup_panels = (
+                "• `/post-tournament-staff-panel` — Post 1-click Staff Control Center panel.\n"
+                "• `/post-staff-guide` — Post interactive Staff Guide with phase dropdown selector.\n"
+                "• `/post-event-scheduler-panel` — Post 1-click Event Scheduler for banners & web sync.\n"
+                "• `/post-clan-submission-panel` — Post interactive Clan Showcase intake portal.\n"
+                "• `/clan-showcase-channels` — Configure showcase and staff review channels for clans.\n"
+                "• `/clan-showcase-view-channels` — View configured clan showcase channels."
+            )
+            embed.add_field(
+                name="⚙️ Interactive Panels & Portals",
+                value=setup_panels,
                 inline=False,
             )
 

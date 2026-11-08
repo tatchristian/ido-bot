@@ -99,7 +99,19 @@ def test_build_help_embed():
 
     embed_admin_allowed = build_help_embed("admin", is_admin=True)
     assert len(embed_admin_allowed.fields) == 2
-    assert all("Tournament Admin Controls" in f.name for f in embed_admin_allowed.fields)
+    assert any("Operations" in f.name for f in embed_admin_allowed.fields)
+    assert any("/tournament-open" in f.value for f in embed_admin_allowed.fields)
+
+    # Test setup section for non-admin vs admin
+    embed_setup_denied = build_help_embed("setup", is_admin=False)
+    assert len(embed_setup_denied.fields) == 1
+    assert "Admin Access Restricted" in embed_setup_denied.fields[0].name
+
+    embed_setup_allowed = build_help_embed("setup", is_admin=True)
+    assert len(embed_setup_allowed.fields) == 2
+    assert any("Server Setup" in f.name for f in embed_setup_allowed.fields)
+    assert any("/tournament-setup-section" in f.value for f in embed_setup_allowed.fields)
+    assert any("/tournament-set-channel" in f.value for f in embed_setup_allowed.fields)
 
     # Test clans only section
     embed_clans = build_help_embed("clans")

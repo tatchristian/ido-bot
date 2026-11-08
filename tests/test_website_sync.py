@@ -142,3 +142,74 @@ def test_parse_duration_and_location():
     assert loc3 == "Tournament Hub"
 
 
+def test_parse_international_timezones():
+    future_year = datetime.now(timezone.utc).year + 1
+    # IST (+5.5)
+    valid, dt, _ = parse_event_datetime(f"{future_year}-10-10", "18:00", "IST")
+    assert valid is True
+    assert dt is not None
+    assert dt.utcoffset() == timedelta(hours=5, minutes=30)
+
+    # JST (+9)
+    valid_jst, dt_jst, _ = parse_event_datetime(f"{future_year}-10-10", "18:00", "JST")
+    assert valid_jst is True
+    assert dt_jst is not None
+    assert dt_jst.utcoffset() == timedelta(hours=9)
+
+    # UTC (+0)
+    valid_utc, dt_utc, _ = parse_event_datetime(f"{future_year}-10-10", "18:00", "UTC")
+    assert valid_utc is True
+    assert dt_utc is not None
+    assert dt_utc.utcoffset() == timedelta(hours=0)
+
+    # Explicit numeric offset UTC+5:30
+    valid_off, dt_off, _ = parse_event_datetime(f"{future_year}-10-10", "18:00", "UTC+5:30")
+    assert valid_off is True
+    assert dt_off is not None
+    assert dt_off.utcoffset() == timedelta(hours=5, minutes=30)
+
+
+def test_parse_weekend_and_relative_dates():
+    # Relative date "This Weekend"
+    valid, dt, _ = parse_combined_event_datetime("This Weekend 18:00 IST")
+    assert valid is True
+    assert dt is not None
+    assert dt.hour == 18
+    assert dt.minute == 0
+    assert dt.utcoffset() == timedelta(hours=5, minutes=30)
+    # Saturday is weekday 5
+    assert dt.weekday() == 5
+
+    # Relative date "Sunday"
+    valid_sun, dt_sun, _ = parse_combined_event_datetime("Sunday 20:00 UTC")
+    assert valid_sun is True
+    assert dt_sun is not None
+    assert dt_sun.hour == 20
+    assert dt_sun.weekday() == 6
+    assert dt_sun.utcoffset() == timedelta(hours=0)
+
+    # "Tomorrow"
+    valid_tom, dt_tom, _ = parse_combined_event_datetime("Tomorrow 15:30 EST")
+    assert valid_tom is True
+    assert dt_tom is not None
+    assert dt_tom.hour == 15
+    assert dt_tom.minute == 30
+
+
+def test_parse_multiday_durations():
+    dur_weekend, loc_weekend = parse_duration_and_location("Weekend | DUKE Tournament Hub")
+    assert dur_weekend == 48.0
+    assert loc_weekend == "DUKE Tournament Hub"
+
+    dur_3days, loc_3days = parse_duration_and_location("3 days | Arena")
+    assert dur_3days == 72.0
+    assert loc_3days == "Arena"
+
+    dur_1day, loc_1day = parse_duration_and_location("1 day")
+    assert dur_1day == 24.0
+
+    dur_full_weekend, _ = parse_duration_and_location("Full Weekend")
+    assert dur_full_weekend == 48.0
+
+
+

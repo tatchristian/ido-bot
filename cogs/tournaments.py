@@ -49,12 +49,22 @@ TIMEZONE_CHOICES = [
     app_commands.Choice(name="EST (UTC-5) - Eastern US", value="EST"),
     app_commands.Choice(name="EDT (UTC-4) - Eastern Daylight", value="EDT"),
     app_commands.Choice(name="CST (UTC-6) - Central US", value="CST"),
+    app_commands.Choice(name="CDT (UTC-5) - Central Daylight", value="CDT"),
     app_commands.Choice(name="PST (UTC-8) - Pacific US", value="PST"),
-    app_commands.Choice(name="UTC / GMT - Universal", value="UTC"),
+    app_commands.Choice(name="PDT (UTC-7) - Pacific Daylight", value="PDT"),
+    app_commands.Choice(name="UTC / GMT (UTC+0) - Universal", value="UTC"),
     app_commands.Choice(name="CET (UTC+1) - Central European", value="CET"),
+    app_commands.Choice(name="CEST (UTC+2) - Central European Summer", value="CEST"),
     app_commands.Choice(name="BST (UTC+1) - British Summer", value="BST"),
+    app_commands.Choice(name="GST (UTC+4) - Gulf Standard", value="GST"),
     app_commands.Choice(name="IST (UTC+5:30) - India Standard", value="IST"),
+    app_commands.Choice(name="ICT / WIB (UTC+7) - Indochina / Western Indonesia", value="ICT"),
+    app_commands.Choice(name="SGT / HKT (UTC+8) - Singapore / Hong Kong / Philippines", value="SGT"),
+    app_commands.Choice(name="JST / KST (UTC+9) - Japan & Korea Standard", value="JST"),
     app_commands.Choice(name="AEST (UTC+10) - Australian Eastern", value="AEST"),
+    app_commands.Choice(name="AEDT (UTC+11) - Australian Daylight", value="AEDT"),
+    app_commands.Choice(name="NZST (UTC+12) - New Zealand Standard", value="NZST"),
+    app_commands.Choice(name="BRT (UTC-3) - Brasilia Standard", value="BRT"),
 ]
 
 # Predefined slash command choices (ME removed as requested)
@@ -225,37 +235,49 @@ class HelpView(discord.ui.View):
         super().__init__(timeout=timeout)
         self.is_admin = is_admin
 
-    @discord.ui.button(label="👥 Participants", style=discord.ButtonStyle.primary, custom_id="help_participants")
+    @discord.ui.button(label="👥 Participants", style=discord.ButtonStyle.primary, custom_id="help_participants", row=0)
     async def participant_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
         embed = build_help_embed("participants", is_admin=user_is_admin)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="🛠️ Admins", style=discord.ButtonStyle.secondary, custom_id="help_admin")
+    @discord.ui.button(label="🛠️ Operations", style=discord.ButtonStyle.secondary, custom_id="help_admin", row=0)
     async def admin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
         if not user_is_admin:
             await interaction.response.send_message(
-                "❌ **Access Denied**: Tournament Admin controls are restricted to administrators and Tournament Staff.",
+                "❌ **Access Denied**: Tournament Operations controls are restricted to administrators and Tournament Staff.",
                 ephemeral=True,
             )
             return
         embed = build_help_embed("admin", is_admin=True)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="⚔️ Rules & Weapons", style=discord.ButtonStyle.secondary, custom_id="help_weapons")
+    @discord.ui.button(label="⚙️ Setup", style=discord.ButtonStyle.secondary, custom_id="help_setup", row=0)
+    async def setup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
+        if not user_is_admin:
+            await interaction.response.send_message(
+                "❌ **Access Denied**: Server Setup & Configuration commands are restricted to administrators and Tournament Staff.",
+                ephemeral=True,
+            )
+            return
+        embed = build_help_embed("setup", is_admin=True)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⚔️ Rules & Weapons", style=discord.ButtonStyle.secondary, custom_id="help_weapons", row=1)
     async def weapons_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
         embed = build_help_embed("weapons_regions", is_admin=user_is_admin)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="🏛️ Clan Showcase", style=discord.ButtonStyle.secondary, custom_id="help_clans")
+    @discord.ui.button(label="🏛️ Clan Showcase", style=discord.ButtonStyle.secondary, custom_id="help_clans", row=1)
     async def clans_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
         embed = build_help_embed("clans", is_admin=user_is_admin)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="📅 Events & Website", style=discord.ButtonStyle.secondary, custom_id="help_events_sync")
+    @discord.ui.button(label="📅 Events & Website", style=discord.ButtonStyle.secondary, custom_id="help_events_sync", row=1)
     async def events_sync_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_is_event_admin = check_is_event_admin(interaction.user, interaction.guild, interaction.client)
         if not user_is_event_admin:
@@ -267,7 +289,7 @@ class HelpView(discord.ui.View):
         embed = build_help_embed("events_sync", is_admin=True)
         await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="📖 View All", style=discord.ButtonStyle.success, custom_id="help_all")
+    @discord.ui.button(label="📖 View All", style=discord.ButtonStyle.success, custom_id="help_all", row=1)
     async def all_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         user_is_admin = check_is_tournament_admin(interaction.user, interaction.guild, interaction.client)
         embed = build_help_embed("all", is_admin=user_is_admin)
@@ -967,9 +989,10 @@ class TournamentCog(commands.Cog):
         region_3="Additional allowed region tag",
         custom_regions="Optional: Type custom comma-separated regions if not using tags",
         open_subs="Whether to open substitute signups immediately (default: False)",
-        date="Optional: Match day date (e.g. 2026-11-15 or 11/15/2026) for contestant reminders",
+        date="Optional: Match day date (e.g. 2026-11-15 or This Weekend) for contestant reminders",
         time="Optional: Match start time (e.g. 18:00 or 6:00 PM)",
         timezone="Timezone for match day (defaults to EST)",
+        registration_channel="Optional: Dedicated text channel to route registrations and announcements to",
     )
     @app_commands.choices(
         region_1=REGION_FILTER_CHOICES,
@@ -991,7 +1014,11 @@ class TournamentCog(commands.Cog):
         date: Optional[str] = None,
         time: Optional[str] = None,
         timezone: Optional[app_commands.Choice[str]] = None,
+        registration_channel: Optional[discord.TextChannel] = None,
     ):
+        guild_id = interaction.guild_id or 0
+        if registration_channel:
+            self.service.set_channels(registration_channel_id=registration_channel.id, guild_id=guild_id)
         selected_regions: list[str] | None = None
         tag_list = [r.value for r in (region_1, region_2, region_3) if r]
         if tag_list or custom_regions:
@@ -1095,6 +1122,15 @@ class TournamentCog(commands.Cog):
                     can_send=True,
                     reason=f"Substitutes opened for {tourney_name}",
                 )
+
+            # If registration channel is separate from current command channel, post announcement to it
+            if curr_state.registration_channel_id and curr_state.registration_channel_id != interaction.channel_id and interaction.guild:
+                target_reg = interaction.guild.get_channel(curr_state.registration_channel_id)
+                if isinstance(target_reg, discord.TextChannel):
+                    try:
+                        await target_reg.send(embed=embed)
+                    except Exception:
+                        pass
 
             await interaction.response.send_message(embed=embed)
         except ValueError as e:
@@ -1909,6 +1945,85 @@ class TournamentCog(commands.Cog):
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(
+        name="tournament-set-channel",
+        description="[Admin] Set or update a specific dedicated channel (registration, announcements, check-in, subs).",
+    )
+    @app_commands.describe(
+        target="The tournament channel function to configure",
+        channel="The text channel to route activity to",
+    )
+    @app_commands.choices(
+        target=[
+            app_commands.Choice(name="Registration Channel (#tournament-registration)", value="registration"),
+            app_commands.Choice(name="Announcements Channel (#tournament-announcements)", value="announcements"),
+            app_commands.Choice(name="Check-In Channel (#tournament-check-in)", value="checkin"),
+            app_commands.Choice(name="Substitutes Bench Channel (#substitutes-bench)", value="substitutes"),
+        ]
+    )
+    @is_tournament_admin()
+    async def set_single_channel_cmd(
+        self,
+        interaction: discord.Interaction,
+        target: app_commands.Choice[str],
+        channel: discord.TextChannel,
+    ):
+        guild_id = interaction.guild_id or 0
+        kw = {}
+        if target.value == "registration":
+            kw["registration_channel_id"] = channel.id
+        elif target.value == "announcements":
+            kw["announcement_channel_id"] = channel.id
+        elif target.value == "checkin":
+            kw["checkin_channel_id"] = channel.id
+        elif target.value == "substitutes":
+            kw["subs_channel_id"] = channel.id
+
+        self.service.set_channels(**kw, guild_id=guild_id)
+        embed = discord.Embed(
+            title="📁 Dedicated Tournament Channel Updated",
+            description=f"✅ **{target.name}** successfully linked to {channel.mention}.\n\n"
+                        f"Automated bot announcements, broadcasts, and registrations will now route to this channel.",
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Configuration")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="set_channel", aliases=["tournament_set_channel"])
+    @commands.guild_only()
+    async def set_single_channel_prefix(
+        self,
+        ctx: commands.Context,
+        target: str,
+        channel: discord.TextChannel,
+    ):
+        """Prefix command to configure a single tournament channel."""
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You do not have permission to use this command.")
+            return
+
+        tgt = target.lower().strip()
+        guild_id = ctx.guild.id
+        kw = {}
+        if tgt in ("reg", "registration", "signup", "register"):
+            kw["registration_channel_id"] = channel.id
+            tname = "Registration Channel"
+        elif tgt in ("ann", "announce", "announcements", "announcement"):
+            kw["announcement_channel_id"] = channel.id
+            tname = "Announcements Channel"
+        elif tgt in ("checkin", "check-in", "check_in"):
+            kw["checkin_channel_id"] = channel.id
+            tname = "Check-In Channel"
+        elif tgt in ("sub", "subs", "substitutes", "substitute"):
+            kw["subs_channel_id"] = channel.id
+            tname = "Substitutes Bench Channel"
+        else:
+            await ctx.send("❌ Invalid target. Choose from: `registration`, `announcements`, `checkin`, `substitutes`.")
+            return
+
+        self.service.set_channels(**kw, guild_id=guild_id)
+        await ctx.send(f"✅ **{tname}** updated to {channel.mention}.")
 
     @app_commands.command(
         name="tournament-set-time",
@@ -2951,14 +3066,14 @@ class TournamentEventModal(discord.ui.Modal, title="Schedule Tournament Event"):
         )
         self.date_time = discord.ui.TextInput(
             label="Date & Time (with Timezone)",
-            placeholder="e.g. 2026-11-15 18:00 EST (or 6:00 PM EST)",
+            placeholder="e.g. 2026-11-15 18:00 EST or This Weekend 18:00 IST",
             style=discord.TextStyle.short,
             max_length=100,
             required=True,
         )
         self.duration_location = discord.ui.TextInput(
             label="Duration & Location",
-            placeholder="2 hours | UDA Tournament Hub (or 3 | Voice Arena)",
+            placeholder="e.g. 2 hours | Tournament Hub or Weekend | Arena",
             default=f"2 hours | {config.organization_name} Tournament Hub",
             style=discord.TextStyle.short,
             max_length=100,
@@ -3220,10 +3335,17 @@ class StaffOpenTournamentModal(discord.ui.Modal, title="Open Tournament Registra
             max_length=5,
             required=False,
         )
+        self.channel_input = discord.ui.TextInput(
+            label="Registration Channel (optional)",
+            placeholder="e.g. #tournament-registration (leave blank for auto)",
+            max_length=100,
+            required=False,
+        )
         self.add_item(self.name_input)
         self.add_item(self.slots_input)
         self.add_item(self.regions_input)
         self.add_item(self.open_subs_input)
+        self.add_item(self.channel_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -3245,6 +3367,26 @@ class StaffOpenTournamentModal(discord.ui.Modal, title="Open Tournament Registra
             selected_regions = [r.strip().upper() for r in regions_raw.split(",") if r.strip()]
 
         open_subs = self.open_subs_input.value.strip().lower() in ("yes", "y", "true", "1")
+
+        # Check if staff specified a custom registration channel
+        custom_channel_raw = self.channel_input.value.strip()
+        custom_reg_channel = None
+        if custom_channel_raw and interaction.guild:
+            match = re.search(r"(\d{17,20})", custom_channel_raw)
+            if match:
+                ch = interaction.guild.get_channel(int(match.group(1)))
+                if isinstance(ch, discord.TextChannel):
+                    custom_reg_channel = ch
+            if not custom_reg_channel:
+                clean_target = custom_channel_raw.lower().lstrip("#").strip()
+                for ch in interaction.guild.text_channels:
+                    ch_clean = ch.name.lower().replace("📝", "").replace("・", "").replace("-", " ").strip()
+                    if ch.name.lower() == clean_target or clean_target in ch_clean or clean_target in ch.name.lower():
+                        custom_reg_channel = ch
+                        break
+
+            if custom_reg_channel:
+                self.service.set_channels(registration_channel_id=custom_reg_channel.id, guild_id=guild_id)
 
         # Auto-create participant role if needed
         participant_role = None
@@ -3277,92 +3419,103 @@ class StaffOpenTournamentModal(discord.ui.Modal, title="Open Tournament Registra
         )
 
         # Helper to find target channels by state ID or by matching name
-        def find_target_channel(role_id: int | None, keywords: list[str]) -> discord.TextChannel | None:
+        def find_target_channel(channel_id: int | None, keywords: list[str]) -> discord.TextChannel | None:
             if not interaction.guild:
                 return None
-            if role_id:
-                ch = interaction.guild.get_channel(role_id)
+            if channel_id:
+                ch = interaction.guild.get_channel(channel_id)
                 if isinstance(ch, discord.TextChannel):
                     return ch
             for ch in interaction.guild.text_channels:
-                ch_name_clean = ch.name.lower()
-                if any(kw in ch_name_clean for kw in keywords):
+                ch_name_clean = ch.name.lower().replace("📝", "").replace("🛡️", "").replace("・", "").replace("-", " ")
+                if any(kw in ch_name_clean or kw.replace("-", " ") in ch_name_clean for kw in keywords):
                     return ch
             return None
 
         # 1. Automatic announcement to #tournament-registration
         state = self.service.get_state(guild_id)
-        reg_channel = find_target_channel(state.registration_channel_id, ["tournament-registration", "registration", "signup"])
+        reg_channel = custom_reg_channel or find_target_channel(state.registration_channel_id, ["tournament-registration", "registration", "signup", "sign-up", "register"])
         reg_posted = False
         if reg_channel and interaction.guild:
-            # Grant permission if needed
             perms = reg_channel.permissions_for(interaction.guild.me)
-            if perms.send_messages and perms.embed_links:
-                reg_embed = discord.Embed(
-                    title=f"🏆 {name} — Registrations Are Now OPEN!",
-                    description=(
-                        f"Welcome duelist! Registrations for **{name}** are officially open.\n\n"
-                        f"**Tournament Details:**\n"
-                        f"• **Capacity:** `{slots}` player slots\n"
-                        f"• **Allowed Regions:** `{', '.join(selected_regions) if selected_regions else 'GLOBAL'}`\n"
-                        f"• **Substitutes:** `{'Active' if open_subs else 'Disabled'}`\n"
-                        f"• **Auto-Role:** {participant_role.mention if participant_role else '*None*'}\n\n"
-                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                        "**📝 How to Enter:**\n"
-                        "• Use `/tournament-register` in this channel with your IGN, Weapon, and Region!\n"
-                        "• Use `/tournament-status` to view real-time bracket slots and active weapons.\n"
-                        "• Use `/tournament-unregister` if you need to withdraw and free your slot for another duelist."
-                    ),
-                    color=0x2ECC71,
-                )
-                reg_embed.set_footer(text=f"{config.organization_name} • Official Tournament Registration")
-                try:
+            reg_embed = discord.Embed(
+                title=f"🏆 {name} Registration Is Open!",
+                description=(
+                    f"Welcome duelist! Registrations for **{name}** are officially open.\n\n"
+                    f"To register for the {name}, use `/tournament-register` in this channel. Hope to see you compete!\n\n"
+                    f"**Tournament Details:**\n"
+                    f"• **Capacity:** `{slots}` player slots\n"
+                    f"• **Allowed Regions:** `{', '.join(selected_regions) if selected_regions else 'GLOBAL'}`\n"
+                    f"• **Substitutes:** `{'Active' if open_subs else 'Disabled'}`\n"
+                    f"• **Participant Role:** {participant_role.mention if participant_role else '*None*'}\n\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "**📝 Helpful Tournament Tips:**\n"
+                    "• Use `/tournament-register` in this channel with your IGN, Weapon, and Region to enter!\n"
+                    "• Use `/tournament-status` to view open slots, regions, and weapon stats.\n"
+                    "• Use `/tournament-unregister` if you need to withdraw and free your slot for another duelist.\n"
+                    "• If you need any more help with commands, run `/help` and click on **Participants** to see all available commands!"
+                ),
+                color=0x2ECC71,
+            )
+            reg_embed.set_footer(text=f"{config.organization_name} • Official Tournament Registration")
+            try:
+                if perms.send_messages and perms.embed_links:
                     await reg_channel.send(embed=reg_embed)
                     reg_posted = True
-                except Exception as exc:
-                    logger.warning("Could not auto-post to registration channel: %s", exc)
+                elif perms.send_messages:
+                    await reg_channel.send(
+                        f"🏆 **{name} Registration Is Open!**\n"
+                        f"To register for the {name}, use `/tournament-register` in this channel. Hope to see you compete!\n"
+                        f"If you need any more help with commands, run `/help` and click on Participants!"
+                    )
+                    reg_posted = True
+            except Exception as exc:
+                logger.warning("Could not auto-post to registration channel: %s", exc)
 
         # 2. Automatic announcement to #substitutes-bench if substitutes enabled
         subs_posted = False
         if open_subs and interaction.guild:
-            subs_channel = find_target_channel(state.subs_channel_id, ["substitutes-bench", "substitute", "subs-bench", "substitutes"])
+            subs_channel = find_target_channel(state.subs_channel_id, ["substitutes-bench", "substitute", "subs-bench", "substitutes", "subs"])
             if subs_channel:
                 perms = subs_channel.permissions_for(interaction.guild.me)
-                if perms.send_messages and perms.embed_links:
-                    subs_embed = discord.Embed(
-                        title=f"🛡️ {name} — Standby Substitute Signups OPEN!",
-                        description=(
-                            f"The standby substitute bench for **{name}** is now active.\n\n"
-                            "**How the Substitute Queue Works:**\n"
-                            "• If the main bracket fills up or you cannot commit to the full schedule, join as a substitute!\n"
-                            "• On match day, substitutes who check in are automatically promoted if any main player no-shows.\n\n"
-                            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                            "**🛡️ How to Join the Standby Bench:**\n"
-                            "• Use `/tournament-sub-register` with your IGN, Weapon, and Region.\n"
-                            "• Use `/tournament-status` to check your queue position."
-                        ),
-                        color=0x3498DB,
-                    )
-                    subs_embed.set_footer(text=f"{config.organization_name} • Standby Substitutes Bench")
-                    try:
+                subs_embed = discord.Embed(
+                    title=f"🛡️ {name} — Standby Substitute Signups OPEN!",
+                    description=(
+                        f"The standby substitute bench for **{name}** is now active.\n\n"
+                        "**How the Substitute Queue Works:**\n"
+                        "• If the main bracket fills up or you cannot commit to the full schedule, join as a substitute!\n"
+                        "• On match day, substitutes who check in are automatically promoted if any main player no-shows.\n\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "**🛡️ How to Join the Standby Bench:**\n"
+                        "• Use `/tournament-sub-register` with your IGN, Weapon, and Region.\n"
+                        "• Use `/tournament-status` to check your queue position.\n"
+                        "• If you need help, run `/help` and click on **Participants**!"
+                    ),
+                    color=0x3498DB,
+                )
+                subs_embed.set_footer(text=f"{config.organization_name} • Standby Substitutes Bench")
+                try:
+                    if perms.send_messages and perms.embed_links:
                         await subs_channel.send(embed=subs_embed)
                         subs_posted = True
-                    except Exception as exc:
-                        logger.warning("Could not auto-post to substitutes channel: %s", exc)
+                    elif perms.send_messages:
+                        await subs_channel.send(
+                            f"🛡️ **{name} — Standby Substitute Signups OPEN!**\n"
+                            "Use `/tournament-sub-register` to join the substitute queue!"
+                        )
+                        subs_posted = True
+                except Exception as exc:
+                    logger.warning("Could not auto-post to substitutes channel: %s", exc)
 
-        # Build staff ephemeral response with dispatch confirmations
+        # Build staff ephemeral response with dispatch confirmations (no duplicated lines)
         status_lines = [
-            f"{msg}\n",
-            f"• **Capacity:** `{slots}` slots",
-            f"• **Regions:** `{', '.join(selected_regions) if selected_regions else 'GLOBAL'}`",
-            f"• **Substitutes:** `{'Enabled' if open_subs else 'Disabled'}`",
-            f"• **Participant Role:** {participant_role.mention if participant_role else '*None*'}",
+            msg,
             "",
             "**📢 Automated Channel Broadcasts:**",
-            f"• Registration Channel: {reg_channel.mention + ' (✅ Posted)' if reg_posted else ('⚠️ Could not post' if reg_channel else '*None found*')}",
+            f"• Registration Channel: {reg_channel.mention + ' (✅ Posted)' if reg_posted else ('⚠️ Could not post' if reg_channel else '*None found (use /tournament-set-channel to configure)*')}",
         ]
         if open_subs:
-            status_lines.append(f"• Substitutes Channel: {subs_channel.mention + ' (✅ Posted)' if subs_posted else ('⚠️ Could not post' if 'subs_channel' in locals() and subs_channel else '*None found*')}")
+            status_lines.append(f"• Substitutes Channel: {subs_channel.mention + ' (✅ Posted)' if subs_posted else ('⚠️ Could not post' if 'subs_channel' in locals() and subs_channel else '*None found (use /tournament-set-channel to configure)*')}")
 
         embed = discord.Embed(
             title="🟢 Tournament Registrations Opened!",
@@ -3444,22 +3597,22 @@ class StaffSetTimeModal(discord.ui.Modal, title="Configure Tournament Match Sche
         super().__init__()
         self.service = service
         self.date_input = discord.ui.TextInput(
-            label="Match Date (YYYY-MM-DD)",
-            placeholder="e.g. 2026-11-15",
-            max_length=20,
+            label="Match Date (YYYY-MM-DD or Weekend)",
+            placeholder="e.g. 2026-11-15 or This Weekend / Saturday",
+            max_length=30,
             required=True,
         )
         self.time_input = discord.ui.TextInput(
-            label="Match Time (HH:MM 24-hour)",
-            placeholder="e.g. 18:00",
-            max_length=10,
+            label="Match Time (HH:MM 24-hr or 12-hr)",
+            placeholder="e.g. 18:00 or 6:00 PM",
+            max_length=15,
             required=True,
         )
         self.timezone_input = discord.ui.TextInput(
-            label="Timezone (EST, CST, PST, UTC, GMT, CET)",
-            placeholder="EST",
+            label="Timezone Code (e.g. IST, EST, UTC, JST)",
+            placeholder="e.g. IST, EST, UTC, JST, CET",
             default="EST",
-            max_length=10,
+            max_length=15,
             required=False,
         )
         self.add_item(self.date_input)
