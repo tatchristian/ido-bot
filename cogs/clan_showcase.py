@@ -30,6 +30,7 @@ from services.clan_showcase_service import (
     validate_image_url,
 )
 from services.website_sync_service import WebsiteSyncService
+from utils.ui import build_clan_role_panel_embed
 
 logger = logging.getLogger("uda_bot.clan_showcase_cog")
 
@@ -715,6 +716,25 @@ class ClanEditModal(discord.ui.Modal):
                 except Exception:
                     pass
 
+        # If role exists and clan was renamed, update role in Discord
+        if guild and sub.role_id:
+            role = guild.get_role(sub.role_id)
+            if role and role.name != sub.clan_name:
+                try:
+                    await role.edit(name=sub.clan_name[:100], reason=f"Clan renamed to {sub.clan_name}")
+                    self.service.set_clan_role(sub.id, role.id, role.name)
+                except Exception as r_exc:
+                    logger.warning("Could not rename Discord role for clan %s: %s", sub.clan_name, r_exc)
+
+        # Refresh live Clan Role Assignment Panel if configured
+        if guild:
+            cog = interaction.client.get_cog("ClanShowcase")
+            if cog and hasattr(cog, "_refresh_clan_role_panel"):
+                try:
+                    await cog._refresh_clan_role_panel(guild)
+                except Exception as panel_exc:
+                    logger.debug("Could not refresh clan role panel after edit: %s", panel_exc)
+
         status_msg = f"✅ **Successfully updated clan profile for {sub.clan_name}!**"
         if edited_published and showcase_chan:
             status_msg += f"\nLive embed in {showcase_chan.mention} has been updated."
@@ -886,9 +906,25 @@ class ClanReviewButtonsView(discord.ui.View):
                         logger.warning("Failed to automatically create clan role for %s: %s", sub.clan_name, fallback_exc)
                         role_notice = "*(Bot could not create clan role due to hierarchy or permissions)*"
 
-            # Assign role to clan leader / applicant
+            # Persist role link to submission
+            if created_role:
+                self.service.set_clan_role(sub.id, created_role.id, created_role.name)
+
+            # Assign role to clan leader / applicant (and remove @Clanless)
             if created_role and applicant:
                 try:
+                    cog = interaction.client.get_cog("ClanShowcase")
+                    if cog and hasattr(cog, "_get_clanless_role"):
+                        clanless_role = cog._get_clanless_role(guild)
+                        if clanless_role and clanless_role in applicant.roles:
+                            try:
+                                await applicant.remove_roles(
+                                    clanless_role,
+                                    reason=f"Clan Leader of approved clan {sub.clan_name} - removed Clanless",
+                                )
+                            except Exception:
+                                pass
+
                     if created_role < guild.me.top_role:
                         await applicant.add_roles(created_role, reason=f"Clan Leader of approved clan {sub.clan_name}")
                         role_notice += f" Assigned to {applicant.mention}."
@@ -910,6 +946,14 @@ class ClanReviewButtonsView(discord.ui.View):
             )
         except Exception as exc:
             logger.warning("Could not edit staff review message: %s", exc)
+
+        # Refresh live Clan Role Assignment Panel in the guild
+        cog = interaction.client.get_cog("ClanShowcase")
+        if cog and hasattr(cog, "_refresh_clan_role_panel"):
+            try:
+                await cog._refresh_clan_role_panel(guild)
+            except Exception as panel_exc:
+                logger.debug("Could not refresh clan role panel after approval: %s", panel_exc)
 
         # Optional background sync to unitedduelingamity.org
         sync_service = WebsiteSyncService()
@@ -1119,6 +1163,290 @@ class ClanSubmissionPanelView(discord.ui.View):
         )
 
 
+
+class ClanRoleSelect(discord.ui.Select):
+    """Dropdown menu for members to select and claim their clan role."""
+
+    def __init__(
+        self,
+        service: ClanShowcaseService,
+        clans: list[ClanSubmission],
+        placeholder: str = "🛡️ Select your official clan role...",
+        custom_id: str = "clan_role_select_dynamic",
+    ):
+        self.service = service
+        options: list[discord.SelectOption] = []
+        for s in clans[:25]:
+            val = str(s.role_id) if s.role_id else f"sub:{s.id}"
+            desc_parts = []
+            tag = getattr(s, "tag", None)
+            if tag:
+                desc_parts.append(f"[{tag}]")
+            desc_parts.append(f"Leader: <@{s.applicant_id}>" if s.applicant_id else s.clan_name)
+            desc = " • ".join(desc_parts)
+            options.append(
+                discord.SelectOption(
+                    label=s.clan_name[:100],
+                    value=val[:100],
+                    description=desc[:100],
+                    emoji="🛡️",
+                )
+            )
+
+        if not options:
+            options.append(
+                discord.SelectOption(
+                    label="No clans registered",
+                    value="none",
+                    description="No approved clans found yet.",
+                    emoji="⚠️",
+                )
+            )
+
+        super().__init__(
+            placeholder=placeholder,
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id=custom_id,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        val = self.values[0]
+        if val == "none":
+            await interaction.response.send_message("⚠️ No verified clans are currently available to claim.", ephemeral=True)
+            return
+
+        cog = interaction.client.get_cog("ClanShowcase")
+        if not cog or not hasattr(cog, "_execute_clan_role_assignment"):
+            await interaction.response.send_message("❌ Clan system cog unavailable.", ephemeral=True)
+            return
+
+        role_id: Optional[int] = None
+        clan_name: Optional[str] = None
+
+        if val.startswith("sub:"):
+            sub_id = val.split(":", 1)[1]
+            sub = self.service.get_submission(sub_id)
+            if sub:
+                clan_name = sub.clan_name
+                role_id = sub.role_id
+                # Fallback: match role by name
+                if not role_id:
+                    matched_role = discord.utils.find(
+                        lambda r: r.name.strip().lower() == sub.clan_name.strip().lower(),
+                        interaction.guild.roles,
+                    )
+                    if matched_role:
+                        role_id = matched_role.id
+                        self.service.set_clan_role(sub.id, matched_role.id, matched_role.name)
+        else:
+            try:
+                role_id = int(val)
+                for s in self.service.get_approved_clans(interaction.guild.id):
+                    if s.role_id == role_id:
+                        clan_name = s.clan_name
+                        break
+                if not clan_name:
+                    role_obj = interaction.guild.get_role(role_id)
+                    if role_obj:
+                        clan_name = role_obj.name
+            except ValueError:
+                pass
+
+        if not role_id:
+            await interaction.response.send_message(
+                f"❌ The role for **{clan_name or 'this clan'}** is not yet linked or configured. Please ask tournament staff to verify it.",
+                ephemeral=True,
+            )
+            return
+
+        await cog._execute_clan_role_assignment(interaction, role_id, clan_name or "Clan")
+
+
+class ClanSearchModal(discord.ui.Modal, title="Search & Claim Clan Role"):
+    """Interactive modal allowing duelists to type their clan name or tag to claim their role."""
+
+    def __init__(self, service: ClanShowcaseService):
+        super().__init__()
+        self.service = service
+        self.query_input = discord.ui.TextInput(
+            label="Clan Name or Tag",
+            placeholder="Type your clan name, initials, or tag...",
+            min_length=1,
+            max_length=100,
+            required=True,
+        )
+        self.add_item(self.query_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        cog = interaction.client.get_cog("ClanShowcase")
+        if not cog or not hasattr(cog, "_execute_clan_role_assignment"):
+            await interaction.response.send_message("❌ Clan system cog unavailable.", ephemeral=True)
+            return
+
+        query = self.query_input.value.strip().lower()
+        approved = self.service.get_approved_clans(interaction.guild.id)
+        matches = [
+            s
+            for s in approved
+            if query in s.clan_name.lower()
+            or (getattr(s, "tag", None) and query in s.tag.lower())
+            or query in s.id.lower()
+        ]
+
+        if not matches:
+            await interaction.response.send_message(
+                f"❌ No registered clan found matching `{self.query_input.value}`.\n"
+                "• Check the spelling or tag.\n"
+                "• Or use `/clan-claim` with live search suggestions.\n"
+                "• If your clan isn't registered, your leader can apply via `/clan-submit`.",
+                ephemeral=True,
+            )
+            return
+
+        if len(matches) == 1:
+            target = matches[0]
+            role_id = target.role_id
+            if not role_id:
+                matched_role = discord.utils.find(
+                    lambda r: r.name.strip().lower() == target.clan_name.strip().lower(),
+                    interaction.guild.roles,
+                )
+                if matched_role:
+                    role_id = matched_role.id
+                    self.service.set_clan_role(target.id, matched_role.id, matched_role.name)
+
+            if not role_id:
+                await interaction.response.send_message(
+                    f"❌ **{target.clan_name}** does not have a linked Discord role yet. Please inform staff.",
+                    ephemeral=True,
+                )
+                return
+
+            await cog._execute_clan_role_assignment(interaction, role_id, target.clan_name)
+            return
+
+        # Multiple matches: show search results select view
+        view = ClanSearchResultView(self.service, matches[:25])
+        await interaction.response.send_message(
+            f"🔍 Found **{len(matches)}** clans matching `{self.query_input.value}`. Choose your clan below:",
+            view=view,
+            ephemeral=True,
+        )
+
+
+class ClanSearchResultView(discord.ui.View):
+    """Ephemeral selection view for multiple search matches."""
+
+    def __init__(self, service: ClanShowcaseService, clans: list[ClanSubmission]):
+        super().__init__(timeout=180)
+        self.add_item(
+            ClanRoleSelect(
+                service,
+                clans,
+                placeholder="🛡️ Select from matching clans...",
+                custom_id="clan_search_result_select",
+            )
+        )
+
+
+class ClanRoleAssignmentPanelView(discord.ui.View):
+    """
+    Persistent View for the Clan Role Assignment Panel.
+    Allows members to claim clan roles via dropdown menus or keyword search,
+    switch clans cleanly, or leave their clan to become @Clanless.
+    """
+
+    def __init__(
+        self,
+        service: ClanShowcaseService,
+        clans: Optional[list[ClanSubmission]] = None,
+    ):
+        super().__init__(timeout=None)
+        self.service = service
+
+        # Populate dropdown menus (up to 4 menus of 25 options each)
+        if clans:
+            chunk_size = 25
+            chunks = [clans[i : i + chunk_size] for i in range(0, min(len(clans), 100), chunk_size)]
+            for idx, chunk in enumerate(chunks):
+                if len(chunks) == 1:
+                    placeholder = "🛡️ Select your official clan role..."
+                else:
+                    first = chunk[0].clan_name[:1].upper()
+                    last = chunk[-1].clan_name[:1].upper()
+                    placeholder = f"🛡️ Select Clan ({first} – {last})..."
+                self.add_item(
+                    ClanRoleSelect(
+                        service,
+                        chunk,
+                        placeholder=placeholder,
+                        custom_id=f"clan_role_menu_{idx}",
+                    )
+                )
+
+    @discord.ui.button(
+        label="Search / Type Clan",
+        style=discord.ButtonStyle.primary,
+        emoji="🔍",
+        custom_id="btn_clan_role_search",
+        row=4,
+    )
+    async def search_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        await interaction.response.send_modal(ClanSearchModal(self.service))
+
+    @discord.ui.button(
+        label="Leave Clan / Clanless",
+        style=discord.ButtonStyle.danger,
+        emoji="❌",
+        custom_id="btn_clan_role_leave",
+        row=4,
+    )
+    async def leave_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        cog = interaction.client.get_cog("ClanShowcase")
+        if not cog or not hasattr(cog, "_execute_clan_leave"):
+            await interaction.response.send_message("❌ Clan system cog unavailable.", ephemeral=True)
+            return
+        await cog._execute_clan_leave(interaction)
+
+    @discord.ui.button(
+        label="Help & Rules",
+        style=discord.ButtonStyle.secondary,
+        emoji="❓",
+        custom_id="btn_clan_role_help",
+        row=4,
+    )
+    async def help_button(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+        embed = discord.Embed(
+            title="🛡️ Clan Role System Guide",
+            description=(
+                "**How to Manage Your Clan Alignment:**\n\n"
+                "• **1 Clan Limit:** You can only represent one clan at a time. Selecting a new clan role immediately removes your previous clan role.\n"
+                "• **Clanless Rule:** Selecting any clan role automatically removes the `@Clanless` role. Clicking **Leave Clan / Clanless** removes your clan role and restores `@Clanless`.\n"
+                "• **Search by Typing:** Click **`🔍 Search / Type Clan`** or use `/clan-claim <name>` with live autocomplete search!\n"
+                "• **New Clans:** When a new clan is officially approved by staff, it is instantly added to this panel automatically.\n"
+                "• **Missing Clan?** If your clan is not registered yet, have your clan leader apply using `/clan-submit`."
+            ),
+            color=0x10B981,
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
     """
     Modular Discord Cog for automated clan profile submissions, staff reviews,
@@ -1133,9 +1461,192 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         """Register persistent views so buttons work across bot restarts."""
         panel_view = ClanSubmissionPanelView(self.service)
         review_view = ClanReviewButtonsView(self.service)
+        clan_role_view = ClanRoleAssignmentPanelView(self.service)
         self.bot.add_view(panel_view)
         self.bot.add_view(review_view)
-        logger.info("Registered persistent clan showcase views (Submit Panel & Review Buttons).")
+        self.bot.add_view(clan_role_view)
+
+        # Register views for guilds with saved panels to ensure dynamic menus work
+        for g_id, g_data in getattr(self.service, "_guild_channels", {}).items():
+            if g_data.get("clan_role_message_id"):
+                clans = self.service.get_approved_clans(g_id)
+                self.bot.add_view(ClanRoleAssignmentPanelView(self.service, clans=clans))
+
+        logger.info("Registered persistent clan showcase views (Submit Panel, Review Buttons, Clan Role Panel).")
+
+    def _get_clanless_role(self, guild: discord.Guild) -> Optional[discord.Role]:
+        """Finds the configured @Clanless role or searches by name."""
+        clanless_id = self.service.get_clanless_role_id(guild.id)
+        if clanless_id:
+            role = guild.get_role(clanless_id)
+            if role:
+                return role
+        for role in guild.roles:
+            if role.name.strip().lower() == "clanless":
+                return role
+        return None
+
+    async def _execute_clan_role_assignment(
+        self, interaction: discord.Interaction, role_id: int, clan_name: str
+    ) -> None:
+        """
+        Assigns the selected clan role to the member while:
+        1. Stripping @Clanless if present.
+        2. Stripping any other approved clan roles from the member.
+        3. Adding the new clan role.
+        """
+        guild = interaction.guild
+        member = interaction.user
+        if not guild or not isinstance(member, discord.Member):
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        target_role = guild.get_role(role_id)
+        if not target_role:
+            await interaction.response.send_message(
+                f"❌ The role for **{clan_name}** (`{role_id}`) was not found on this server. Please contact an admin.",
+                ephemeral=True,
+            )
+            return
+
+        if not guild.me.guild_permissions.manage_roles:
+            await interaction.response.send_message(
+                "❌ Bot is missing the `Manage Roles` permission.", ephemeral=True
+            )
+            return
+
+        if target_role >= guild.me.top_role:
+            await interaction.response.send_message(
+                f"❌ Cannot assign **{target_role.name}** because it is positioned higher than or equal to my highest role.",
+                ephemeral=True,
+            )
+            return
+
+        # Collect all approved clan role IDs in this server
+        approved_clans = self.service.get_approved_clans(guild.id)
+        approved_role_ids = {s.role_id for s in approved_clans if s.role_id}
+
+        # Also get clanless role
+        clanless_role = self._get_clanless_role(guild)
+
+        roles_to_remove = []
+        for r in member.roles:
+            if r.id in approved_role_ids and r.id != target_role.id:
+                roles_to_remove.append(r)
+            if clanless_role and r.id == clanless_role.id:
+                roles_to_remove.append(r)
+
+        roles_to_add = []
+        if target_role not in member.roles:
+            roles_to_add.append(target_role)
+
+        try:
+            if roles_to_remove:
+                await member.remove_roles(*roles_to_remove, reason="Clan role claim - removed old/clanless roles")
+            if roles_to_add:
+                await member.add_roles(*roles_to_add, reason=f"Claimed clan role for {clan_name}")
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Discord permission denied: I do not have permission to manage one or more of these roles.",
+                ephemeral=True,
+            )
+            return
+        except Exception as exc:
+            logger.error("Error managing clan roles for %s: %s", member.id, exc)
+            await interaction.response.send_message(f"❌ Failed to update roles: {exc}", ephemeral=True)
+            return
+
+        removed_names = [f"**@{r.name}**" for r in roles_to_remove]
+        removed_str = f"\n• **Removed:** {', '.join(removed_names)}" if removed_names else ""
+
+        await interaction.response.send_message(
+            f"✅ **Clan Alignment Updated!**\n"
+            f"• **Assigned:** {target_role.mention}{removed_str}",
+            ephemeral=True,
+        )
+
+    async def _execute_clan_leave(self, interaction: discord.Interaction) -> None:
+        """
+        Removes all approved clan roles from the member and assigns @Clanless.
+        """
+        guild = interaction.guild
+        member = interaction.user
+        if not guild or not isinstance(member, discord.Member):
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        if not guild.me.guild_permissions.manage_roles:
+            await interaction.response.send_message(
+                "❌ Bot is missing the `Manage Roles` permission.", ephemeral=True
+            )
+            return
+
+        approved_clans = self.service.get_approved_clans(guild.id)
+        approved_role_ids = {s.role_id for s in approved_clans if s.role_id}
+        clanless_role = self._get_clanless_role(guild)
+
+        roles_to_remove = [r for r in member.roles if r.id in approved_role_ids]
+        roles_to_add = []
+        if clanless_role and clanless_role not in member.roles:
+            if clanless_role < guild.me.top_role:
+                roles_to_add.append(clanless_role)
+
+        if not roles_to_remove and (not clanless_role or clanless_role in member.roles):
+            await interaction.response.send_message(
+                "ℹ️ You do not currently have any clan roles, and you already have the `@Clanless` status.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            if roles_to_remove:
+                await member.remove_roles(*roles_to_remove, reason="Left clan / became clanless")
+            if roles_to_add:
+                await member.add_roles(*roles_to_add, reason="Restored @Clanless role")
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Discord permission denied: bot cannot adjust member roles due to hierarchy.",
+                ephemeral=True,
+            )
+            return
+        except Exception as exc:
+            logger.error("Error executing clan leave for %s: %s", member.id, exc)
+            await interaction.response.send_message(f"❌ Failed to leave clan: {exc}", ephemeral=True)
+            return
+
+        clanless_str = f" and assigned {clanless_role.mention}" if roles_to_add else ""
+        await interaction.response.send_message(
+            f"✅ **Clan Left Successfully.** Removed your clan role(s){clanless_str}.",
+            ephemeral=True,
+        )
+
+    async def _refresh_clan_role_panel(self, guild: discord.Guild) -> None:
+        """
+        Edits the posted Clan Role Assignment Panel in real-time with updated clans and options.
+        """
+        chan_id, msg_id = self.service.get_clan_role_panel_info(guild.id)
+        if not chan_id or not msg_id:
+            return
+
+        channel = guild.get_channel(chan_id)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(chan_id)
+            except Exception:
+                return
+
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        try:
+            message = await channel.fetch_message(msg_id)
+            clans = self.service.get_approved_clans(guild.id)
+            embed = build_clan_role_panel_embed(clans, guild.name)
+            view = ClanRoleAssignmentPanelView(self.service, clans=clans)
+            await message.edit(embed=embed, view=view)
+            logger.info("Successfully refreshed Clan Role Assignment Panel in guild %s.", guild.id)
+        except Exception as exc:
+            logger.warning("Could not refresh Clan Role Assignment Panel: %s", exc)
 
     # -------------------------------------------------------------------------
     # Command: /clan-submit and !clan_submit
@@ -1555,6 +2066,424 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             embed=demo_embed,
             ephemeral=True,
         )
+
+    # -------------------------------------------------------------------------
+    # Command: /post-clan-role-panel and !post_clan_role_panel
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="post-clan-role-panel",
+        description="Admin: Post or move the interactive Clan Role Assignment Panel.",
+    )
+    @app_commands.describe(channel="Target channel to post the panel (defaults to current)")
+    @app_commands.default_permissions(manage_guild=True)
+    async def post_clan_role_panel_slash(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message("❌ You must be an administrator or staff member.", ephemeral=True)
+            return
+
+        target_channel = channel or interaction.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await interaction.response.send_message("❌ Target channel must be a text channel.", ephemeral=True)
+            return
+
+        perms = target_channel.permissions_for(interaction.guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            await interaction.response.send_message(
+                f"❌ Bot lacks `Send Messages` or `Embed Links` permissions in {target_channel.mention}.",
+                ephemeral=True,
+            )
+            return
+
+        clans = self.service.get_approved_clans(interaction.guild.id)
+        embed = build_clan_role_panel_embed(clans, interaction.guild.name)
+        view = ClanRoleAssignmentPanelView(self.service, clans=clans)
+
+        panel_msg = await target_channel.send(embed=embed, view=view)
+        self.service.set_clan_role_panel_info(interaction.guild.id, target_channel.id, panel_msg.id)
+
+        await interaction.response.send_message(
+            f"✅ **Clan Role Assignment Panel successfully posted in {target_channel.mention}!**\n"
+            f"[Jump to Panel]({panel_msg.jump_url})",
+            ephemeral=True,
+        )
+
+    @commands.command(name="post_clan_role_panel")
+    async def post_clan_role_panel_prefix(
+        self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None
+    ):
+        """Prefix fallback: !post_clan_role_panel [#channel]"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        if not is_staff_user(ctx.author, ctx.guild):
+            await ctx.send("❌ You must be an administrator or staff member.")
+            return
+        target_channel = channel or ctx.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await ctx.send("❌ Target channel must be a text channel.")
+            return
+        clans = self.service.get_approved_clans(ctx.guild.id)
+        embed = build_clan_role_panel_embed(clans, ctx.guild.name)
+        view = ClanRoleAssignmentPanelView(self.service, clans=clans)
+        panel_msg = await target_channel.send(embed=embed, view=view)
+        self.service.set_clan_role_panel_info(ctx.guild.id, target_channel.id, panel_msg.id)
+        await ctx.send(f"✅ Clan Role Assignment Panel posted in {target_channel.mention} ([Jump to Panel]({panel_msg.jump_url}))")
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-claim and !clan_claim
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-claim",
+        description="Claim or switch to your official clan role.",
+    )
+    @app_commands.describe(clan="Select or type your registered clan name or tag")
+    async def clan_claim_slash(self, interaction: discord.Interaction, clan: str):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        sub = self.service.get_submission(clan)
+        if not sub:
+            sub = self.service.search_submission(interaction.guild.id, clan)
+
+        if not sub or sub.status != "approved":
+            approved = self.service.get_approved_clans(interaction.guild.id)
+            for s in approved:
+                tag = getattr(s, "tag", None)
+                if clan.strip().lower() in s.clan_name.lower() or (tag and clan.strip().lower() == tag.lower()):
+                    sub = s
+                    break
+
+        if not sub:
+            await interaction.response.send_message(
+                f"❌ No approved clan matching `{clan}` was found in this server. Use `/clan-claim` with autocomplete or check the clan role panel.",
+                ephemeral=True,
+            )
+            return
+
+        role_id = sub.role_id
+        if not role_id:
+            matched_role = discord.utils.find(
+                lambda r: r.name.strip().lower() == sub.clan_name.strip().lower(),
+                interaction.guild.roles,
+            )
+            if matched_role:
+                role_id = matched_role.id
+                self.service.set_clan_role(sub.id, matched_role.id, matched_role.name)
+
+        if not role_id:
+            await interaction.response.send_message(
+                f"❌ **{sub.clan_name}** does not have an active Discord role linked. Please ask an admin to configure it using `/clan-role-edit`.",
+                ephemeral=True,
+            )
+            return
+
+        await self._execute_clan_role_assignment(interaction, role_id, sub.clan_name)
+
+    @clan_claim_slash.autocomplete("clan")
+    async def clan_claim_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if not interaction.guild:
+            return []
+        approved = self.service.get_approved_clans(interaction.guild.id)
+        choices: list[app_commands.Choice[str]] = []
+        cur = current.strip().lower()
+        for s in approved:
+            label = s.clan_name
+            tag = getattr(s, "tag", None)
+            if tag:
+                label = f"[{tag}] {label}"
+            if not cur or cur in s.clan_name.lower() or (tag and cur in tag.lower()):
+                choices.append(app_commands.Choice(name=label[:100], value=s.id))
+            if len(choices) >= 25:
+                break
+        return choices
+
+    @commands.command(name="clan_claim")
+    async def clan_claim_prefix(self, ctx: commands.Context, *, clan: str):
+        """Prefix fallback: !clan_claim <clan_name>"""
+        if not ctx.guild or not isinstance(ctx.author, discord.Member):
+            await ctx.send("❌ Command must be used in a server.")
+            return
+
+        sub = self.service.get_submission(clan)
+        if not sub:
+            sub = self.service.search_submission(ctx.guild.id, clan)
+
+        if not sub or sub.status != "approved":
+            approved = self.service.get_approved_clans(ctx.guild.id)
+            for s in approved:
+                tag = getattr(s, "tag", None)
+                if clan.strip().lower() in s.clan_name.lower() or (tag and clan.strip().lower() == tag.lower()):
+                    sub = s
+                    break
+
+        if not sub:
+            await ctx.send(f"❌ No approved clan matching `{clan}` was found.")
+            return
+
+        role_id = sub.role_id
+        if not role_id:
+            matched_role = discord.utils.find(
+                lambda r: r.name.strip().lower() == sub.clan_name.strip().lower(),
+                ctx.guild.roles,
+            )
+            if matched_role:
+                role_id = matched_role.id
+                self.service.set_clan_role(sub.id, matched_role.id, matched_role.name)
+
+        if not role_id:
+            await ctx.send(f"❌ **{sub.clan_name}** does not have a linked Discord role yet.")
+            return
+
+        target_role = ctx.guild.get_role(role_id)
+        if not target_role:
+            await ctx.send(f"❌ Role `{role_id}` not found on this server.")
+            return
+
+        approved_clans = self.service.get_approved_clans(ctx.guild.id)
+        approved_role_ids = {s.role_id for s in approved_clans if s.role_id}
+        clanless_role = self._get_clanless_role(ctx.guild)
+
+        roles_to_remove = [
+            r
+            for r in ctx.author.roles
+            if (r.id in approved_role_ids and r.id != target_role.id)
+            or (clanless_role and r.id == clanless_role.id)
+        ]
+        if roles_to_remove:
+            await ctx.author.remove_roles(*roles_to_remove, reason="Clan claim")
+        if target_role not in ctx.author.roles:
+            await ctx.author.add_roles(target_role, reason="Clan claim")
+
+        await ctx.send(f"✅ {ctx.author.mention} claimed the **{target_role.name}** clan role!")
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-leave and !clan_leave
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-leave",
+        description="Leave your current clan and return to @Clanless status.",
+    )
+    async def clan_leave_slash(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+        await self._execute_clan_leave(interaction)
+
+    @commands.command(name="clan_leave")
+    async def clan_leave_prefix(self, ctx: commands.Context):
+        """Prefix fallback: !clan_leave"""
+        if not ctx.guild or not isinstance(ctx.author, discord.Member):
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        approved_clans = self.service.get_approved_clans(ctx.guild.id)
+        approved_role_ids = {s.role_id for s in approved_clans if s.role_id}
+        clanless_role = self._get_clanless_role(ctx.guild)
+
+        roles_to_remove = [r for r in ctx.author.roles if r.id in approved_role_ids]
+        roles_to_add = []
+        if clanless_role and clanless_role not in ctx.author.roles:
+            roles_to_add.append(clanless_role)
+
+        if not roles_to_remove and not roles_to_add:
+            await ctx.send("ℹ️ You do not currently have any clan roles, and you already have @Clanless.")
+            return
+
+        if roles_to_remove:
+            await ctx.author.remove_roles(*roles_to_remove, reason="Left clan")
+        if roles_to_add:
+            await ctx.author.add_roles(*roles_to_add, reason="Restored @Clanless")
+
+        clanless_str = f" and assigned {clanless_role.mention}" if roles_to_add else ""
+        await ctx.send(f"✅ {ctx.author.mention} left their clan{clanless_str}.")
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-set-clanless-role and !set_clanless_role
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-set-clanless-role",
+        description="Admin: Configure the @Clanless role assigned to players without a clan.",
+    )
+    @app_commands.describe(role="The role to use for @Clanless members")
+    @app_commands.default_permissions(manage_guild=True)
+    async def set_clanless_role_slash(
+        self, interaction: discord.Interaction, role: discord.Role
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message("❌ You must be an administrator or staff member.", ephemeral=True)
+            return
+
+        self.service.set_clanless_role_id(interaction.guild.id, role.id)
+        embed = discord.Embed(
+            title="🛡️ Clanless Role Configured",
+            description=(
+                f"The default clanless role has been set to {role.mention} (`{role.id}`).\n\n"
+                "• Members who claim a clan role will have this role automatically removed.\n"
+                "• Members who leave their clan via the panel will have this role automatically restored."
+            ),
+            color=DEFAULT_CLAN_COLOR,
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="set_clanless_role")
+    async def set_clanless_role_prefix(self, ctx: commands.Context, role: discord.Role):
+        """Prefix fallback: !set_clanless_role <@Role>"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        if not is_staff_user(ctx.author, ctx.guild):
+            await ctx.send("❌ You must be an administrator or staff member.")
+            return
+        self.service.set_clanless_role_id(ctx.guild.id, role.id)
+        await ctx.send(f"✅ Configured @Clanless role to {role.mention} (`{role.id}`).")
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-role-edit
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-role-edit",
+        description="Admin: Edit, rename, or link a Discord role for an approved clan.",
+    )
+    @app_commands.describe(
+        clan="Approved clan to update",
+        new_name="New name for the clan and its Discord role",
+        role="Existing Discord role to link to this clan",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def clan_role_edit_slash(
+        self,
+        interaction: discord.Interaction,
+        clan: str,
+        new_name: Optional[str] = None,
+        role: Optional[discord.Role] = None,
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message("❌ You must be an administrator or staff member.", ephemeral=True)
+            return
+
+        sub = self.service.get_submission(clan)
+        if not sub:
+            sub = self.service.search_submission(interaction.guild.id, clan)
+
+        if not sub:
+            await interaction.response.send_message(f"❌ Clan `{clan}` not found.", ephemeral=True)
+            return
+
+        changes = []
+        old_name = sub.clan_name
+        if new_name and new_name.strip() and new_name.strip() != sub.clan_name:
+            sub.clan_name = new_name.strip()
+            changes.append(f"• Renamed clan from **{old_name}** to **{sub.clan_name}**")
+            if sub.role_id:
+                curr_role = interaction.guild.get_role(sub.role_id)
+                if curr_role and curr_role < interaction.guild.me.top_role:
+                    try:
+                        await curr_role.edit(name=sub.clan_name[:100], reason="Renamed via /clan-role-edit")
+                        changes.append(f"• Renamed role {curr_role.mention}")
+                    except Exception as exc:
+                        changes.append(f"• *(Could not rename role: {exc})*")
+
+        if role:
+            sub.role_id = role.id
+            sub.role_name = role.name
+            changes.append(f"• Linked Discord role {role.mention} (`{role.id}`)")
+        elif sub.role_id:
+            sub.role_name = sub.clan_name
+
+        self.service._submissions[sub.id] = sub
+        self.service._persist()
+
+        # Refresh panel live
+        await self._refresh_clan_role_panel(interaction.guild)
+
+        embed = discord.Embed(
+            title="🛡️ Clan Role Configuration Updated",
+            color=DEFAULT_CLAN_COLOR,
+            description="\n".join(changes) if changes else "No changes specified.",
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @clan_role_edit_slash.autocomplete("clan")
+    async def clan_role_edit_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if not interaction.guild:
+            return []
+        approved = self.service.get_approved_clans(interaction.guild.id)
+        choices: list[app_commands.Choice[str]] = []
+        cur = current.strip().lower()
+        for s in approved:
+            label = f"{s.clan_name} (Role: {s.role_name or 'None'})"
+            tag = getattr(s, "tag", None)
+            if not cur or cur in s.clan_name.lower() or (tag and cur in tag.lower()):
+                choices.append(app_commands.Choice(name=label[:100], value=s.id))
+            if len(choices) >= 25:
+                break
+        return choices
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-role-panel-refresh and !refresh_clan_role_panel
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-role-panel-refresh",
+        description="Admin: Manually re-sync and refresh the Clan Role Assignment Panel.",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def refresh_clan_role_panel_slash(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message("❌ You must be an administrator or staff member.", ephemeral=True)
+            return
+
+        chan_id, msg_id = self.service.get_clan_role_panel_info(interaction.guild.id)
+        if not chan_id or not msg_id:
+            await interaction.response.send_message(
+                "⚠️ No active Clan Role Assignment Panel found for this server. Use `/post-clan-role-panel` first.",
+                ephemeral=True,
+            )
+            return
+
+        await self._refresh_clan_role_panel(interaction.guild)
+        await interaction.response.send_message(
+            f"✅ Clan Role Assignment Panel in <#{chan_id}> has been refreshed live!",
+            ephemeral=True,
+        )
+
+    @commands.command(name="refresh_clan_role_panel")
+    async def refresh_clan_role_panel_prefix(self, ctx: commands.Context):
+        """Prefix fallback: !refresh_clan_role_panel"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        if not is_staff_user(ctx.author, ctx.guild):
+            await ctx.send("❌ You must be an administrator or staff member.")
+            return
+        chan_id, msg_id = self.service.get_clan_role_panel_info(ctx.guild.id)
+        if not chan_id or not msg_id:
+            await ctx.send("⚠️ No active Clan Role Assignment Panel found. Use !post_clan_role_panel first.")
+            return
+        await self._refresh_clan_role_panel(ctx.guild)
+        await ctx.send(f"✅ Clan Role Assignment Panel refreshed in <#{chan_id}>.")
 
 async def setup(bot: commands.Bot) -> None:
     service = getattr(bot, "clan_showcase_service", None)

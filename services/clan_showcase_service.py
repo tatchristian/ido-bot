@@ -354,6 +354,8 @@ class ClanSubmission:
     reviewed_by_id: Optional[int] = None
     reviewed_by_name: Optional[str] = None
     reject_reason: Optional[str] = None
+    role_id: Optional[int] = None
+    role_name: Optional[str] = None
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -381,6 +383,8 @@ class ClanSubmission:
             reviewed_by_id=int(data["reviewed_by_id"]) if data.get("reviewed_by_id") else None,
             reviewed_by_name=str(data["reviewed_by_name"]) if data.get("reviewed_by_name") else None,
             reject_reason=str(data["reject_reason"]) if data.get("reject_reason") else None,
+            role_id=int(data["role_id"]) if data.get("role_id") else None,
+            role_name=str(data["role_name"]) if data.get("role_name") else None,
             created_at=str(data.get("created_at", datetime.now(timezone.utc).isoformat())),
             updated_at=str(data.get("updated_at", datetime.now(timezone.utc).isoformat())),
         )
@@ -460,6 +464,44 @@ class ClanShowcaseService:
         showcase = gdata.get("showcase_channel_id") or config.showcase_channel_id
         review = gdata.get("staff_review_channel_id") or config.staff_review_channel_id
         return showcase, review
+
+    def get_approved_clans(self, guild_id: int) -> list[ClanSubmission]:
+        """Returns all approved clan submissions for a guild sorted alphabetically."""
+        clans = [s for s in self._submissions.values() if s.guild_id == guild_id and s.status == "approved"]
+        clans.sort(key=lambda s: s.clan_name.lower())
+        return clans
+
+    def set_clan_role(self, sub_id: str, role_id: int, role_name: str) -> None:
+        """Links an approved clan to its Discord role."""
+        sub = self._submissions.get(sub_id)
+        if sub:
+            sub.role_id = role_id
+            sub.role_name = role_name
+            sub.updated_at = datetime.now(timezone.utc).isoformat()
+            self._persist()
+
+    def set_clan_role_panel_info(self, guild_id: int, channel_id: int, message_id: int) -> None:
+        """Stores the channel and message ID of the live Clan Role Assignment Panel."""
+        gdata = self._guild_channels.setdefault(guild_id, {})
+        gdata["clan_role_channel_id"] = channel_id
+        gdata["clan_role_message_id"] = message_id
+        self._persist()
+
+    def get_clan_role_panel_info(self, guild_id: int) -> Tuple[Optional[int], Optional[int]]:
+        """Returns (clan_role_channel_id, clan_role_message_id) for the guild."""
+        gdata = self._guild_channels.get(guild_id, {})
+        return gdata.get("clan_role_channel_id"), gdata.get("clan_role_message_id")
+
+    def set_clanless_role_id(self, guild_id: int, role_id: Optional[int]) -> None:
+        """Configures the @Clanless role for a guild."""
+        gdata = self._guild_channels.setdefault(guild_id, {})
+        gdata["clanless_role_id"] = role_id
+        self._persist()
+
+    def get_clanless_role_id(self, guild_id: int) -> Optional[int]:
+        """Returns the configured @Clanless role ID for a guild."""
+        gdata = self._guild_channels.get(guild_id, {})
+        return gdata.get("clanless_role_id")
 
     def create_submission(
         self,

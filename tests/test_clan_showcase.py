@@ -356,5 +356,237 @@ async def test_fetch_image_bytes_validation():
     assert await fetch_image_bytes("ftp://example.com/logo.png") is None
 
 
+def test_clan_submission_role_fields_serialization():
+    """Verify role_id and role_name serialize and deserialize properly."""
+    sub = ClanSubmission(
+        id="sub_test_1",
+        guild_id=123,
+        applicant_id=456,
+        applicant_name="Tester",
+        clan_name="Test Clan",
+        color_hex="#10b981",
+        color_int=0x10B981,
+        metadata_text="Region: NA",
+        description_text="Description",
+        activities_motto="Motto",
+        logo_url="https://example.com/logo.png",
+        role_id=987654321,
+        role_name="Test Clan Role",
+    )
+    data = sub.to_dict()
+    assert data["role_id"] == 987654321
+    assert data["role_name"] == "Test Clan Role"
+
+    reloaded = ClanSubmission.from_dict(data)
+    assert reloaded.role_id == 987654321
+    assert reloaded.role_name == "Test Clan Role"
+
+
+def test_clan_showcase_service_role_panel_and_clanless_persistence():
+    """Verify panel info and clanless role ID persist in ClanShowcaseService."""
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        service.set_clan_role_panel_info(1001, 2002, 3003)
+        chan_id, msg_id = service.get_clan_role_panel_info(1001)
+        assert chan_id == 2002
+        assert msg_id == 3003
+
+        service.set_clanless_role_id(1001, 7777)
+        assert service.get_clanless_role_id(1001) == 7777
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_clan_showcase_service_get_approved_clans_and_set_role():
+    """Verify get_approved_clans filters by status and sorts alphabetically."""
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        # Create Zeta (approved), Beta (pending), Alpha (approved)
+        s_zeta = service.create_submission(1, 10, "UserZ", "Zeta Clan", "#ffffff", "meta", "desc", "motto")
+        s_beta = service.create_submission(1, 11, "UserB", "Beta Clan", "#ffffff", "meta", "desc", "motto")
+        s_alpha = service.create_submission(1, 12, "UserA", "Alpha Clan", "#ffffff", "meta", "desc", "motto")
+
+        # Approve Zeta and Alpha
+        service.approve_submission(s_zeta.id, 99, "Admin", 1001)
+        service.approve_submission(s_alpha.id, 99, "Admin", 1002)
+
+        approved = service.get_approved_clans(1)
+        assert len(approved) == 2
+        assert [c.clan_name for c in approved] == ["Alpha Clan", "Zeta Clan"]
+
+        # Link role to Alpha Clan
+        service.set_clan_role(s_alpha.id, 5555, "Alpha Clan Role")
+        updated_alpha = service.get_submission(s_alpha.id)
+        assert updated_alpha.role_id == 5555
+        assert updated_alpha.role_name == "Alpha Clan Role"
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_build_clan_role_panel_embed():
+    """Verify clan role panel embed builder produces expected content."""
+    from utils.ui import build_clan_role_panel_embed
+
+    clans = [
+        ClanSubmission(
+            id="1",
+            guild_id=1,
+            applicant_id=10,
+            applicant_name="A",
+            clan_name="Solaris",
+            color_hex="#fff",
+            color_int=0xFFFFFF,
+            metadata_text="meta",
+            description_text="desc",
+            activities_motto="motto",
+            logo_url="https://example.com/logo.png",
+        ),
+        ClanSubmission(
+            id="2",
+            guild_id=1,
+            applicant_id=20,
+            applicant_name="B",
+            clan_name="Lunaris",
+            color_hex="#000",
+            color_int=0x000000,
+            metadata_text="meta",
+            description_text="desc",
+            activities_motto="motto",
+            logo_url="https://example.com/logo.png",
+        ),
+    ]
+
+    embed = build_clan_role_panel_embed(clans, org_name="DUKE")
+    assert "DUKE Clan Alignment" in embed.title
+    assert "`2` active clan(s)" in embed.description
+    assert "Dropdown Menu" in embed.description
+    assert "Search by Keyword" in embed.description
+    assert "Clanless" in embed.description
+
+
+def test_clan_role_panel_view_structure():
+    """Verify ClanRoleAssignmentPanelView buttons and dropdowns."""
+    from cogs.clan_showcase import ClanRoleAssignmentPanelView
+
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        clans = [
+            ClanSubmission(
+                id="c1",
+                guild_id=1,
+                applicant_id=10,
+                applicant_name="A",
+                clan_name="Omega",
+                color_hex="#fff",
+                color_int=0xFFFFFF,
+                metadata_text="meta",
+                description_text="desc",
+                activities_motto="motto",
+                logo_url="https://example.com/logo.png",
+                role_id=111,
+            ),
+            ClanSubmission(
+                id="c2",
+                guild_id=1,
+                applicant_id=20,
+                applicant_name="B",
+                clan_name="Delta",
+                color_hex="#000",
+                color_int=0x000000,
+                metadata_text="meta",
+                description_text="desc",
+                activities_motto="motto",
+                logo_url="https://example.com/logo.png",
+                role_id=222,
+            ),
+        ]
+
+        view = ClanRoleAssignmentPanelView(service, clans=clans)
+        custom_ids = [item.custom_id for item in view.children if hasattr(item, "custom_id")]
+
+        assert "btn_clan_role_search" in custom_ids
+        assert "btn_clan_role_leave" in custom_ids
+        assert "btn_clan_role_help" in custom_ids
+        assert "clan_role_menu_0" in custom_ids
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_clan_role_panel_multi_chunk_dropdown():
+    """Verify that > 25 clans are chunked across multiple dropdown menus."""
+    from cogs.clan_showcase import ClanRoleAssignmentPanelView
+    import discord
+
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        many_clans = [
+            ClanSubmission(
+                id=f"c_{i}",
+                guild_id=1,
+                applicant_id=i,
+                applicant_name=f"User_{i}",
+                clan_name=f"Clan {i:02d}",
+                color_hex="#ffffff",
+                color_int=0xFFFFFF,
+                metadata_text="meta",
+                description_text="desc",
+                activities_motto="motto",
+                logo_url="https://example.com/logo.png",
+                role_id=1000 + i,
+            )
+            for i in range(30)
+        ]
+
+        view = ClanRoleAssignmentPanelView(service, clans=many_clans)
+        selects = [item for item in view.children if isinstance(item, discord.ui.Select)]
+        assert len(selects) == 2
+        assert selects[0].custom_id == "clan_role_menu_0"
+        assert len(selects[0].options) == 25
+        assert selects[1].custom_id == "clan_role_menu_1"
+        assert len(selects[1].options) == 5
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_clan_role_helpers_and_clanless_lookup():
+    """Verify _get_clanless_role finds configured ID and falls back to name matching."""
+    from unittest.mock import MagicMock
+    from cogs.clan_showcase import ClanShowcaseCog
+
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        bot = MagicMock()
+        cog = ClanShowcaseCog(bot, service=service)
+
+        guild = MagicMock()
+        role_configured = MagicMock()
+        role_configured.id = 8888
+        role_configured.name = "Unranked Duelists"
+
+        role_named_clanless = MagicMock()
+        role_named_clanless.id = 9999
+        role_named_clanless.name = "Clanless"
+
+        guild.roles = [role_configured, role_named_clanless]
+        guild.get_role.side_effect = lambda rid: role_configured if rid == 8888 else (role_named_clanless if rid == 9999 else None)
+
+        # 1. Without configuration: matches by name "clanless"
+        found = cog._get_clanless_role(guild)
+        assert found == role_named_clanless
+
+        # 2. With configured ID: returns configured role
+        service.set_clanless_role_id(guild.id, 8888)
+        found_configured = cog._get_clanless_role(guild)
+        assert found_configured == role_configured
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+
 
 

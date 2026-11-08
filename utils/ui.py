@@ -824,3 +824,39 @@ def build_subs_closed_embed(state: Any, guild: discord.Guild | None = None) -> d
     embed.set_footer(text=f"{org} • Substitutes Closed")
     return embed
 
+
+def build_clan_role_panel_embed(clans: list[Any], org_name: str | None = None) -> discord.Embed:
+    """
+    Builds the interactive Clan Role Assignment Panel embed posted in #clan-roles / #choose-your-clan.
+    Displays instructions, active verified clan count, and role switching rules.
+    """
+    org = org_name or config.organization_name
+    count = len(clans)
+
+    desc_lines = [
+        "Welcome duelist! Claim your official clan alignment role below.",
+        "Clan roles grant access to your team's private strategy war rooms, scrim channels, and roster pings.",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "**📋 How to Claim or Change Your Clan Role:**",
+        "• **Dropdown Menu:** Pick your clan directly from the select menu below.",
+        "• **Search by Keyword:** Click **`🔍 Search / Type Clan`** to type your clan name or tag.",
+        "• **Switching Clans:** Selecting a new clan automatically removes your previous clan role.",
+        "• **Clean Role Management:** Selecting a clan removes `@Clanless`. Leaving a clan restores `@Clanless`.",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"🛡️ **Verified Registered Clans:** `{count}` active clan(s)",
+    ]
+
+    if count == 0:
+        desc_lines.append("\n*No approved clans are currently registered. Use `/clan-submit` to submit a profile!*")
+
+    embed = discord.Embed(
+        title=f"🏛️ {org} Clan Alignment — Select Your Official Clan Role",
+        description="\n".join(desc_lines),
+        color=0x10B981,  # Emerald Green
+    )
+    embed.set_footer(text=f"{org} • Clan Alignment Directory")
+    return embed
+
+
