@@ -3276,15 +3276,97 @@ class StaffOpenTournamentModal(discord.ui.Modal, title="Open Tournament Registra
             guild_id=guild_id,
         )
 
+        # Helper to find target channels by state ID or by matching name
+        def find_target_channel(role_id: int | None, keywords: list[str]) -> discord.TextChannel | None:
+            if not interaction.guild:
+                return None
+            if role_id:
+                ch = interaction.guild.get_channel(role_id)
+                if isinstance(ch, discord.TextChannel):
+                    return ch
+            for ch in interaction.guild.text_channels:
+                ch_name_clean = ch.name.lower()
+                if any(kw in ch_name_clean for kw in keywords):
+                    return ch
+            return None
+
+        # 1. Automatic announcement to #tournament-registration
+        state = self.service.get_state(guild_id)
+        reg_channel = find_target_channel(state.registration_channel_id, ["tournament-registration", "registration", "signup"])
+        reg_posted = False
+        if reg_channel and interaction.guild:
+            # Grant permission if needed
+            perms = reg_channel.permissions_for(interaction.guild.me)
+            if perms.send_messages and perms.embed_links:
+                reg_embed = discord.Embed(
+                    title=f"🏆 {name} — Registrations Are Now OPEN!",
+                    description=(
+                        f"Welcome duelist! Registrations for **{name}** are officially open.\n\n"
+                        f"**Tournament Details:**\n"
+                        f"• **Capacity:** `{slots}` player slots\n"
+                        f"• **Allowed Regions:** `{', '.join(selected_regions) if selected_regions else 'GLOBAL'}`\n"
+                        f"• **Substitutes:** `{'Active' if open_subs else 'Disabled'}`\n"
+                        f"• **Auto-Role:** {participant_role.mention if participant_role else '*None*'}\n\n"
+                        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                        "**📝 How to Enter:**\n"
+                        "• Use `/tournament-register` in this channel with your IGN, Weapon, and Region!\n"
+                        "• Use `/tournament-status` to view real-time bracket slots and active weapons.\n"
+                        "• Use `/tournament-unregister` if you need to withdraw and free your slot for another duelist."
+                    ),
+                    color=0x2ECC71,
+                )
+                reg_embed.set_footer(text=f"{config.organization_name} • Official Tournament Registration")
+                try:
+                    await reg_channel.send(embed=reg_embed)
+                    reg_posted = True
+                except Exception as exc:
+                    logger.warning("Could not auto-post to registration channel: %s", exc)
+
+        # 2. Automatic announcement to #substitutes-bench if substitutes enabled
+        subs_posted = False
+        if open_subs and interaction.guild:
+            subs_channel = find_target_channel(state.subs_channel_id, ["substitutes-bench", "substitute", "subs-bench", "substitutes"])
+            if subs_channel:
+                perms = subs_channel.permissions_for(interaction.guild.me)
+                if perms.send_messages and perms.embed_links:
+                    subs_embed = discord.Embed(
+                        title=f"🛡️ {name} — Standby Substitute Signups OPEN!",
+                        description=(
+                            f"The standby substitute bench for **{name}** is now active.\n\n"
+                            "**How the Substitute Queue Works:**\n"
+                            "• If the main bracket fills up or you cannot commit to the full schedule, join as a substitute!\n"
+                            "• On match day, substitutes who check in are automatically promoted if any main player no-shows.\n\n"
+                            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                            "**🛡️ How to Join the Standby Bench:**\n"
+                            "• Use `/tournament-sub-register` with your IGN, Weapon, and Region.\n"
+                            "• Use `/tournament-status` to check your queue position."
+                        ),
+                        color=0x3498DB,
+                    )
+                    subs_embed.set_footer(text=f"{config.organization_name} • Standby Substitutes Bench")
+                    try:
+                        await subs_channel.send(embed=subs_embed)
+                        subs_posted = True
+                    except Exception as exc:
+                        logger.warning("Could not auto-post to substitutes channel: %s", exc)
+
+        # Build staff ephemeral response with dispatch confirmations
+        status_lines = [
+            f"{msg}\n",
+            f"• **Capacity:** `{slots}` slots",
+            f"• **Regions:** `{', '.join(selected_regions) if selected_regions else 'GLOBAL'}`",
+            f"• **Substitutes:** `{'Enabled' if open_subs else 'Disabled'}`",
+            f"• **Participant Role:** {participant_role.mention if participant_role else '*None*'}",
+            "",
+            "**📢 Automated Channel Broadcasts:**",
+            f"• Registration Channel: {reg_channel.mention + ' (✅ Posted)' if reg_posted else ('⚠️ Could not post' if reg_channel else '*None found*')}",
+        ]
+        if open_subs:
+            status_lines.append(f"• Substitutes Channel: {subs_channel.mention + ' (✅ Posted)' if subs_posted else ('⚠️ Could not post' if 'subs_channel' in locals() and subs_channel else '*None found*')}")
+
         embed = discord.Embed(
             title="🟢 Tournament Registrations Opened!",
-            description=(
-                f"{msg}\n\n"
-                f"• **Capacity:** `{slots}` slots\n"
-                f"• **Regions:** `{', '.join(selected_regions) if selected_regions else 'GLOBAL'}`\n"
-                f"• **Substitutes:** `{'Enabled' if open_subs else 'Disabled'}`\n"
-                f"• **Participant Role:** {participant_role.mention if participant_role else '*None*'}"
-            ),
+            description="\n".join(status_lines),
             color=0x2ECC71,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
