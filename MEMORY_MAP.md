@@ -79,7 +79,7 @@
   - `/tournament-announce`: `L2368`
   - `/tournament-export`: `L2456`
   - `/tournament-save-roster` (`!tournament_save_roster`): `L2510` (Snapshot active roster to `saved_roster.json`)
-  - `/tournament-restore-roster` (`!tournament_restore_roster`): `L2585` (Restore roster from `saved_roster.json`)
+  - `/tournament-restore-roster` (`!tournament_restore_roster`): `L2585` (Manual restore of roster from `saved_roster.json`)
   - `/tournament-bulk-register` (`!tournament_bulk_register`): `L2665` (Batch register contestants from text)
   - `/state-save` (`!state_save`): `L2733` (Snapshot all set channels, roles, and panels to `saved_state.json`)
   - `/state-restore` (`!state_restore`): `L2795` (Restore channels & roles; optional `repost_panels=True`)

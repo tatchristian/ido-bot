@@ -151,13 +151,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         )
         self.metadata = discord.ui.TextInput(
             label="Clan Metadata (Region, Leaders, Status)",
-            placeholder=(
-                "Region: [e.g. NA / EU / ASIA / Global]\n"
-                "Founded: [e.g. Month Day, Year]\n"
-                "Leader: [Leader In-Game Name]\n"
-                "Co-leaders: [Co-leader Name(s)]\n"
-                "Status: [e.g. Active / Recruiting]"
-            ),
+            placeholder="Region: [e.g. NA/EU/ASIA] | Founded: Date | Leader: IGN | Status: Active",
             default=self.initial_data.get("metadata", ""),
             style=discord.TextStyle.paragraph,
             max_length=1000,
@@ -173,12 +167,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         )
         self.activities_motto = discord.ui.TextInput(
             label="Activities & Motto (Optional)",
-            placeholder=(
-                "Main Activities:\n"
-                "• [e.g. Tournaments, Dueling Practice]\n"
-                "• [e.g. Community Events, Scrims]\n\n"
-                '"[Clan Motto, Tagline, or Battle Cry]"'
-            ),
+            placeholder="Activities: Tournaments, Scrims | Motto: Your clan motto or battle cry",
             default=self.initial_data.get("activities_motto", ""),
             style=discord.TextStyle.paragraph,
             max_length=1000,

@@ -2743,6 +2743,10 @@ class TournamentCog(commands.Cog):
             await interaction.response.send_message("❌ State snapshot service is unavailable.", ephemeral=True)
             return
 
+        # If channels are unconfigured, auto-discover first before saving
+        if interaction.guild:
+            snapshot_service.auto_discover_channels(interaction.guild, self.service, clan_service)
+
         data = snapshot_service.save_snapshot(guild_id, self.service, clan_service)
         t_info = data.get("tournament", {})
         c_info = data.get("clan_showcase", {})
@@ -2800,6 +2804,7 @@ class TournamentCog(commands.Cog):
         if not snapshot_service or not clan_service:
             await ctx.send("❌ State snapshot service is unavailable.")
             return
+        snapshot_service.auto_discover_channels(ctx.guild, self.service, clan_service)
         snapshot_service.save_snapshot(ctx.guild.id, self.service, clan_service)
         await ctx.send("✅ Successfully saved channel & role configuration to `saved_state.json`!")
 
@@ -2822,17 +2827,18 @@ class TournamentCog(commands.Cog):
             return
 
         try:
-            snapshot = snapshot_service.restore_snapshot(guild_id, self.service, clan_service)
+            snapshot = snapshot_service.restore_snapshot(
+                guild_id, self.service, clan_service, guild=interaction.guild
+            )
         except FileNotFoundError:
             # Fallback to auto-discovery if file does not exist
             if interaction.guild:
                 found = snapshot_service.auto_discover_channels(interaction.guild, self.service, clan_service)
-                await interaction.response.send_message(
-                    f"⚠️ `saved_state.json` was not found. Auto-discovered `{len(found)}` channels from server names.",
-                    ephemeral=True,
-                )
+                snapshot = snapshot_service.capture_snapshot(guild_id, self.service, clan_service)
+                snapshot_service.save_snapshot(guild_id, self.service, clan_service)
             else:
                 await interaction.response.send_message("❌ `saved_state.json` preset file was not found.", ephemeral=True)
+                return
             return
 
         # Optionally refresh or repost panels

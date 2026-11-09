@@ -59,4 +59,4 @@
 - `/tournament-save-roster` / `!tournament_save_roster`: `L2510` (Saves active roster to `saved_roster.json` preset)
 - `/tournament-restore-roster` / `!tournament_restore_roster`: `L2545` (Loads preset file and restores roster into active tournament)
 - `/tournament-bulk-register` / `!tournament_bulk_register`: `L2625` (Enrolls batch list of contestants with auto delimiter parsing)
-- `bot.py` `on_ready`: Auto-restores `saved_state.json` (or regex auto-discovers channels) and `saved_roster.json` on startup when bot restarts or redeploys
+- `bot.py` `on_ready`: Auto-restores `saved_state.json` (or regex auto-discovers channels) on startup. Roster restoration from `saved_roster.json` is strictly manual via `/tournament-restore-roster` to prevent overwriting new tournaments.

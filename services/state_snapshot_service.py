@@ -183,6 +183,7 @@ class StateSnapshotService:
         clan_showcase_service: Any,
         snapshot: ChannelStateSnapshot | None = None,
         file_path: Path | str | None = None,
+        guild: Optional[discord.Guild] = None,
     ) -> ChannelStateSnapshot:
         """Applies snapshot parameters back into tournament and clan showcase services."""
         if snapshot is None:
@@ -229,6 +230,17 @@ class StateSnapshotService:
         if snapshot.clanless_role_id is not None:
             clan_showcase_service.set_clanless_role_id(guild_id, snapshot.clanless_role_id)
 
+        # If any channels are still missing and guild is provided, auto-discover them
+        if guild:
+            discovered = self.auto_discover_channels(guild, tournament_service, clan_showcase_service)
+            if discovered:
+                # Update snapshot with discovered values
+                snapshot = self.capture_snapshot(guild_id, tournament_service, clan_showcase_service)
+                try:
+                    self.save_snapshot(guild_id, tournament_service, clan_showcase_service)
+                except Exception:
+                    pass
+
         logger.info("Restored channel state snapshot for guild %d", guild_id)
         return snapshot
 
@@ -248,13 +260,13 @@ class StateSnapshotService:
         showcase_ch, review_ch = clan_showcase_service.get_guild_channels(guild.id)
 
         patterns = {
-            "registration": re.compile(r"tournament-reg|registration", re.IGNORECASE),
-            "announcements": re.compile(r"tournament-announce|announcements", re.IGNORECASE),
-            "checkin": re.compile(r"checkin|tournament-checkin", re.IGNORECASE),
-            "subs": re.compile(r"subs|substitute", re.IGNORECASE),
-            "showcase": re.compile(r"clan-showcase|clans", re.IGNORECASE),
-            "staff_review": re.compile(r"clan-review|staff-review", re.IGNORECASE),
-            "clan_role": re.compile(r"clan-roles|claim.*clan|clan-directory", re.IGNORECASE),
+            "registration": re.compile(r"(?=.*(?:reg|registration|entry|bracket))(?!.*clan)", re.IGNORECASE),
+            "announcements": re.compile(r"announce|announcements", re.IGNORECASE),
+            "checkin": re.compile(r"checkin|check-in", re.IGNORECASE),
+            "subs": re.compile(r"subs|substitute|bench", re.IGNORECASE),
+            "showcase": re.compile(r"clan.*reg|reg.*clan|clan.*showcase|showcase.*clan|clan-profile", re.IGNORECASE),
+            "staff_review": re.compile(r"clan-review|staff-review|clan-approval|review", re.IGNORECASE),
+            "clan_role": re.compile(r"clan-roles|claim.*clan|clan-directory|official.*clan", re.IGNORECASE),
         }
 
         for ch in getattr(guild, "text_channels", []):
@@ -279,6 +291,33 @@ class StateSnapshotService:
             if review_ch is None and patterns["staff_review"].search(clean_name):
                 review_ch = ch.id
                 discovered["staff_review"] = ch.id
+
+            role_panel_ch, _ = clan_showcase_service.get_clan_role_panel_info(guild.id)
+            if role_panel_ch is None and patterns["clan_role"].search(clean_name):
+                clan_showcase_service.set_clan_role_panel_info(guild.id, ch.id, 0)
+                discovered["clan_role"] = ch.id
+
+        # Auto-discover roles if unconfigured
+        for r in getattr(guild, "roles", []):
+            r_name = r.name.lower().strip()
+            if t_state.admin_role_id is None and ("tournament admin" in r_name or r_name == "admin"):
+                t_state.admin_role_id = r.id
+                t_state.admin_role_name = r.name
+                discovered["admin_role"] = r.id
+            if t_state.participant_role_id is None and "participant" in r_name:
+                t_state.participant_role_id = r.id
+                t_state.participant_role_name = r.name
+                discovered["participant_role"] = r.id
+            if clan_showcase_service.get_clanless_role_id(guild.id) is None and "clanless" in r_name:
+                clan_showcase_service.set_clanless_role_id(guild.id, r.id)
+                discovered["clanless_role"] = r.id
+
+        if discovered:
+            tournament_service._persist(guild.id)
+            clan_showcase_service.set_guild_channels(guild.id, showcase_ch, review_ch)
+            logger.info("Auto-discovered %d channels/roles for guild %d: %s", len(discovered), guild.id, discovered)
+
+        return discovered
 
         if discovered:
             tournament_service._persist(guild.id)
