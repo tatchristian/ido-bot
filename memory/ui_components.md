@@ -16,8 +16,8 @@
 
 ## 🎛️ Panel Embed Builders
 - `build_staff_panel_embed()`: `L472` (Official DUKE Tournament Staff Operations Panel)
-- `build_staff_guide_embed()`: `L499` (Tournament Staff Phase manual)
-- `build_registration_panel_embed()`: `L659` (Player Registration Hub embed)
+- `build_staff_guide_embed()`: `L526` (Tournament Staff Phase manual with 9 interactive phases: Overview, Panels, Phase 1-4, Checklist, State Persistence, and Roles)
+- `build_registration_panel_embed()`: `L805` (Player Registration Hub embed)
 - `build_registration_closed_embed()`: `L722` (Registration closed notice)
 - `build_subs_panel_embed()`: `L764` (Standby Substitute Queue Hub embed)
 - `build_subs_closed_embed()`: `L802` (Substitutes closed notice)
