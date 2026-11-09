@@ -231,6 +231,9 @@ def test_build_staff_guide_embed():
     assert "Phase 1: Pre-Tournament Setup" in p1.title
     p3 = build_staff_guide_embed(section="phase_3", org_name="UDA")
     assert "Phase 3: Match Day" in p3.title
+    panels = build_staff_guide_embed(section="panels", org_name="UDA")
+    assert "Interactive Panels" in panels.title
+    assert any("Where to Deploy Each Panel" in f.name for f in panels.fields)
 
     # 3. All / Cheat Sheet
     embed = build_staff_guide_embed(section="all", org_name="UDA")

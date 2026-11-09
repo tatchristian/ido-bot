@@ -535,27 +535,64 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
 
     if sec == "panels":
         embed = discord.Embed(
-            title=f"🎛️ {org} Staff Guide — Interactive Panels & 1-Click Hubs",
+            title=f"🎛️ {org} Staff Guide — Interactive Panels & 1-Click Operations",
             description=(
-                "**Operate the tournament effortlessly using interactive button panels.**\n\n"
-                "• **Staff Control Center (`/post-tournament-staff-panel`):**\n"
-                "  The primary 1-click management panel for staff channels. Features buttons to:\n"
-                "  - ⚙️ **Create Tournament** (Modal popup: Name, Slots, Regions & Channel)\n"
-                "  - 🟢 **Open Bracket** (Unlocks registration channel & posts live hub)\n"
-                "  - 🔒 **Close Bracket** (Locks registration channel & directs late players to subs)\n"
-                "  - 🛡️ **Toggle Subs** (Unlocks or locks `#substitutes-bench` live)\n"
-                "  - 🎟️ **Toggle Check-In** (Unlocks `#tournament-checkin` & enables check-in buttons)\n"
-                "  - 🔄 **Promote Standby Sub** (Swaps next FIFO sub into main bracket)\n"
-                "  - 📢 **Broadcast Announce** (Sends official tournament embed pings)\n"
-                "  - ⏰ **Set Match Time** (Sets match day countdown & automated contestant DMs)\n"
-                "  - 📊 **Live Roster & Status** (Instant ephemeral check of slots & check-ins)\n\n"
-                "• **Player Registration Hub (`/post-registration-panel`):**\n"
-                "  Posted in `#tournament-registration`. Gives players self-serve buttons for `Register`, "
-                "`Withdraw`, `View Roster`, `Check-In`, and `Rules`. Automatically locks when full or closed.\n\n"
-                "• **Standby Substitute Queue Hub (`/post-subs-panel`):**\n"
-                "  Posted in `#substitutes-bench`. Lets players join/leave the standby queue and check their queue position."
+                "**Operate your entire tournament without typing repetitive slash commands!**\n"
+                "DUKE uses persistent, interactive Discord buttons so staff can control brackets with 1 click, "
+                "and players can sign up, check in, and withdraw via pop-up modals.\n\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             ),
             color=0x1ABC9C,
+        )
+        embed.add_field(
+            name="📍 Where to Deploy Each Panel",
+            value=(
+                "• **Staff Operations Panel (`/post-tournament-staff-panel`):**\n"
+                "  Post in your private staff channel (e.g. `#tournament-staff`). Only staff and Tournament Admins can see and click these buttons.\n\n"
+                "• **Player Registration Hub (`/post-registration-panel`):**\n"
+                "  Post in `#tournament-registration`. The public entry banner for duelists.\n\n"
+                "• **Standby Substitute Queue Hub (`/post-subs-panel`):**\n"
+                "  Post in `#substitutes-bench`. The standby bench for late sign-ups.\n\n"
+                "• **Staff Operations Guide (`/post-staff-guide`):**\n"
+                "  Post in `#staff-announcements` or pin in staff channels as your permanent operational manual."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🕹️ Staff Operations Panel: Button-by-Button Guide",
+            value=(
+                "1. ⚙️ **Create Tournament:** Opens a modal to set tournament name, max slots (e.g. 32), allowed regions (e.g. ASIA), and registration channel without opening the bracket yet.\n"
+                "2. ⏰ **Set Match Time:** Sets date, time, and timezone. Arms automatic contestant DMs on tournament day and 30m prior.\n"
+                "3. 🟢 **Open Bracket:** Unlocks `#tournament-registration` automatically, arms player buttons, and announces the tournament.\n"
+                "4. 🛡️ **Toggle Subs:** Opens or closes `#substitutes-bench` live with automatic channel unlock/lock.\n"
+                "5. 🎟️ **Toggle Check-In:** Click at T - 60m to unlock `#tournament-checkin`. Click at T - 10m to lock and list no-shows.\n"
+                "6. 🔄 **Promote Standby Sub:** Advances the next checked-in FIFO sub directly into the main bracket.\n"
+                "7. 📢 **Broadcast Announce:** Opens a modal to send stylized embed notices to players with optional role ping.\n"
+                "8. 📊 **Live Roster & Status:** Instant ephemeral diagnostic of current slots, percentages, and check-in readiness.\n"
+                "9. 🔒 **Close Bracket:** Locks `#tournament-registration` and updates the player hub to the closed notice."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="👥 Player Self-Serve Registration & Subs Experience",
+            value=(
+                "• **In `#tournament-registration`:**\n"
+                "  Players do **not** type commands. They click `⚔️ Register`, type their IGN and Weapon into the modal popup, and the bot automatically reserves their slot, updates the visual bracket bar, and assigns `@{Tournament} Participant`.\n"
+                "  If they cannot attend, they click `🚪 Withdraw` to immediately free up their slot.\n\n"
+                "• **In `#substitutes-bench`:**\n"
+                "  Standby players click `🛡️ Join Subs Queue` to get waitlisted in FIFO order, or click `📍 Queue Position` to check where they stand."
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🔒 Automated Channel Synchronization",
+            value=(
+                "Every panel button dynamically manages Discord permissions in real time:\n"
+                "• Opening registrations unlocks `#tournament-registration` (send messages).\n"
+                "• Closing registrations locks the channel so chat cannot clutter the hub.\n"
+                "• Opening check-in unlocks `#tournament-checkin`, and closing check-in locks it."
+            ),
+            inline=False,
         )
     elif sec == "phase_1":
         embed = discord.Embed(
