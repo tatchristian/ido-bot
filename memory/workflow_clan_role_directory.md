@@ -10,7 +10,7 @@
 [ Clan Leader Submits Profile ] ──► [ Staff Clicks "Approve & Publish" ]
                                                     │
                                                     ▼
-• Role Created/Linked to ClanSubmission
+• Role Created (with `//` suffix for scanner compatibility) / Linked to ClanSubmission
 • @Clanless removed from Leader
 • Live Clan Directory Panel EDITED in real time with new clan dropdown option!
 ```
@@ -34,5 +34,6 @@
 - `ClanSearchModal`: `cogs/clan_showcase.py` `L1271`
 - `_refresh_clan_role_panel()`: `cogs/clan_showcase.py` `L1653`
 - `/post-clan-role-panel`: `cogs/clan_showcase.py` `L2098`
-- `/clan-sync-roles` (`!clan_sync_roles`): `cogs/clan_showcase.py` `L2522` (Automated server scan importing clan roles ending with `//`)
+- `/clan-delete` (`!clan_delete`): `cogs/clan_showcase.py` `L2504` (Admin: Unregisters clan & updates directory live)
+- `/clan-sync-roles` (`!clan_sync_roles`): `cogs/clan_showcase.py` `L2623` (Automated server scan importing clan roles ending with `//`)
 - `on_guild_role_update`: `cogs/clan_showcase.py` `L1479` (Live listener syncing Discord role renames/colors to clan database)

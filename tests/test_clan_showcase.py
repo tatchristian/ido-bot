@@ -5,6 +5,7 @@ Unit tests for Clan Showcase Service, embed builder, and submission lifecycle.
 import shutil
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from services.clan_showcase_service import (
@@ -675,6 +676,74 @@ def test_clan_sync_roles_and_role_update_listener():
         assert updated_bf.color_hex == "#ff5500"
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_clan_delete_and_generic_template():
+    from cogs.clan_showcase import ClanShowcaseCog, ClanSubmissionModal
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        bot = MagicMock()
+        cog = ClanShowcaseCog(bot=bot, service=service)
+
+        guild = MagicMock()
+        guild.id = 555
+        guild.name = "Test Guild"
+        guild.me.top_role = MagicMock()
+        guild.me.top_role.position = 100
+
+        # Create a submission
+        sub = service.create_submission(
+            guild_id=guild.id,
+            applicant_id=111,
+            applicant_name="Leader#0001",
+            clan_name_color_raw="Shadow Legion | #000000",
+            metadata_text="Region: NA",
+            description_text="Desc",
+            activities_motto="Motto",
+            logo_url="https://example.com/logo.png",
+        )
+        service.approve_submission(sub.id, 999, "Admin")
+        service.set_clan_role(sub.id, 888, "Shadow Legion //")
+
+        assert len(service.get_approved_clans(guild.id)) == 1
+
+        # Test ClanSubmissionModal defaults to empty and has generic placeholders
+        modal = ClanSubmissionModal(service, initial_data={})
+        assert modal.clan_name.default == ""
+        assert modal.metadata.default == ""
+        assert modal.description.default == ""
+        assert "Region: [e.g." in modal.metadata.placeholder
+
+        # Test clan_delete_prefix
+        ctx = MagicMock()
+        ctx.guild = guild
+        guild.owner_id = 999
+        ctx.author = MagicMock()
+        ctx.author.id = 999
+        guild.get_member.return_value = ctx.author
+        sent_messages = []
+        async def dummy_send(msg, **kwargs):
+            sent_messages.append(msg)
+        ctx.send = dummy_send
+
+        # Mock role to delete
+        target_role = MagicMock()
+        target_role.id = 888
+        target_role.name = "Shadow Legion //"
+        target_role.__lt__.return_value = True
+        target_role.delete = AsyncMock()
+        guild.get_role.return_value = target_role
+
+        run_coro(cog.clan_delete_prefix.callback(cog, ctx, clan_name="Shadow Legion", delete_discord_role=True))
+
+        assert len(service.get_approved_clans(guild.id)) == 0
+        target_role.delete.assert_called_once()
+        assert any("Deleted **Shadow Legion**" in m for m in sent_messages)
+
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 
 

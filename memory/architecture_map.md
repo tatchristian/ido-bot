@@ -107,10 +107,11 @@
   - `ClanSearchResultView`: `L1347` (Search result select menu)
   - `ClanRoleAssignmentPanelView`: `L1362` (Self-serve clan role directory panel)
 - **Internal Role Logic & Auto-Updates:**
-  - `_get_clanless_role()`: `L1473` (Finds configured @Clanless role or falls back to name)
-  - `_execute_clan_role_assignment()`: `L1489` (Strips @Clanless and old clan roles, adds new)
-  - `_execute_clan_leave()`: `L1568` (Strips all clan roles, restores @Clanless)
-  - `_refresh_clan_role_panel()`: `L1623` (Live message editor for Discord directory panel)
+  - `on_guild_role_update`: `L1479` (Live listener syncing Discord role renames/colors to database & refreshing panel)
+  - `_get_clanless_role()`: `L1507` (Finds configured @Clanless role or falls back to name)
+  - `_execute_clan_role_assignment()`: `L1519` (Strips @Clanless and old clan roles, adds new)
+  - `_execute_clan_leave()`: `L1598` (Strips all clan roles, restores @Clanless)
+  - `_refresh_clan_role_panel()`: `L1653` (Live message editor for Discord directory panel)
 - **Commands:**
   - `/clan-submit`: `L1468`
   - `/clan-showcase-channels`: `L1696`
@@ -120,7 +121,9 @@
   - `/clan-leave`: `L2242`
   - `/clan-set-clanless-role`: `L2280`
   - `/clan-role-edit`: `L2354`
-  - `/clan-role-panel-refresh`: `L2445`
+  - `/clan-role-panel-refresh`: `L2476`
+  - `/clan-delete` (`!clan_delete`): `L2504` (Admin: Remove clan from registry & panel, optional role deletion)
+  - `/clan-sync-roles` (`!clan_sync_roles`): `L2623` (Automated scan & import of server roles ending with `//`)
 
 ---
 

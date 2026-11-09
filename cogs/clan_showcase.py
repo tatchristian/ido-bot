@@ -143,8 +143,8 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
 
         self.clan_name = discord.ui.TextInput(
             label="Clan Name",
-            placeholder="Enter your official Clan Name (e.g. Cerberus Elite)",
-            default=self.initial_data.get("clan_name", self.initial_data.get("clan_name_color", "").split("|")[0].strip()),
+            placeholder="Enter your clan's official name...",
+            default=self.initial_data.get("clan_name", ""),
             style=discord.TextStyle.short,
             max_length=100,
             required=True,
@@ -152,11 +152,11 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         self.metadata = discord.ui.TextInput(
             label="Clan Metadata (Region, Leaders, Status)",
             placeholder=(
-                "Region: [Region]\n"
-                "Founded: [Date]\n"
-                "Leader: [Leader IGN]\n"
-                "Co-leaders: [Co-leaders]\n"
-                "Status: Active"
+                "Region: [e.g. NA / EU / ASIA / Global]\n"
+                "Founded: [e.g. Month Day, Year]\n"
+                "Leader: [Leader In-Game Name]\n"
+                "Co-leaders: [Co-leader Name(s)]\n"
+                "Status: [e.g. Active / Recruiting]"
             ),
             default=self.initial_data.get("metadata", ""),
             style=discord.TextStyle.paragraph,
@@ -165,7 +165,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         )
         self.description = discord.ui.TextInput(
             label="Clan Description & Backstory",
-            placeholder="Describe your clan's backstory, vision, philosophy, and goals...",
+            placeholder="Describe your clan's history, competitive focus, philosophy, and member community...",
             default=self.initial_data.get("description", ""),
             style=discord.TextStyle.paragraph,
             max_length=1500,
@@ -174,8 +174,10 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         self.activities_motto = discord.ui.TextInput(
             label="Activities & Motto (Optional)",
             placeholder=(
-                "• Main Activities (Tournaments, Scrims)\n"
-                '• Motto: "Your clan motto here"'
+                "Main Activities:\n"
+                "• [e.g. Tournaments, Dueling Practice]\n"
+                "• [e.g. Community Events, Scrims]\n\n"
+                '"[Clan Motto, Tagline, or Battle Cry]"'
             ),
             default=self.initial_data.get("activities_motto", ""),
             style=discord.TextStyle.paragraph,
@@ -184,7 +186,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
         )
         self.logo_url = discord.ui.TextInput(
             label="Clan Logo / Emblem (Image Link)",
-            placeholder="Paste image link (Pressing Submit opens a preview before full submission)",
+            placeholder="Direct image URL (https://...) or tap 'Choose Photo from Device' below",
             default=self.initial_data.get("logo_url", ""),
             style=discord.TextStyle.short,
             max_length=500,
@@ -849,9 +851,12 @@ class ClanReviewButtonsView(discord.ui.View):
         applicant = guild.get_member(sub.applicant_id)
 
         if guild.me and guild.me.guild_permissions.manage_roles:
-            # Check if role with this name already exists
+            clean_name = sub.clan_name.strip()
+            suffixed_role_name = f"{clean_name} //" if not clean_name.endswith("//") else clean_name
+
+            # Check if role with this name already exists (matching exact or with //)
             existing_role = discord.utils.find(
-                lambda r: r.name.strip().lower() == sub.clan_name.strip().lower(),
+                lambda r: r.name.strip().lower() in (clean_name.lower(), suffixed_role_name.lower()),
                 guild.roles,
             )
             role_icon_bytes = None
@@ -883,7 +888,7 @@ class ClanReviewButtonsView(discord.ui.View):
             else:
                 try:
                     role_kwargs = {
-                        "name": sub.clan_name[:100],
+                        "name": suffixed_role_name[:100],
                         "colour": role_color,
                         "mentionable": True,
                         "reason": f"Automatic Clan Role created upon approval of {sub.clan_name} by {interaction.user}",
@@ -897,7 +902,7 @@ class ClanReviewButtonsView(discord.ui.View):
                     # Fallback without display_icon if server boost level doesn't support ROLE_ICONS
                     try:
                         created_role = await guild.create_role(
-                            name=sub.clan_name[:100],
+                            name=suffixed_role_name[:100],
                             colour=role_color,
                             mentionable=True,
                             reason=f"Automatic Clan Role created upon approval of {sub.clan_name} by {interaction.user}",
@@ -1077,17 +1082,6 @@ class ClanChoiceLauncherModalView(discord.ui.View):
             draft = self.service.get_draft(interaction.guild.id, interaction.user.id)
             if draft:
                 initial_data = draft
-            else:
-                prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
-                if prev:
-                    initial_data = {
-                        "clan_name": prev.clan_name,
-                        "clan_color": prev.color_hex,
-                        "metadata": prev.metadata_text,
-                        "description": prev.description_text,
-                        "activities_motto": prev.activities_motto,
-                        "logo_url": prev.logo_url,
-                    }
         modal = ClanSubmissionModal(self.service, initial_data=initial_data)
         await interaction.response.send_modal(modal)
 
@@ -1113,22 +1107,10 @@ class ClanSubmissionPanelView(discord.ui.View):
         try:
             initial_data = {}
             if interaction.guild:
-                # 1. Check if user has an unconfirmed draft to restore
+                # Restore unconfirmed draft if one is in progress
                 draft = self.service.get_draft(interaction.guild.id, interaction.user.id)
                 if draft:
                     initial_data = draft
-                else:
-                    # 2. Check if user has an existing/pending submission to pre-fill
-                    prev = self.service.get_applicant_submission(interaction.guild.id, interaction.user.id)
-                    if prev:
-                        initial_data = {
-                            "clan_name": prev.clan_name,
-                            "clan_color": prev.color_hex,
-                            "metadata": prev.metadata_text,
-                            "description": prev.description_text,
-                            "activities_motto": prev.activities_motto,
-                            "logo_url": prev.logo_url,
-                        }
 
             modal = ClanSubmissionModal(self.service, initial_data=initial_data)
             await interaction.response.send_modal(modal)
@@ -2514,6 +2496,124 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             return
         await self._refresh_clan_role_panel(ctx.guild)
         await ctx.send(f"✅ Clan Role Assignment Panel refreshed in <#{chan_id}>.")
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-delete and !clan_delete
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-delete",
+        description="Admin: Remove a clan from the database and Claim Role Panel (optional: delete Discord role).",
+    )
+    @app_commands.describe(
+        clan="The clan to remove from the registry and directory panel",
+        delete_discord_role="Whether to also permanently delete the Discord role from the server (default: False)",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def clan_delete_slash(
+        self,
+        interaction: discord.Interaction,
+        clan: str,
+        delete_discord_role: bool = False,
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message("❌ You must be an administrator or staff member.", ephemeral=True)
+            return
+
+        sub = self.service.get_submission(clan)
+        if not sub or sub.guild_id != interaction.guild.id:
+            sub = self.service.search_submission(interaction.guild.id, clan)
+        if not sub or sub.guild_id != interaction.guild.id:
+            await interaction.response.send_message(f"❌ No registered clan found matching `{clan}`.", ephemeral=True)
+            return
+
+        clan_name = sub.clan_name
+        role_status = "Discord role kept intact."
+        if delete_discord_role and sub.role_id:
+            target_role = interaction.guild.get_role(sub.role_id)
+            if target_role:
+                try:
+                    if target_role < interaction.guild.me.top_role:
+                        await target_role.delete(reason=f"Clan {clan_name} deleted by {interaction.user}")
+                        role_status = f"Discord role **@{target_role.name}** was deleted from the server."
+                    else:
+                        role_status = f"⚠️ Could not delete Discord role **@{target_role.name}** (role is above bot in hierarchy)."
+                except Exception as del_err:
+                    role_status = f"⚠️ Could not delete Discord role: {del_err}"
+            else:
+                role_status = "Discord role was already missing from server."
+
+        # Delete submission from service
+        self.service.delete_submission(sub.id)
+
+        # Refresh panel live
+        await self._refresh_clan_role_panel(interaction.guild)
+
+        embed = discord.Embed(
+            title="🗑️ Clan Removed from Registry",
+            color=0xE74C3C,
+            description=(
+                f"Successfully deleted **{clan_name}** from the clan registry and Claim Role directory.\n\n"
+                f"• **Role Status:** {role_status}\n"
+                "• **Directory Panel:** Refreshed live in real-time."
+            ),
+        )
+        embed.set_footer(text=f"{config.organization_name} • Clan Management")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @clan_delete_slash.autocomplete("clan")
+    async def clan_delete_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if not interaction.guild:
+            return []
+        approved = self.service.get_approved_clans(interaction.guild.id)
+        choices: list[app_commands.Choice[str]] = []
+        cur = current.strip().lower()
+        for s in approved:
+            label = f"{s.clan_name} (Role: {s.role_name or 'None'})"
+            if not cur or cur in s.clan_name.lower():
+                choices.append(app_commands.Choice(name=label[:100], value=s.id))
+            if len(choices) >= 25:
+                break
+        return choices
+
+    @commands.command(name="clan_delete")
+    async def clan_delete_prefix(
+        self, ctx: commands.Context, clan_name: str, delete_discord_role: bool = False
+    ):
+        """Prefix fallback: !clan_delete <clan_name> [delete_discord_role]"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        if not is_staff_user(ctx.author, ctx.guild):
+            await ctx.send("❌ You must be an administrator or staff member.")
+            return
+
+        sub = self.service.search_submission(ctx.guild.id, clan_name)
+        if not sub:
+            await ctx.send(f"❌ No registered clan found matching `{clan_name}`.")
+            return
+
+        name = sub.clan_name
+        role_msg = "Discord role kept intact."
+        if delete_discord_role and sub.role_id:
+            role = ctx.guild.get_role(sub.role_id)
+            if role:
+                try:
+                    if role < ctx.guild.me.top_role:
+                        await role.delete(reason=f"Clan {name} deleted by {ctx.author}")
+                        role_msg = f"Role @{role.name} deleted."
+                    else:
+                        role_msg = "Could not delete role (hierarchy above bot)."
+                except Exception as e:
+                    role_msg = f"Could not delete role: {e}"
+
+        self.service.delete_submission(sub.id)
+        await self._refresh_clan_role_panel(ctx.guild)
+        await ctx.send(f"✅ Deleted **{name}** from registry and updated Claim Role Panel. {role_msg}")
 
     # -------------------------------------------------------------------------
     # Command: /clan-sync-roles and !clan_sync_roles

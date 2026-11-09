@@ -32,4 +32,5 @@
 - `_execute_clan_leave()`: `L1603` (Strips all clan roles, restores @Clanless)
 - `_refresh_clan_role_panel()`: `L1653` (Live message editor for Discord directory panel)
 - `on_guild_role_update`: `L1479` (Live event listener detecting server role renames/colors & editing panel)
-- `/clan-sync-roles` (`!clan_sync_roles`): `L2522` (Automated scan & import of server roles with `//`)
+- `/clan-delete` (`!clan_delete`): `L2504` (Admin: Unregisters clan from database & Claim Role panel, optional role deletion)
+- `/clan-sync-roles` (`!clan_sync_roles`): `L2623` (Automated scan & import of server roles with `//`)

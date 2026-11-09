@@ -644,6 +644,13 @@ class ClanShowcaseService:
         self._persist()
         return sub
 
+    def delete_submission(self, sub_id: str) -> Optional[ClanSubmission]:
+        """Deletes a clan submission from memory and persists changes."""
+        sub = self._submissions.pop(sub_id, None)
+        if sub:
+            self._persist()
+        return sub
+
     def save_draft(self, guild_id: int, user_id: int, data: Dict[str, str]) -> None:
         """Saves a user's unconfirmed draft."""
         self._drafts[(guild_id, user_id)] = data
