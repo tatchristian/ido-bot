@@ -27,6 +27,7 @@
   - `set_clan_role(sub_id, role_id, role_name)`: `L474`
   - `set_clan_role_panel_info()` / `get_clan_role_panel_info()`: `L483` / `L490`
   - `set_clanless_role_id()` / `get_clanless_role_id()`: `L495` / `L501`
+  - `delete_submission(sub_id)`: `L647` (Deletes clan from registry and saves to disk)
   - `_persist()`: Saves to `storage/clan_showcases.json`
 
 ---

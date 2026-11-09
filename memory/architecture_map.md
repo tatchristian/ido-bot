@@ -151,6 +151,7 @@
   - `set_clan_role(sub_id, role_id, role_name)`: Links Discord role to submission.
   - `set_clan_role_panel_info()` / `get_clan_role_panel_info()`
   - `set_clanless_role_id()` / `get_clanless_role_id()`
+  - `delete_submission(sub_id)`: Removes clan from database and persists.
   - `_persist()`: Saves to `storage/clan_showcases.json`.
 
 ### `services/past_results_service.py`

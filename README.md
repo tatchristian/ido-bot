@@ -73,8 +73,19 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 - **Staff Review & Approval Workflow**:
   - Submissions are staged in a private staff channel (`STAFF_REVIEW_CHANNEL_ID` or `/clan-showcase-channels`).
   - Attached persistent review buttons: **`Approve & Publish`** and **`Reject`**.
-  - **On Approval:** Publishes embed live to `#official-clan-list`, disables staff review buttons, logs approver, and DMs the applicant with a link to their post.
+  - **On Approval:** Publishes embed live to `#official-clan-list`, creates Discord clan role with ` //` suffix (for server clan scanner compatibility), assigns role to leader, removes `@Clanless`, disables staff review buttons, logs approver, and DMs the applicant.
   - **On Rejection:** Opens an interactive modal prompting staff for a rejection reason, updates the staff log, and DMs the applicant explaining what to fix.
+- **Self-Serve Clan Role Directory & Alignment Panel (`/post-clan-role-panel`)**:
+  - Interactive public panel in `#clan-roles` where members self-select their clan role from dynamic dropdowns.
+  - **Scalable Alphabetical Chunking:** Automatically divides clans across select menus (e.g. `A – M`, `N – Z`) to surpass Discord's 25-option limit.
+  - **`🔍 Search / Type Clan` Modal:** Instant keyword search popup to find and claim any clan role.
+  - **`@Clanless` Enforcement:** Automatically removes `@Clanless` on joining a clan, restricts users to 1 clan at a time, and restores `@Clanless` when clicking `❌ Leave Clan`.
+  - **Live Auto-Updates:** Panel updates in real time on approvals, renames, edits, or deletions with zero manual refresh needed.
+- **Automated Clan Scanner & Live Role Sync**:
+  - `/clan-sync-roles`: Scans all server roles ending with `//`, imports clean names into the verified database, and binds Discord role IDs in seconds.
+  - `on_guild_role_update`: Automatically detects clan role renames and color changes in Server Settings and updates the database & panel live.
+- **Clan Deletion (`/clan-delete`)**:
+  - Unregisters a clan from the database and directory panel with optional automatic Discord role deletion.
 - **Live Admin Editing (`/clan-showcase-edit`)**:
   - Admins can edit any existing clan profile live at any time.
   - Live autocomplete dropdown to pick any registered clan.
@@ -120,14 +131,16 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 
 ---
 
-### 🏛️ 2. Clan Showcase Commands *(Clan Leaders & Members — Public)*
+### 🏛️ 2. Clan Showcase & Role Directory Commands *(Public)*
 
 | Interface / Command | Description |
 | :--- | :--- |
-| **`📋 Submit Clan Profile` Button** | Placed in your designated clan intake channel. Click this button to open the submission form and enter your details with an image link. |
+| **`📋 Submit Clan Profile` Button** | Placed in your designated clan intake channel. Click this button to open the submission form with a clean, grayed-out generic template. |
 | **`📱 Choose Photo from Device` Button** | Guidance button on the submission panel explaining how to pick a photo directly from your mobile camera roll or saved GIFs without needing links. |
 | `/clan-submit [image] [image_url]` | **Dual-Choice Intake:** Upload a photo/GIF directly from your device library (`image`) or provide an image link (`image_url`). Automatically opens the submission form with your image attached! *(Prefix fallback: `!clan_submit`)* |
 | `/clan-showcase-preview` | Test how your clan showcase embed will look before submitting. Specify clan name, optional hex color, and direct logo URL. *(Ephemeral: only visible to you)* |
+| `/clan-claim clan:<name>` | Claim your approved clan role directly via command with autocomplete search. Automatically removes `@Clanless`. |
+| `/clan-leave` | Leave your active clan role and immediately restore the `@Clanless` role. |
 
 ---
 
@@ -178,8 +191,14 @@ Replaces manual embed bot dashboards (like Sapphire) with a 100% native, automat
 | `/post-staff-guide` | `/post-staff-guide [channel]` | Post the interactive Tournament Staff Guide & Cheat Sheet with phase dropdown selector *(Prefix: `!post_staff_guide`)*. |
 | `/post-event-scheduler-panel` | `/post-event-scheduler-panel [channel]` | Post 1-click interactive Event Scheduler panel for top-of-server banners and website sync *(Prefix: `!post_event_scheduler_panel`)*. |
 | `/post-clan-submission-panel` | `/post-clan-submission-panel [channel]` | Post interactive Clan Showcase intake portal panel *(Prefix: `!post_clan_submission_panel`)*. |
+| `/post-clan-role-panel` | `/post-clan-role-panel [channel]` | Post the live self-serve Clan Role Selection directory panel with alphabetical chunking & search modal *(Prefix: `!post_clan_role_panel`)*. |
 | `/clan-showcase-channels` | `/clan-showcase-channels [showcase] [staff_review]` | Configure target showcase channel and staff review channel for clan profiles. |
 | `/clan-showcase-view-channels`| `/clan-showcase-view-channels` | Inspect current clan showcase and review channel routing. |
+| `/clan-set-clanless-role` | `/clan-set-clanless-role role:@Role` | Designate which Discord role is auto-enforced for `@Clanless` members *(Prefix: `!set_clanless_role`)*. |
+| `/clan-role-edit` | `/clan-role-edit clan:<name>` | Modify the linked Discord role or metadata for any approved clan profile. |
+| `/clan-role-panel-refresh` | `/clan-role-panel-refresh` | Manually force-refresh the live Clan Role Assignment Panel *(Prefix: `!refresh_clan_role_panel`)*. |
+| `/clan-sync-roles` | `/clan-sync-roles [suffix]` | Automated scanner: scan server roles ending with `//` and import into clan database *(Prefix: `!clan_sync_roles`)*. |
+| `/clan-delete` | `/clan-delete clan:<name> [delete_discord_role]` | Delete a clan from database & Claim Role panel with optional Discord role removal *(Prefix: `!clan_delete`)*. |
 | `/tournament-remove-section`| `/tournament-remove-section confirm:True` | Safely remove the auto-generated tournament channels and categories without touching other server channels. |
 
 ---
@@ -253,6 +272,13 @@ To delete an archived result from the website:
 
 ```
 ido-bot/
+├── memory/                       # Obsidian Second Brain & Architectural Mind Map
+│   ├── index.md                  # Master mind map navigation hub
+│   ├── tournaments_cog.md        # Bracket management, staff operations & registration hubs
+│   ├── clan_showcase_cog.md      # Clan profile intake, role directory, scanner & deletion
+│   ├── services_layer.md         # TournamentService, ClanShowcaseService, WebsiteSync
+│   └── workflow_*.md             # Operational lifecycle & sync workflows
+├── Bot_Memory_Map.canvas         # Interactive visual Obsidian Canvas node map
 ├── cogs/
 │   ├── tournaments.py            # Tournament bracket slash commands, checkin, and help menu
 │   └── clan_showcase.py          # Clan modal forms, persistent buttons, staff review flow, live admin edit
