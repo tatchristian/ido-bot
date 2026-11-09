@@ -1,0 +1,25 @@
+{
+  "guild_id": 0,
+  "updated_at": "2026-11-09T22:00:00Z",
+  "tournament": {
+    "announcement_channel_id": null,
+    "registration_channel_id": null,
+    "checkin_channel_id": null,
+    "subs_channel_id": null,
+    "admin_role_id": null,
+    "admin_role_name": "Tournament Admin",
+    "participant_role_id": null,
+    "participant_role_name": null,
+    "event_role_id": null,
+    "event_role_name": null,
+    "registration_message_id": null,
+    "subs_message_id": null
+  },
+  "clan_showcase": {
+    "showcase_channel_id": null,
+    "staff_review_channel_id": null,
+    "clan_role_channel_id": null,
+    "clan_role_message_id": null,
+    "clanless_role_id": null
+  }
+}

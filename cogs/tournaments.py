@@ -2726,6 +2726,241 @@ class TournamentCog(commands.Cog):
         state = self.service.get_state(ctx.guild.id)
         await ctx.send(f"⚔️ Enrolled `{added_main}` to main bracket, `{added_subs}` to subs. Total: `{len(state.participants)}/{state.max_slots}`.")
 
+    # -------------------------------------------------------------------------
+    # Bot Channel & Role State Persistence (/state-save, /state-restore, /state-status)
+    # -------------------------------------------------------------------------
+
+    @app_commands.command(
+        name="state-save",
+        description="[Admin] Snapshot configured channels, roles, and panel links to saved_state.json.",
+    )
+    @is_tournament_admin()
+    async def state_save_slash(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        snapshot_service = getattr(self.bot, "state_snapshot_service", None)
+        clan_service = getattr(self.bot, "clan_showcase_service", None)
+        if not snapshot_service or not clan_service:
+            await interaction.response.send_message("❌ State snapshot service is unavailable.", ephemeral=True)
+            return
+
+        data = snapshot_service.save_snapshot(guild_id, self.service, clan_service)
+        t_info = data.get("tournament", {})
+        c_info = data.get("clan_showcase", {})
+
+        def ch_fmt(cid):
+            return f"<#{cid}> (`{cid}`)" if cid else "*None*"
+
+        def role_fmt(rid, rname=None):
+            if rid:
+                return f"<@&{rid}> (`{rid}`)"
+            return f"`@{rname}`" if rname else "*None*"
+
+        embed = discord.Embed(
+            title="💾 Bot Channel & Role State Saved",
+            description=(
+                f"Successfully captured configuration for **{interaction.guild.name if interaction.guild else 'Server'}** to `saved_state.json`!\n"
+                "💡 *This file survives container restarts & git pushes, and will automatically reload on boot.*"
+            ),
+            color=0x2ECC71,
+        )
+        embed.add_field(
+            name="🏆 Tournament Channels & Roles",
+            value=(
+                f"• **Registration:** {ch_fmt(t_info.get('registration_channel_id'))}\n"
+                f"• **Announcements:** {ch_fmt(t_info.get('announcement_channel_id'))}\n"
+                f"• **Check-In:** {ch_fmt(t_info.get('checkin_channel_id'))}\n"
+                f"• **Substitutes:** {ch_fmt(t_info.get('subs_channel_id'))}\n"
+                f"• **Admin Role:** {role_fmt(t_info.get('admin_role_id'), t_info.get('admin_role_name'))}\n"
+                f"• **Participant Role:** {role_fmt(t_info.get('participant_role_id'), t_info.get('participant_role_name'))}"
+            ),
+            inline=False,
+        )
+        embed.add_field(
+            name="🏛️ Clan Showcase Channels & Roles",
+            value=(
+                f"• **Showcase Channel:** {ch_fmt(c_info.get('showcase_channel_id'))}\n"
+                f"• **Staff Review Channel:** {ch_fmt(c_info.get('staff_review_channel_id'))}\n"
+                f"• **Clan Roles Panel:** {ch_fmt(c_info.get('clan_role_channel_id'))}\n"
+                f"• **Clanless Role:** {role_fmt(c_info.get('clanless_role_id'))}"
+            ),
+            inline=False,
+        )
+        embed.set_footer(text=f"{config.organization_name} • System Operations")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="state_save")
+    @is_tournament_admin_prefix()
+    async def state_save_prefix(self, ctx: commands.Context):
+        """Prefix fallback: !state_save"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        snapshot_service = getattr(self.bot, "state_snapshot_service", None)
+        clan_service = getattr(self.bot, "clan_showcase_service", None)
+        if not snapshot_service or not clan_service:
+            await ctx.send("❌ State snapshot service is unavailable.")
+            return
+        snapshot_service.save_snapshot(ctx.guild.id, self.service, clan_service)
+        await ctx.send("✅ Successfully saved channel & role configuration to `saved_state.json`!")
+
+    @app_commands.command(
+        name="state-restore",
+        description="[Admin] Restore channel, role, and panel configurations from saved_state.json.",
+    )
+    @app_commands.describe(repost_panels="If True, re-posts/refreshes interactive panel embeds in set channels")
+    @is_tournament_admin()
+    async def state_restore_slash(
+        self,
+        interaction: discord.Interaction,
+        repost_panels: bool = False,
+    ):
+        guild_id = interaction.guild_id or 0
+        snapshot_service = getattr(self.bot, "state_snapshot_service", None)
+        clan_service = getattr(self.bot, "clan_showcase_service", None)
+        if not snapshot_service or not clan_service:
+            await interaction.response.send_message("❌ State snapshot service is unavailable.", ephemeral=True)
+            return
+
+        try:
+            snapshot = snapshot_service.restore_snapshot(guild_id, self.service, clan_service)
+        except FileNotFoundError:
+            # Fallback to auto-discovery if file does not exist
+            if interaction.guild:
+                found = snapshot_service.auto_discover_channels(interaction.guild, self.service, clan_service)
+                await interaction.response.send_message(
+                    f"⚠️ `saved_state.json` was not found. Auto-discovered `{len(found)}` channels from server names.",
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message("❌ `saved_state.json` preset file was not found.", ephemeral=True)
+            return
+
+        # Optionally refresh or repost panels
+        reposted_notes: list[str] = []
+        if repost_panels and interaction.guild:
+            guild = interaction.guild
+            # Refresh registration panel
+            if snapshot.registration_channel_id:
+                try:
+                    await self._update_registration_panel(guild)
+                    reposted_notes.append("📝 Registration Panel synced")
+                except Exception as e:
+                    reposted_notes.append(f"⚠️ Registration Panel error: {e}")
+            # Refresh subs panel
+            if snapshot.subs_channel_id:
+                try:
+                    await self._update_subs_panel(guild)
+                    reposted_notes.append("🛡️ Substitutes Panel synced")
+                except Exception as e:
+                    reposted_notes.append(f"⚠️ Substitutes Panel error: {e}")
+            # Refresh clan role panel
+            clan_cog = self.bot.get_cog("ClanShowcaseCog")
+            if clan_cog and hasattr(clan_cog, "_refresh_clan_role_panel"):
+                try:
+                    await clan_cog._refresh_clan_role_panel(guild)
+                    reposted_notes.append("🏛️ Clan Roles Panel synced")
+                except Exception as e:
+                    reposted_notes.append(f"⚠️ Clan Roles Panel error: {e}")
+
+        def ch_fmt(cid):
+            return f"<#{cid}>" if cid else "*None*"
+
+        embed = discord.Embed(
+            title="🔄 Bot State Restored",
+            description=(
+                f"Successfully applied channel and role bindings to **{interaction.guild.name if interaction.guild else 'Server'}**!\n\n"
+                f"• **Registration:** {ch_fmt(snapshot.registration_channel_id)}\n"
+                f"• **Announcements:** {ch_fmt(snapshot.announcement_channel_id)}\n"
+                f"• **Check-In:** {ch_fmt(snapshot.checkin_channel_id)}\n"
+                f"• **Substitutes:** {ch_fmt(snapshot.subs_channel_id)}\n"
+                f"• **Clan Showcase:** {ch_fmt(snapshot.showcase_channel_id)}\n"
+                f"• **Staff Review:** {ch_fmt(snapshot.staff_review_channel_id)}\n"
+                f"• **Clan Roles Panel:** {ch_fmt(snapshot.clan_role_channel_id)}\n"
+                + (f"\n**Panel Status:**\n" + "\n".join(f"• {n}" for n in reposted_notes) if reposted_notes else "")
+            ),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • System Operations")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="state_restore")
+    @is_tournament_admin_prefix()
+    async def state_restore_prefix(self, ctx: commands.Context, repost_panels: bool = False):
+        """Prefix fallback: !state_restore [repost_panels=True/False]"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        snapshot_service = getattr(self.bot, "state_snapshot_service", None)
+        clan_service = getattr(self.bot, "clan_showcase_service", None)
+        if not snapshot_service or not clan_service:
+            await ctx.send("❌ State snapshot service is unavailable.")
+            return
+        try:
+            snapshot = snapshot_service.restore_snapshot(ctx.guild.id, self.service, clan_service)
+            msg = f"🔄 Successfully restored channels for **{ctx.guild.name}**!"
+            if repost_panels:
+                await self._update_registration_panel(ctx.guild)
+                await self._update_subs_panel(ctx.guild)
+                clan_cog = self.bot.get_cog("ClanShowcaseCog")
+                if clan_cog and hasattr(clan_cog, "_refresh_clan_role_panel"):
+                    await clan_cog._refresh_clan_role_panel(ctx.guild)
+                msg += " (Panels refreshed)."
+            await ctx.send(msg)
+        except Exception as e:
+            await ctx.send(f"❌ Failed to restore state: {e}")
+
+    @app_commands.command(
+        name="state-status",
+        description="[Admin] Compare active channel and role bindings against saved_state.json snapshot.",
+    )
+    @is_tournament_admin()
+    async def state_status_slash(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        snapshot_service = getattr(self.bot, "state_snapshot_service", None)
+        clan_service = getattr(self.bot, "clan_showcase_service", None)
+        if not snapshot_service or not clan_service:
+            await interaction.response.send_message("❌ State snapshot service is unavailable.", ephemeral=True)
+            return
+
+        current = snapshot_service.capture_snapshot(guild_id, self.service, clan_service)
+        try:
+            saved = snapshot_service.load_snapshot()
+        except FileNotFoundError:
+            saved = None
+
+        def line_diff(label: str, cur_val: Any, saved_val: Any, is_channel: bool = True):
+            if is_channel:
+                cur_str = f"<#{cur_val}>" if cur_val else "*Not Set*"
+                sav_str = f"<#{saved_val}>" if saved_val else "*None*"
+            else:
+                cur_str = f"<@&{cur_val}>" if cur_val else "*Not Set*"
+                sav_str = f"<@&{saved_val}>" if saved_val else "*None*"
+            match_icon = "✅" if cur_val == saved_val and cur_val is not None else ("⚠️" if cur_val != saved_val else "⚪")
+            return f"{match_icon} **{label}:** {cur_str} *(Saved: {sav_str})*"
+
+        embed = discord.Embed(
+            title="📊 Bot Channel & State Status",
+            description=(
+                f"Configuration diagnostics for **{interaction.guild.name if interaction.guild else 'Server'}**\n"
+                f"**Saved Snapshot File:** `{'Found (`saved_state.json`)' if saved else '⚠️ Missing (`saved_state.json`)'}`\n\n"
+                "**Channels:**\n"
+                f"{line_diff('Registration', current.registration_channel_id, saved.registration_channel_id if saved else None)}\n"
+                f"{line_diff('Announcements', current.announcement_channel_id, saved.announcement_channel_id if saved else None)}\n"
+                f"{line_diff('Check-In', current.checkin_channel_id, saved.checkin_channel_id if saved else None)}\n"
+                f"{line_diff('Substitutes', current.subs_channel_id, saved.subs_channel_id if saved else None)}\n"
+                f"{line_diff('Clan Showcase', current.showcase_channel_id, saved.showcase_channel_id if saved else None)}\n"
+                f"{line_diff('Staff Review', current.staff_review_channel_id, saved.staff_review_channel_id if saved else None)}\n"
+                f"{line_diff('Clan Roles Panel', current.clan_role_channel_id, saved.clan_role_channel_id if saved else None)}\n\n"
+                "**Roles:**\n"
+                f"{line_diff('Admin Role', current.admin_role_id, saved.admin_role_id if saved else None, is_channel=False)}\n"
+                f"{line_diff('Participant Role', current.participant_role_id, saved.participant_role_id if saved else None, is_channel=False)}\n"
+                f"{line_diff('Clanless Role', current.clanless_role_id, saved.clanless_role_id if saved else None, is_channel=False)}"
+            ),
+            color=0x3498DB,
+        )
+        embed.set_footer(text=f"{config.organization_name} • System Diagnostics")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
     @app_commands.command(
         name="tournament-clear",
         description="[Admin] Wipe both main roster and substitute list for a fresh event.",

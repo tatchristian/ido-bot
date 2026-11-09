@@ -52,8 +52,11 @@
 
 ---
 
-## 💾 Roster Persistence & Bulk Commands
+## 💾 Roster & State Persistence Commands
+- `/state-save` / `!state_save`: `L2733` (Snapshots all set channels, roles, and panel links to `saved_state.json`)
+- `/state-restore` / `!state_restore`: `L2780` (Restores all channels and roles; optionally re-syncs panels)
+- `/state-status`: `L2840` (Compares active channels against saved snapshot with diagnostics)
 - `/tournament-save-roster` / `!tournament_save_roster`: `L2510` (Saves active roster to `saved_roster.json` preset)
 - `/tournament-restore-roster` / `!tournament_restore_roster`: `L2545` (Loads preset file and restores roster into active tournament)
 - `/tournament-bulk-register` / `!tournament_bulk_register`: `L2625` (Enrolls batch list of contestants with auto delimiter parsing)
-- `bot.py` `on_ready`: Auto-restores `saved_roster.json` on startup if active tournament bracket is empty (container wipe resilience)
+- `bot.py` `on_ready`: Auto-restores `saved_state.json` (or regex auto-discovers channels) and `saved_roster.json` on startup when bot restarts or redeploys

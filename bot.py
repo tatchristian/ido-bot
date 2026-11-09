@@ -21,6 +21,7 @@ from config import config
 from services.api_server import create_api_app
 from services.clan_showcase_service import ClanShowcaseService
 from services.past_results_service import PastResultsService
+from services.state_snapshot_service import StateSnapshotService
 from services.tournament_service import TournamentService
 from utils.storage import StorageManager
 
@@ -68,6 +69,7 @@ class UDATournamentBot(commands.Bot):
         self.tournament_service = TournamentService(self.storage)
         self.clan_showcase_service = ClanShowcaseService(data_dir=config.data_dir)
         self.past_results_service = PastResultsService(data_dir=config.data_dir)
+        self.state_snapshot_service = StateSnapshotService()
 
     async def setup_hook(self) -> None:
         """Invoked before the bot establishes its gateway connection."""
@@ -94,15 +96,35 @@ class UDATournamentBot(commands.Bot):
         )
         await self.change_presence(activity=activity)
 
+        # Auto-restore channel and role state from saved_state.json preset if channels are missing
+        state_file = Path("saved_state.json")
+        target_guilds = list(self.guilds)
+        if config.guild_id and not any(g.id == config.guild_id for g in target_guilds):
+            configured_g = self.get_guild(config.guild_id)
+            if configured_g:
+                target_guilds.append(configured_g)
+
+        for guild in target_guilds:
+            try:
+                t_state = self.tournament_service.get_state(guild.id)
+                showcase_ch, _ = self.clan_showcase_service.get_guild_channels(guild.id)
+                if t_state.registration_channel_id is None or showcase_ch is None:
+                    if state_file.exists():
+                        self.state_snapshot_service.restore_snapshot(
+                            guild.id, self.tournament_service, self.clan_showcase_service, file_path=state_file
+                        )
+                        logger.info("Auto-restored channel state snapshot from saved_state.json for guild %d", guild.id)
+                    else:
+                        # Fallback: Regex auto-discovery across existing server channels
+                        self.state_snapshot_service.auto_discover_channels(
+                            guild, self.tournament_service, self.clan_showcase_service
+                        )
+            except Exception as exc:
+                logger.warning("Failed channel state auto-restore for guild %d: %s", guild.id, exc)
+
         # Auto-restore tournament roster from saved_roster.json preset if active roster is empty
         preset_file = Path("saved_roster.json")
         if preset_file.exists():
-            target_guilds = list(self.guilds)
-            if config.guild_id and not any(g.id == config.guild_id for g in target_guilds):
-                configured_g = self.get_guild(config.guild_id)
-                if configured_g:
-                    target_guilds.append(configured_g)
-
             for guild in target_guilds:
                 try:
                     state = self.tournament_service.get_state(guild.id)

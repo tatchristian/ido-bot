@@ -37,5 +37,6 @@
 
 ## 🌐 Other Specialized Services
 - **`WebsiteSyncService` (`services/website_sync_service.py`):** `L341` (REST sync to `unitedduelingamity.org`)
+- **`StateSnapshotService` (`services/state_snapshot_service.py`):** Saves, restores, and regex auto-discovers server channels, roles, and panels across deployments (`saved_state.json`)
 - **`ServerBuilder` (`services/server_builder.py`):** Auto-creates categories and dueling arenas
 - **`PastResultsService` (`services/past_results_service.py`):** Concluded tournaments archive
