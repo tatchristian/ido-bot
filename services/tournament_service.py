@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
 import threading
 from dataclasses import asdict, dataclass, field
@@ -1048,3 +1049,149 @@ class TournamentService:
             filename = f"tournament_roster_{timestamp}.csv"
 
         return filename, output.getvalue()
+
+    def save_roster_preset(
+        self, guild_id: int = 0, file_path: Path | str = "saved_roster.json"
+    ) -> dict[str, Any]:
+        """Saves current tournament configuration and full roster to a JSON preset file."""
+        state = self.get_state(guild_id)
+        data = {
+            "name": state.name,
+            "max_slots": state.max_slots,
+            "allowed_regions": state.allowed_regions,
+            "approved_weapons": state.approved_weapons,
+            "participants": [p.to_dict() for p in state.participants],
+            "substitutes": [s.to_dict() for s in state.substitutes],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        target_path = Path(file_path)
+        with open(target_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        return data
+
+    def import_roster_preset(
+        self,
+        guild_id: int = 0,
+        file_path: Path | str = "saved_roster.json",
+        member_resolver: Any = None,
+    ) -> tuple[int, int]:
+        """
+        Loads and restores tournament parameters and participants from a preset file.
+        Returns (participant_count, substitute_count).
+        """
+        target_path = Path(file_path)
+        if not target_path.exists():
+            raise FileNotFoundError(f"Preset file not found: {file_path}")
+
+        with open(target_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        state = self.get_state(guild_id)
+        if "name" in data and data["name"]:
+            state.name = data["name"]
+        if "max_slots" in data and data["max_slots"]:
+            state.max_slots = int(data["max_slots"])
+        if "allowed_regions" in data and data["allowed_regions"]:
+            state.allowed_regions = list(data["allowed_regions"])
+        if "approved_weapons" in data and data["approved_weapons"]:
+            state.approved_weapons = list(data["approved_weapons"])
+
+        raw_participants = data.get("participants", [])
+        restored_participants: list[Participant] = []
+        for idx, p_data in enumerate(raw_participants):
+            p = Participant.from_dict(p_data)
+            if member_resolver:
+                resolved = member_resolver(p.ign, p.user_mention)
+                if resolved:
+                    p.user_id, p.user_mention = resolved
+            elif not p.user_id or p.user_id <= 0:
+                p.user_id = 1000 + idx
+            restored_participants.append(p)
+
+        raw_substitutes = data.get("substitutes", [])
+        restored_substitutes: list[Participant] = []
+        for idx, s_data in enumerate(raw_substitutes):
+            s = Participant.from_dict(s_data)
+            if member_resolver:
+                resolved = member_resolver(s.ign, s.user_mention)
+                if resolved:
+                    s.user_id, s.user_mention = resolved
+            elif not s.user_id or s.user_id <= 0:
+                s.user_id = 2000 + idx
+            restored_substitutes.append(s)
+
+        state.participants = restored_participants
+        state.substitutes = restored_substitutes
+        self._persist(guild_id)
+        return len(state.participants), len(state.substitutes)
+
+    def bulk_register(
+        self,
+        guild_id: int,
+        entries: list[str],
+        default_weapon: str = "Katana",
+        default_region: str = "ASIA",
+        member_resolver: Any = None,
+    ) -> tuple[int, int, list[str]]:
+        """
+        Mass-enrolls a list of contestant entries.
+        Formats supported per entry:
+          - 'IGN | Weapon | Region | Mention'
+          - 'IGN, Weapon, Region'
+          - 'IGN' (defaults to default_weapon and default_region)
+        Returns (added_to_main, added_to_subs, errors).
+        """
+        state = self.get_state(guild_id)
+        added_main = 0
+        added_subs = 0
+        errors: list[str] = []
+
+        synthetic_id_base = int(datetime.now(timezone.utc).timestamp())
+
+        for idx, raw_entry in enumerate(entries):
+            line = raw_entry.strip()
+            if not line:
+                continue
+
+            if "|" in line:
+                parts = [p.strip() for p in line.split("|")]
+            elif "," in line:
+                parts = [p.strip() for p in line.split(",")]
+            else:
+                parts = [line]
+
+            ign = parts[0]
+            weapon = parts[1] if len(parts) > 1 and parts[1] else default_weapon
+            region = parts[2].upper() if len(parts) > 2 and parts[2] else default_region
+            mention_str = parts[3] if len(parts) > 3 and parts[3] else f"@{ign}"
+
+            user_id = synthetic_id_base + idx
+            if member_resolver:
+                resolved = member_resolver(ign, mention_str)
+                if resolved:
+                    user_id, mention_str = resolved
+
+            if any(p.user_id == user_id or p.ign.lower() == ign.lower() for p in state.participants):
+                errors.append(f"Skipped duplicate: {ign}")
+                continue
+
+            participant = Participant(
+                user_id=user_id,
+                user_mention=mention_str,
+                ign=ign,
+                weapon=weapon,
+                region=region,
+            )
+
+            if len(state.participants) < state.max_slots:
+                state.participants.append(participant)
+                added_main += 1
+            else:
+                if any(s.user_id == user_id or s.ign.lower() == ign.lower() for s in state.substitutes):
+                    errors.append(f"Skipped duplicate substitute: {ign}")
+                    continue
+                state.substitutes.append(participant)
+                added_subs += 1
+
+        self._persist(guild_id)
+        return added_main, added_subs, errors

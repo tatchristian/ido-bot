@@ -167,6 +167,14 @@ def is_tournament_admin():
     return app_commands.check(predicate)
 
 
+def is_tournament_admin_prefix():
+    """Custom check for commands.command prefix commands."""
+    async def predicate(ctx: commands.Context) -> bool:
+        return check_is_tournament_admin(ctx.author, ctx.guild, ctx.bot)
+
+    return commands.check(predicate)
+
+
 def check_is_event_admin(
     user: Union[discord.User, discord.Member],
     guild: Optional[discord.Guild],
@@ -2505,6 +2513,218 @@ class TournamentCog(commands.Cog):
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
         await interaction.response.send_message(embed=embed, file=discord_file, ephemeral=True)
+
+    @app_commands.command(
+        name="tournament-save-roster",
+        description="[Admin] Snapshot the active tournament roster & settings to a persistent preset file.",
+    )
+    @is_tournament_admin()
+    async def save_roster_slash(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        self.service.save_roster_preset(guild_id=guild_id)
+        embed = discord.Embed(
+            title="💾 Tournament Roster Saved",
+            description=(
+                f"Successfully saved **{state.name}** roster snapshot to disk!\n"
+                f"• **Main Participants:** `{len(state.participants)}`\n"
+                f"• **Substitutes:** `{len(state.substitutes)}`\n"
+                f"• **Max Slots:** `{state.max_slots}`\n"
+                f"• **Allowed Regions:** `{', '.join(state.allowed_regions)}`\n\n"
+                "💡 *This snapshot is saved to `saved_roster.json` and will survive bot redeployments.*"
+            ),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @commands.command(name="tournament_save_roster")
+    @is_tournament_admin_prefix()
+    async def save_roster_prefix(self, ctx: commands.Context):
+        """Prefix fallback: !tournament_save_roster"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        state = self.service.get_state(ctx.guild.id)
+        self.service.save_roster_preset(guild_id=ctx.guild.id)
+        await ctx.send(f"💾 Saved roster snapshot for **{state.name}** ({len(state.participants)} participants).")
+
+    @app_commands.command(
+        name="tournament-restore-roster",
+        description="[Admin] Restore tournament roster from saved_roster.json preset across redeployments.",
+    )
+    @is_tournament_admin()
+    async def restore_roster_slash(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        guild_id = interaction.guild_id or 0
+
+        def resolver(ign: str, mention_str: str) -> tuple[int, str] | None:
+            if not guild:
+                return None
+            clean_mention = mention_str.lstrip("@").lower()
+            clean_ign = ign.lower()
+            for m in guild.members:
+                if (
+                    m.name.lower() in (clean_mention, clean_ign)
+                    or m.display_name.lower() in (clean_mention, clean_ign)
+                    or clean_mention in m.name.lower()
+                    or clean_ign in m.display_name.lower()
+                ):
+                    return m.id, m.mention
+            return None
+
+        try:
+            p_count, s_count = self.service.import_roster_preset(
+                guild_id=guild_id,
+                file_path="saved_roster.json",
+                member_resolver=resolver,
+            )
+        except Exception as exc:
+            await interaction.followup.send(f"❌ Failed to restore roster: {exc}", ephemeral=True)
+            return
+
+        state = self.service.get_state(guild_id)
+
+        # Update live registration panel if channel exists
+        if guild:
+            await self._update_registration_panel(guild)
+            if state.subs_channel_id:
+                await self._update_subs_panel(guild)
+
+            # Assign participant role to registered members
+            if state.participant_role_id:
+                role = guild.get_role(state.participant_role_id)
+                if role and role < guild.me.top_role:
+                    for p in state.participants:
+                        member = guild.get_member(p.user_id)
+                        if member and role not in member.roles:
+                            try:
+                                await member.add_roles(role, reason=f"Restored to tournament {state.name}")
+                            except Exception:
+                                pass
+
+        embed = discord.Embed(
+            title="✅ Tournament Roster Restored",
+            description=(
+                f"Successfully restored **{state.name}** roster from preset!\n"
+                f"• **Main Bracket:** `{p_count} / {state.max_slots}` registered\n"
+                f"• **Standby Substitutes:** `{s_count}` in queue\n"
+                f"• **Regions:** `{', '.join(state.allowed_regions)}`\n"
+                f"• **Live Panel:** Refreshed in `#tournament-registration`"
+            ),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @commands.command(name="tournament_restore_roster")
+    @is_tournament_admin_prefix()
+    async def restore_roster_prefix(self, ctx: commands.Context):
+        """Prefix fallback: !tournament_restore_roster"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+
+        def resolver(ign: str, mention_str: str) -> tuple[int, str] | None:
+            clean_mention = mention_str.lstrip("@").lower()
+            clean_ign = ign.lower()
+            for m in ctx.guild.members:
+                if (
+                    m.name.lower() in (clean_mention, clean_ign)
+                    or m.display_name.lower() in (clean_mention, clean_ign)
+                ):
+                    return m.id, m.mention
+            return None
+
+        try:
+            p_count, s_count = self.service.import_roster_preset(
+                guild_id=ctx.guild.id,
+                file_path="saved_roster.json",
+                member_resolver=resolver,
+            )
+            await self._update_registration_panel(ctx.guild)
+            state = self.service.get_state(ctx.guild.id)
+            await ctx.send(f"✅ Restored **{state.name}** roster ({p_count} main, {s_count} subs).")
+        except Exception as e:
+            await ctx.send(f"❌ Could not restore roster: {e}")
+
+    @app_commands.command(
+        name="tournament-bulk-register",
+        description="[Admin] Mass-enroll multiple contestants at once (paste lines: IGN | Weapon | Region).",
+    )
+    @app_commands.describe(
+        entries="Multi-line player entries. Example: Player1 | Katana | ASIA\\nPlayer2 | Kusarigama | ASIA",
+        default_weapon="Fallback weapon if not specified (default: Katana)",
+        default_region="Fallback region if not specified (default: ASIA)",
+    )
+    @is_tournament_admin()
+    async def bulk_register_slash(
+        self,
+        interaction: discord.Interaction,
+        entries: str,
+        default_weapon: str = "Katana",
+        default_region: str = "ASIA",
+    ):
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        guild_id = interaction.guild_id or 0
+
+        def resolver(ign: str, mention_str: str) -> tuple[int, str] | None:
+            if not guild:
+                return None
+            clean_mention = mention_str.lstrip("@").lower()
+            clean_ign = ign.lower()
+            for m in guild.members:
+                if (
+                    m.name.lower() in (clean_mention, clean_ign)
+                    or m.display_name.lower() in (clean_mention, clean_ign)
+                ):
+                    return m.id, m.mention
+            return None
+
+        lines = [line.strip() for line in entries.split("\n") if line.strip()]
+        added_main, added_subs, errors = self.service.bulk_register(
+            guild_id=guild_id,
+            entries=lines,
+            default_weapon=default_weapon,
+            default_region=default_region,
+            member_resolver=resolver,
+        )
+
+        if guild:
+            await self._update_registration_panel(guild)
+
+        state = self.service.get_state(guild_id)
+        err_msg = f"\n⚠️ **Notes:** {', '.join(errors[:5])}" if errors else ""
+        embed = discord.Embed(
+            title="⚔️ Mass Registration Complete",
+            description=(
+                f"Enrolled `{added_main}` into Main Bracket, `{added_subs}` into Standby Subs.\n"
+                f"• **Current Main Total:** `{len(state.participants)} / {state.max_slots}`\n"
+                f"• **Current Subs Total:** `{len(state.substitutes)}`\n"
+                f"{err_msg}"
+            ),
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @commands.command(name="tournament_bulk_register")
+    @is_tournament_admin_prefix()
+    async def bulk_register_prefix(self, ctx: commands.Context, *, entries: str):
+        """Prefix fallback: !tournament_bulk_register <IGN | Weapon | Region>"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        lines = [l.strip() for l in entries.split("\n") if l.strip()]
+        added_main, added_subs, errors = self.service.bulk_register(
+            guild_id=ctx.guild.id,
+            entries=lines,
+        )
+        await self._update_registration_panel(ctx.guild)
+        state = self.service.get_state(ctx.guild.id)
+        await ctx.send(f"⚔️ Enrolled `{added_main}` to main bracket, `{added_subs}` to subs. Total: `{len(state.participants)}/{state.max_slots}`.")
 
     @app_commands.command(
         name="tournament-clear",

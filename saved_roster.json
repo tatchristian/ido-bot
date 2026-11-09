@@ -1,0 +1,164 @@
+{
+  "name": "Asia Tournament",
+  "max_slots": 32,
+  "allowed_regions": [
+    "ASIA"
+  ],
+  "approved_weapons": [
+    "Daggers",
+    "Katana",
+    "Naginata",
+    "Bo Staff",
+    "Curved Swords",
+    "Warhammer",
+    "Kusarigama",
+    "Gauntlets"
+  ],
+  "participants": [
+    {
+      "user_id": 1001,
+      "user_mention": "@Typal",
+      "ign": "Typal_BFC",
+      "weapon": "Kusarigama",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1002,
+      "user_mention": "@trwinner",
+      "ign": "TRWinnER129",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1003,
+      "user_mention": "@Demon",
+      "ign": "KachiXdemon",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1004,
+      "user_mention": "@_Drago✨",
+      "ign": "KachiX_GotDrago",
+      "weapon": "Kusarigama",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1005,
+      "user_mention": "@Spider",
+      "ign": "Spider",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1006,
+      "user_mention": "@😳",
+      "ign": "ofc_reinaa",
+      "weapon": "Gaunts,Kusa,Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1007,
+      "user_mention": "@MARKBENNETT",
+      "ign": "RAGExMARKBENNETT",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1008,
+      "user_mention": "@cyphertxt",
+      "ign": "Defitienx",
+      "weapon": "bo staff",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1009,
+      "user_mention": "@DaFlow",
+      "ign": "DaFlowSta_Og",
+      "weapon": "Daggers , Katana , Gaunts , Nagi , Kusa , Cs",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1010,
+      "user_mention": "@MohdMin786",
+      "ign": "KAZE_PersuesAlaric",
+      "weapon": "All Weapons",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1011,
+      "user_mention": "@ART",
+      "ign": "sufiyanagavan",
+      "weapon": "Kusarigama",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1012,
+      "user_mention": "@_~.♢.ɛ Eiffel 3⸝⸝.′.",
+      "ign": "4rchduch35s",
+      "weapon": "Gaunts or Kusarigama?",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1013,
+      "user_mention": "@Adiiiiiii",
+      "ign": "KachixAizen",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1014,
+      "user_mention": "@KillerDoc",
+      "ign": "Jaxjaxjax402",
+      "weapon": "Daggers",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1015,
+      "user_mention": "@Chammu",
+      "ign": "Mahi",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1016,
+      "user_mention": "@Sitxy",
+      "ign": "Ripbacons20233333",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1017,
+      "user_mention": "@Zumbo.",
+      "ign": "Zumbo",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    },
+    {
+      "user_id": 1018,
+      "user_mention": "@ifwshxuryx21",
+      "ign": "ifwshxuryx21",
+      "weapon": "Katana",
+      "region": "ASIA",
+      "checked_in": false
+    }
+  ],
+  "substitutes": []
+}

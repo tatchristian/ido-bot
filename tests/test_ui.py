@@ -69,6 +69,30 @@ def test_build_roster_embed():
     assert "Backup" in sub_field.value
 
 
+def test_build_roster_embed_large_bracket_pagination():
+    state = TournamentState(name="Asia Tournament", max_slots=32)
+    for i in range(20):
+        state.participants.append(
+            Participant(
+                user_id=1000 + i,
+                user_mention=f"@Player{i+1}",
+                ign=f"LongDuelistName_{i+1}",
+                weapon="Katana",
+                region="ASIA",
+            )
+        )
+    embed = build_roster_embed(state, org_name="UDA")
+    main_fields = [f for f in embed.fields if "Main Bracket" in f.name]
+    assert len(main_fields) > 1  # Verify it paginated across multiple fields!
+    for f in main_fields:
+        assert len(f.value) <= 1024  # Under Discord's limit
+    # Verify player 1 and player 20 are both visible
+    all_text = "\n".join(f.value for f in main_fields)
+    assert "#01" in all_text
+    assert "#20" in all_text
+    assert "LongDuelistName_20" in all_text
+
+
 def test_build_help_embed():
     # Test all section for non-admin (admin & event sync should be omitted)
     embed_all_user = build_help_embed("all", org_name="UDA", is_admin=False)

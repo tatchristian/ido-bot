@@ -9,7 +9,8 @@
 - `generate_progress_bar()`: `L13` (Draws visual ASCII bracket meter, e.g. `[████░░░░] 6/16`)
 - `format_participant_line()`: `L38` (Renders numbered contestant line with check-in badges)
 - `build_status_embed()`: `L48` (Live tournament progress & status embed)
-- `build_roster_embed()`: `L134` (Full registered main bracket & substitute roster)
+- `_chunk_lines()`: `L134` (Splits formatted contestant lines into sub-1000 char blocks for Discord embed fields)
+- `build_roster_embed()`: `L153` (Full registered main bracket & substitute roster; paginates large 16+ / 32 player brackets across multiple embed fields such as Part 1/2, Part 2/2 to prevent 1024-char truncation)
 
 ---
 

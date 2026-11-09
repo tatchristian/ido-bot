@@ -16,6 +16,9 @@
   - `register_substitute()` / `unregister_substitute()`: `L385` / `L430`
   - `promote_substitute()`: `L455` (Advances next sub from queue into main bracket)
   - `set_channels()`: `L500` (Stores persistent channel IDs)
+  - `save_roster_preset()`: `L1047` (Exports active roster snapshot to preset JSON file, e.g. `saved_roster.json`)
+  - `import_roster_preset()`: `L1072` (Imports & restores roster parameters, participants & subs from preset file)
+  - `bulk_register()`: `L1128` (Batch-enrolls duelists from delimited string/list with auto fallback defaults)
   - `_persist(guild_id)`: Saves to `storage/tournaments_{guild_id}.json`
 
 ---

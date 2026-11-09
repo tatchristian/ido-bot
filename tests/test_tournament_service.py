@@ -707,3 +707,58 @@ def test_panel_message_id_persistence():
     assert cleared.subs_message_id is None
 
 
+def test_save_and_import_roster_preset(service: TournamentService, tmp_path: Path):
+    preset_path = tmp_path / "test_preset.json"
+    service.open_tournament(name="Asia Tournament", slots=32, regions="ASIA", open_subs=True)
+    service.force_register(1001, "<@1001>", "Player1", "Katana", "ASIA", guild_id=0)
+    service.force_register(1002, "<@1002>", "Player2", "Kusarigama", "ASIA", guild_id=0)
+
+    # Save preset
+    saved_data = service.save_roster_preset(guild_id=0, file_path=preset_path)
+    assert saved_data["name"] == "Asia Tournament"
+    assert saved_data["max_slots"] == 32
+    assert len(saved_data["participants"]) == 2
+
+    # Clear tournament
+    service.clear_tournament(0)
+    assert len(service.get_state(0).participants) == 0
+
+    # Import preset
+    p_cnt, s_cnt = service.import_roster_preset(guild_id=0, file_path=preset_path)
+    assert p_cnt == 2
+    assert s_cnt == 0
+    state = service.get_state(0)
+    assert state.name == "Asia Tournament"
+    assert state.max_slots == 32
+    assert len(state.participants) == 2
+    assert state.participants[0].ign == "Player1"
+    assert state.participants[1].ign == "Player2"
+
+
+def test_bulk_register(service: TournamentService):
+    service.open_tournament(name="Asia Tournament", slots=2, regions="ASIA", open_subs=True)
+    entries = [
+        "Typal_BFC | Kusarigama | ASIA | @Typal",
+        "TRWinnER129, Katana, ASIA",
+        "Spider",  # Exceeds max_slots 2 -> goes to subs
+    ]
+    added_main, added_subs, errors = service.bulk_register(
+        guild_id=0,
+        entries=entries,
+        default_weapon="Katana",
+        default_region="ASIA",
+    )
+    assert added_main == 2
+    assert added_subs == 1
+    assert len(errors) == 0
+
+    state = service.get_state(0)
+    assert len(state.participants) == 2
+    assert state.participants[0].ign == "Typal_BFC"
+    assert state.participants[0].weapon == "Kusarigama"
+    assert state.participants[1].ign == "TRWinnER129"
+    assert len(state.substitutes) == 1
+    assert state.substitutes[0].ign == "Spider"
+    assert state.substitutes[0].weapon == "Katana"
+
+

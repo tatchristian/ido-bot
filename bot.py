@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from pathlib import Path
 import signal
 import sys
 
@@ -92,6 +93,48 @@ class UDATournamentBot(commands.Bot):
             name=f"{config.organization_name} Tournaments (/tournament-status)",
         )
         await self.change_presence(activity=activity)
+
+        # Auto-restore tournament roster from saved_roster.json preset if active roster is empty
+        preset_file = Path("saved_roster.json")
+        if preset_file.exists():
+            target_guilds = list(self.guilds)
+            if config.guild_id and not any(g.id == config.guild_id for g in target_guilds):
+                configured_g = self.get_guild(config.guild_id)
+                if configured_g:
+                    target_guilds.append(configured_g)
+
+            for guild in target_guilds:
+                try:
+                    state = self.tournament_service.get_state(guild.id)
+                    if len(state.participants) == 0:
+                        def _resolver(ign: str, mention_str: str) -> tuple[int, str] | None:
+                            clean_name = mention_str.lstrip("@").strip().lower()
+                            member = discord.utils.find(
+                                lambda m: (
+                                    m.name.lower() == clean_name
+                                    or m.display_name.lower() == clean_name
+                                    or m.name.lower() == ign.lower()
+                                    or m.display_name.lower() == ign.lower()
+                                ),
+                                guild.members,
+                            )
+                            if member:
+                                return member.id, member.mention
+                            return None
+
+                        p_cnt, s_cnt = self.tournament_service.import_roster_preset(
+                            guild.id, preset_file, member_resolver=_resolver
+                        )
+                        logger.info(
+                            "Auto-restored tournament roster for %s (%d): %d main, %d subs",
+                            guild.name,
+                            guild.id,
+                            p_cnt,
+                            s_cnt,
+                        )
+                except Exception as exc:
+                    logger.warning("Failed to auto-restore preset roster for guild %d: %s", guild.id, exc)
+
         logger.info("UDA Tournament Bot is ready and operational.")
 
 

@@ -49,3 +49,11 @@
 - `_post_or_update_subs_panel()`: `L680`
 - `_update_subs_panel()`: `L708`
 - `_close_subs_panel()`: `L730`
+
+---
+
+## 💾 Roster Persistence & Bulk Commands
+- `/tournament-save-roster` / `!tournament_save_roster`: `L2510` (Saves active roster to `saved_roster.json` preset)
+- `/tournament-restore-roster` / `!tournament_restore_roster`: `L2545` (Loads preset file and restores roster into active tournament)
+- `/tournament-bulk-register` / `!tournament_bulk_register`: `L2625` (Enrolls batch list of contestants with auto delimiter parsing)
+- `bot.py` `on_ready`: Auto-restores `saved_roster.json` on startup if active tournament bracket is empty (container wipe resilience)

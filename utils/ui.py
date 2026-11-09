@@ -131,6 +131,25 @@ def build_status_embed(
     return embed
 
 
+def _chunk_lines(lines: list[str], max_chars: int = 1000) -> list[str]:
+    """Splits formatted lines into chunks that fit within Discord embed field length limits."""
+    chunks: list[str] = []
+    current_chunk: list[str] = []
+    current_len = 0
+    for line in lines:
+        line_len = len(line) + 1
+        if current_chunk and (current_len + line_len > max_chars):
+            chunks.append("\n".join(current_chunk))
+            current_chunk = [line]
+            current_len = line_len
+        else:
+            current_chunk.append(line)
+            current_len += line_len
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
+    return chunks
+
+
 def build_roster_embed(
     state: TournamentState,
     org_name: str | None = None,
@@ -138,6 +157,8 @@ def build_roster_embed(
 ) -> discord.Embed:
     """
     Builds the /tournament-roster embed matching the official UDA layout.
+    Automatically paginates main bracket and substitute rosters across multiple
+    embed fields when the list exceeds Discord's 1024-character field limit.
     """
     org = org_name or config.organization_name
     embed_color = color or config.embed_color
@@ -160,17 +181,6 @@ def build_roster_embed(
         color=embed_color,
     )
 
-    if state.participants:
-        main_lines = [
-            format_participant_line(i + 1, p, show_checkin=show_checkin)
-            for i, p in enumerate(state.participants)
-        ]
-        main_text = "\n".join(main_lines)
-        if len(main_text) > 1024:
-            main_text = main_text[:1020] + "..."
-    else:
-        main_text = "*No participants registered yet.*"
-
     checked_in_count = sum(1 for p in state.participants if p.checked_in)
     bracket_title = (
         f"⚔️ Main Bracket ({cur_slots} registered • {checked_in_count} checked in)"
@@ -178,36 +188,53 @@ def build_roster_embed(
         else f"⚔️ Main Bracket ({cur_slots})"
     )
 
-    embed.add_field(
-        name=bracket_title,
-        value=main_text,
-        inline=False,
-    )
+    if state.participants:
+        main_lines = [
+            format_participant_line(i + 1, p, show_checkin=show_checkin)
+            for i, p in enumerate(state.participants)
+        ]
+        main_chunks = _chunk_lines(main_lines, max_chars=1000)
+        for idx, chunk in enumerate(main_chunks):
+            field_name = (
+                bracket_title
+                if len(main_chunks) == 1
+                else f"{bracket_title} (Part {idx + 1}/{len(main_chunks)})"
+            )
+            embed.add_field(name=field_name, value=chunk, inline=False)
+    else:
+        embed.add_field(
+            name=bracket_title,
+            value="*No participants registered yet.*",
+            inline=False,
+        )
 
     sub_count = len(state.substitutes)
     sub_checked_count = sum(1 for s in state.substitutes if s.checked_in)
-    if state.substitutes:
-        sub_lines = [
-            format_participant_line(i + 1, s, show_checkin=show_checkin)
-            for i, s in enumerate(state.substitutes)
-        ]
-        sub_text = "\n".join(sub_lines)
-        if len(sub_text) > 1024:
-            sub_text = sub_text[:1020] + "..."
-    else:
-        sub_text = "*No substitutes on deck.*"
-
     sub_title = (
         f"🛡️ Standby Substitutes ({sub_count} standby • {sub_checked_count} ready [✅])"
         if show_checkin
         else f"🛡️ Standby Substitutes ({sub_count})"
     )
 
-    embed.add_field(
-        name=sub_title,
-        value=sub_text,
-        inline=False,
-    )
+    if state.substitutes:
+        sub_lines = [
+            format_participant_line(i + 1, s, show_checkin=show_checkin)
+            for i, s in enumerate(state.substitutes)
+        ]
+        sub_chunks = _chunk_lines(sub_lines, max_chars=1000)
+        for idx, chunk in enumerate(sub_chunks):
+            field_name = (
+                sub_title
+                if len(sub_chunks) == 1
+                else f"{sub_title} (Part {idx + 1}/{len(sub_chunks)})"
+            )
+            embed.add_field(name=field_name, value=chunk, inline=False)
+    else:
+        embed.add_field(
+            name=sub_title,
+            value="*No substitutes on deck.*",
+            inline=False,
+        )
 
     full_name = getattr(config, "organization_full_name", "United Dueling Amity")
     embed.set_footer(text=f"{org} • {full_name}")
