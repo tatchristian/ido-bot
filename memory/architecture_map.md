@@ -78,7 +78,13 @@
   - `/tournament-set-time`: `L2231`
   - `/tournament-announce`: `L2368`
   - `/tournament-export`: `L2456`
-  - `/tournament-clear`: `L2503` (Wipes roster & sub queues for a fresh event)
+  - `/tournament-save-roster` (`!tournament_save_roster`): `L2510` (Snapshot active roster to `saved_roster.json`)
+  - `/tournament-restore-roster` (`!tournament_restore_roster`): `L2585` (Restore roster from `saved_roster.json`)
+  - `/tournament-bulk-register` (`!tournament_bulk_register`): `L2665` (Batch register contestants from text)
+  - `/state-save` (`!state_save`): `L2733` (Snapshot all set channels, roles, and panels to `saved_state.json`)
+  - `/state-restore` (`!state_restore`): `L2795` (Restore channels & roles; optional `repost_panels=True`)
+  - `/state-status`: `L2890` (Diagnostic comparison of active vs saved snapshot)
+  - `/tournament-clear`: `L2965` (Wipes roster & sub queues for a fresh event)
   - `/tournament-setup-section`: `L2553` (Constructs official server categories & arenas)
   - `/tournament-remove-section`: `L2645` (Safely deletes server categories & match channels)
   - `/tournament-schedule-event`: `L2711` (Discord event + web sync)
