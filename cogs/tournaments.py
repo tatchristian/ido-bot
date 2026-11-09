@@ -1361,6 +1361,13 @@ class TournamentCog(commands.Cog):
                 except Exception as exc:
                     logger.warning("Could not auto-post subs panel: %s", exc)
 
+        # Sync the live player registration panel status
+        if interaction.guild:
+            try:
+                await self._update_registration_panel(interaction.guild)
+            except Exception as sync_exc:
+                logger.debug("Could not auto-sync registration panel on open_subs: %s", sync_exc)
+
         embed = discord.Embed(
             title="🟢 Substitute Signups Opened",
             description=msg,
@@ -1397,14 +1404,13 @@ class TournamentCog(commands.Cog):
                 reason="Substitute signups closed",
             )
             await self._close_subs_panel(interaction.guild)
-        curr_state = self.service.get_state(guild_id)
-        if curr_state.subs_channel_id:
-            await self._update_channel_permission(
-                interaction.guild,
-                curr_state.subs_channel_id,
-                can_send=False,
-                reason="Substitute signups closed",
-            )
+
+        # Sync the live player registration panel status
+        if interaction.guild:
+            try:
+                await self._update_registration_panel(interaction.guild)
+            except Exception as sync_exc:
+                logger.debug("Could not auto-sync registration panel on close_subs: %s", sync_exc)
 
         embed = discord.Embed(
             title="🔴 Substitute Signups Closed",
@@ -3976,8 +3982,9 @@ class TournamentStaffPanelView(discord.ui.View):
                 if isinstance(ch, discord.TextChannel):
                     return ch
             for ch in interaction.guild.text_channels:
-                ch_name_clean = ch.name.lower().replace("📝", "").replace("🛡️", "").replace("・", "").replace("-", " ")
-                if any(kw in ch_name_clean or kw.replace("-", " ") in ch_name_clean for kw in keywords):
+                # Strip non-alphanumeric characters (emojis, dots, bullet points, hyphens)
+                ch_name_clean = re.sub(r"[^\w\s]", " ", ch.name.lower())
+                if any(re.sub(r"[^\w\s]", " ", kw.lower()).strip() in ch_name_clean for kw in keywords):
                     return ch
             return None
 
@@ -4098,8 +4105,9 @@ class TournamentStaffPanelView(discord.ui.View):
                 if isinstance(ch, discord.TextChannel):
                     return ch
             for ch in interaction.guild.text_channels:
-                ch_name_clean = ch.name.lower().replace("📝", "").replace("🛡️", "").replace("・", "").replace("-", " ")
-                if any(kw in ch_name_clean or kw.replace("-", " ") in ch_name_clean for kw in keywords):
+                # Strip non-alphanumeric characters (emojis, dots, bullet points, hyphens)
+                ch_name_clean = re.sub(r"[^\w\s]", " ", ch.name.lower())
+                if any(re.sub(r"[^\w\s]", " ", kw.lower()).strip() in ch_name_clean for kw in keywords):
                     return ch
             return None
 
@@ -4154,8 +4162,12 @@ class TournamentStaffPanelView(discord.ui.View):
                 color=0xE67E22,
             )
 
-        embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        # Sync the main registration panel live so its "Substitute Bench:" status updates immediately
+        if cog and hasattr(cog, "_update_registration_panel") and interaction.guild:
+            try:
+                await cog._update_registration_panel(interaction.guild)
+            except Exception as sync_exc:
+                logger.debug("Could not auto-sync registration panel on sub toggle: %s", sync_exc)
 
         embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -4346,12 +4358,10 @@ class UserRegistrationModal(discord.ui.Modal, title="Register for Tournament"):
             max_length=50,
             required=True,
         )
-        reg_default = state.allowed_regions[0] if (state.allowed_regions and len(state.allowed_regions) == 1) else ""
         reg_placeholder = f"e.g. {', '.join(state.allowed_regions[:3])}" if state.allowed_regions else "e.g. NA, EU, ASIA"
         self.region_input = discord.ui.TextInput(
             label="Region Tag",
             placeholder=reg_placeholder,
-            default=reg_default,
             max_length=20,
             required=True,
         )
@@ -4644,12 +4654,10 @@ class UserSubRegistrationModal(discord.ui.Modal, title="Join Standby Substitute 
             max_length=50,
             required=True,
         )
-        reg_default = state.allowed_regions[0] if (state.allowed_regions and len(state.allowed_regions) == 1) else ""
         reg_placeholder = f"e.g. {', '.join(state.allowed_regions[:3])}" if state.allowed_regions else "e.g. NA, EU, ASIA"
         self.region_input = discord.ui.TextInput(
             label="Region Tag",
             placeholder=reg_placeholder,
-            default=reg_default,
             max_length=20,
             required=True,
         )

@@ -12,6 +12,7 @@ import re
 import time
 from typing import Optional
 import urllib.request
+import uuid
 
 import discord
 from discord import app_commands
@@ -1474,6 +1475,35 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
 
         logger.info("Registered persistent clan showcase views (Submit Panel, Review Buttons, Clan Role Panel).")
 
+    @commands.Cog.listener()
+    async def on_guild_role_update(self, before: discord.Role, after: discord.Role):
+        """Automatically updates clan database and refreshes the panel when a linked clan role is edited in Discord."""
+        if not after.guild:
+            return
+        approved = self.service.get_approved_clans(after.guild.id)
+        matched_sub = next((s for s in approved if s.role_id == after.id), None)
+        if not matched_sub:
+            return
+
+        changed = False
+        if before.name != after.name:
+            clean_name = after.name.rstrip("/ ").strip()
+            if clean_name and clean_name != matched_sub.clan_name:
+                matched_sub.clan_name = clean_name
+                changed = True
+            matched_sub.role_name = after.name
+            changed = True
+
+        if before.color != after.color and after.color.value != 0:
+            matched_sub.color_int = after.color.value
+            matched_sub.color_hex = f"#{after.color.value:06x}"
+            changed = True
+
+        if changed:
+            self.service._persist()
+            await self._refresh_clan_role_panel(after.guild)
+            logger.info("Automatically synced clan role update for '%s' (%s)", matched_sub.clan_name, after.id)
+
     def _get_clanless_role(self, guild: discord.Guild) -> Optional[discord.Role]:
         """Finds the configured @Clanless role or searches by name."""
         clanless_id = self.service.get_clanless_role_id(guild.id)
@@ -2484,6 +2514,199 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             return
         await self._refresh_clan_role_panel(ctx.guild)
         await ctx.send(f"✅ Clan Role Assignment Panel refreshed in <#{chan_id}>.")
+
+    # -------------------------------------------------------------------------
+    # Command: /clan-sync-roles and !clan_sync_roles
+    # -------------------------------------------------------------------------
+    @app_commands.command(
+        name="clan-sync-roles",
+        description="Admin: Scan server roles ending with '//', import all clans into the database, and link roles.",
+    )
+    @app_commands.describe(
+        suffix="The role suffix to detect clans (default is '//')",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    async def clan_sync_roles_slash(
+        self,
+        interaction: discord.Interaction,
+        suffix: str = "//",
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+        if not is_staff_user(interaction.user, interaction.guild):
+            await interaction.response.send_message("❌ You must be an administrator or staff member.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+
+        imported = []
+        updated = []
+
+        clean_suffix = suffix.strip()
+        target_roles = [
+            r for r in guild.roles
+            if r.name.strip().endswith(clean_suffix) and not r.is_default() and not r.managed
+        ]
+
+        if not target_roles:
+            await interaction.followup.send(
+                f"⚠️ No server roles ending with `{clean_suffix}` were found in this server.",
+                ephemeral=True,
+            )
+            return
+
+        for role in target_roles:
+            raw_name = role.name.strip()
+            if raw_name.endswith(clean_suffix):
+                clean_name = raw_name[:-len(clean_suffix)].strip()
+            else:
+                clean_name = raw_name
+
+            if not clean_name:
+                continue
+
+            existing = next(
+                (
+                    s for s in self.service._submissions.values()
+                    if s.guild_id == guild.id and (s.role_id == role.id or s.clan_name.lower() == clean_name.lower())
+                ),
+                None,
+            )
+
+            color_val = role.color.value if role.color.value != 0 else DEFAULT_CLAN_COLOR
+            color_hex = f"#{color_val:06x}"
+
+            if existing:
+                existing.clan_name = clean_name
+                existing.role_id = role.id
+                existing.role_name = role.name
+                existing.status = "approved"
+                existing.color_int = color_val
+                existing.color_hex = color_hex
+                updated.append(clean_name)
+            else:
+                new_sub = ClanSubmission(
+                    id=str(uuid.uuid4()),
+                    guild_id=guild.id,
+                    applicant_id=interaction.user.id,
+                    applicant_name=str(interaction.user),
+                    clan_name=clean_name,
+                    color_hex=color_hex,
+                    color_int=color_val,
+                    metadata_text=f"Region: Global • Members: {len(role.members)}",
+                    description_text=f"Official clan on {guild.name}.",
+                    activities_motto="Ready for battle.",
+                    logo_url="",
+                    status="approved",
+                    role_id=role.id,
+                    role_name=role.name,
+                )
+                self.service._submissions[new_sub.id] = new_sub
+                imported.append(clean_name)
+
+        self.service._persist()
+        await self._refresh_clan_role_panel(guild)
+
+        all_clans = sorted(imported + updated, key=lambda c: c.lower())
+        clans_display = "\n".join(f"• **{c}**" for c in all_clans)
+        if len(clans_display) > 2000:
+            clans_display = clans_display[:1990] + "..."
+
+        embed = discord.Embed(
+            title="🔄 Clan Roles Synchronized",
+            color=DEFAULT_CLAN_COLOR,
+            description=(
+                f"Successfully scanned and synchronized **{len(target_roles)}** clan roles from the server!\n\n"
+                f"• **New Clans Added:** `{len(imported)}`\n"
+                f"• **Existing Clans Updated:** `{len(updated)}`\n\n"
+                f"**Active Clans Synced ({len(all_clans)}):**\n"
+                f"{clans_display}\n\n"
+                "💡 *The Clan Role Assignment Panel in your channel has been updated live with all clans!*"
+            ),
+        )
+        embed.set_footer(text=f"{config.organization_name} • Clan Alignment System")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+    @commands.command(name="clan_sync_roles")
+    async def clan_sync_roles_prefix(self, ctx: commands.Context, suffix: str = "//"):
+        """Prefix fallback: !clan_sync_roles [suffix]"""
+        if not ctx.guild:
+            await ctx.send("❌ Command must be used in a server.")
+            return
+        if not is_staff_user(ctx.author, ctx.guild):
+            await ctx.send("❌ You must be an administrator or staff member.")
+            return
+
+        guild = ctx.guild
+        clean_suffix = suffix.strip()
+        target_roles = [
+            r for r in guild.roles
+            if r.name.strip().endswith(clean_suffix) and not r.is_default() and not r.managed
+        ]
+
+        if not target_roles:
+            await ctx.send(f"⚠️ No server roles ending with `{clean_suffix}` were found.")
+            return
+
+        imported = []
+        updated = []
+        for role in target_roles:
+            raw_name = role.name.strip()
+            if raw_name.endswith(clean_suffix):
+                clean_name = raw_name[:-len(clean_suffix)].strip()
+            else:
+                clean_name = raw_name
+
+            if not clean_name:
+                continue
+
+            existing = next(
+                (
+                    s for s in self.service._submissions.values()
+                    if s.guild_id == guild.id and (s.role_id == role.id or s.clan_name.lower() == clean_name.lower())
+                ),
+                None,
+            )
+
+            color_val = role.color.value if role.color.value != 0 else DEFAULT_CLAN_COLOR
+            color_hex = f"#{color_val:06x}"
+
+            if existing:
+                existing.clan_name = clean_name
+                existing.role_id = role.id
+                existing.role_name = role.name
+                existing.status = "approved"
+                existing.color_int = color_val
+                existing.color_hex = color_hex
+                updated.append(clean_name)
+            else:
+                new_sub = ClanSubmission(
+                    id=str(uuid.uuid4()),
+                    guild_id=guild.id,
+                    applicant_id=ctx.author.id,
+                    applicant_name=str(ctx.author),
+                    clan_name=clean_name,
+                    color_hex=color_hex,
+                    color_int=color_val,
+                    metadata_text=f"Region: Global • Members: {len(role.members)}",
+                    description_text=f"Official clan on {guild.name}.",
+                    activities_motto="Ready for battle.",
+                    logo_url="",
+                    status="approved",
+                    role_id=role.id,
+                    role_name=role.name,
+                )
+                self.service._submissions[new_sub.id] = new_sub
+                imported.append(clean_name)
+
+        self.service._persist()
+        await self._refresh_clan_role_panel(guild)
+        await ctx.send(
+            f"✅ **Synced {len(target_roles)} clan roles!** ({len(imported)} added, {len(updated)} updated). "
+            f"The Clan Role Assignment Panel is refreshed live."
+        )
 
 async def setup(bot: commands.Bot) -> None:
     service = getattr(bot, "clan_showcase_service", None)

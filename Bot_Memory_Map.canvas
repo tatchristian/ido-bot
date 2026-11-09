@@ -1,0 +1,23 @@
+{
+	"nodes":[
+		{"id":"index","type":"file","file":"memory/index.md","x":0,"y":0,"width":260,"height":180,"color":"1"},
+		{"id":"tournaments","type":"file","file":"memory/tournaments_cog.md","x":-350,"y":-250,"width":300,"height":240,"color":"4"},
+		{"id":"clans","type":"file","file":"memory/clan_showcase_cog.md","x":350,"y":-250,"width":300,"height":240,"color":"5"},
+		{"id":"services","type":"file","file":"memory/services_layer.md","x":-350,"y":250,"width":300,"height":220,"color":"2"},
+		{"id":"ui","type":"file","file":"memory/ui_components.md","x":350,"y":250,"width":300,"height":220,"color":"6"},
+		{"id":"testing","type":"file","file":"memory/testing_suite.md","x":0,"y":350,"width":260,"height":180,"color":"2"},
+		{"id":"wf_reg","type":"file","file":"memory/workflow_user_registration.md","x":-750,"y":-150,"width":280,"height":180,"color":"3"},
+		{"id":"wf_sync","type":"file","file":"memory/workflow_tournament_panel_sync.md","x":-750,"y":150,"width":280,"height":180,"color":"3"},
+		{"id":"wf_clan","type":"file","file":"memory/workflow_clan_role_directory.md","x":750,"y":-150,"width":280,"height":180,"color":"5"}
+	],
+	"edges":[
+		{"id":"e1","fromNode":"index","fromSide":"top","toNode":"tournaments","toSide":"bottom"},
+		{"id":"e2","fromNode":"index","fromSide":"top","toNode":"clans","toSide":"bottom"},
+		{"id":"e3","fromNode":"index","fromSide":"bottom","toNode":"services","toSide":"top"},
+		{"id":"e4","fromNode":"index","fromSide":"bottom","toNode":"ui","toSide":"top"},
+		{"id":"e5","fromNode":"index","fromSide":"bottom","toNode":"testing","toSide":"top"},
+		{"id":"e6","fromNode":"tournaments","fromSide":"left","toNode":"wf_reg","toSide":"right"},
+		{"id":"e7","fromNode":"tournaments","fromSide":"left","toNode":"wf_sync","toSide":"right"},
+		{"id":"e8","fromNode":"clans","fromSide":"right","toNode":"wf_clan","toSide":"left"}
+	]
+}

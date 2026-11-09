@@ -348,12 +348,11 @@ def test_clan_draft_confirmation_view_preset_selection():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-@pytest.mark.asyncio
-async def test_fetch_image_bytes_validation():
+def test_fetch_image_bytes_validation():
     from services.clan_showcase_service import fetch_image_bytes
-    assert await fetch_image_bytes("invalid_url") is None
-    assert await fetch_image_bytes("") is None
-    assert await fetch_image_bytes("ftp://example.com/logo.png") is None
+    assert run_coro(fetch_image_bytes("invalid_url")) is None
+    assert run_coro(fetch_image_bytes("")) is None
+    assert run_coro(fetch_image_bytes("ftp://example.com/logo.png")) is None
 
 
 def test_clan_submission_role_fields_serialization():
@@ -585,6 +584,98 @@ def test_clan_role_helpers_and_clanless_lookup():
         assert found_configured == role_configured
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def test_clan_sync_roles_and_role_update_listener():
+    """Verify scanning roles with '//' imports clans and on_guild_role_update updates them."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from cogs.clan_showcase import ClanShowcaseCog
+    import discord
+
+    temp_dir = Path(tempfile.mkdtemp())
+    try:
+        service = ClanShowcaseService(storage=StorageManager(temp_dir / "temp.json"), data_dir=temp_dir)
+        bot = MagicMock()
+        cog = ClanShowcaseCog(bot, service=service)
+        cog._refresh_clan_role_panel = AsyncMock()
+
+        guild = MagicMock()
+        guild.id = 12345
+        guild.name = "Test Guild"
+        guild.owner_id = 1
+
+        role1 = MagicMock()
+        role1.id = 101
+        role1.name = "Blue Fire //"
+        role1.is_default.return_value = False
+        role1.managed = False
+        role1.color.value = 0x3498DB
+        role1.members = [MagicMock(), MagicMock()]
+
+        role2 = MagicMock()
+        role2.id = 102
+        role2.name = "🌊 MIZU //"
+        role2.is_default.return_value = False
+        role2.managed = False
+        role2.color.value = 0x00E5FF
+        role2.members = [MagicMock()]
+
+        normal_role = MagicMock()
+        normal_role.id = 999
+        normal_role.name = "Member"
+        normal_role.is_default.return_value = False
+        normal_role.managed = False
+
+        guild.roles = [role1, role2, normal_role]
+
+        ctx = MagicMock()
+        ctx.guild = guild
+        ctx.author = MagicMock()
+        ctx.author.id = 1
+        guild.get_member.return_value = ctx.author
+        async def dummy_refresh(*args, **kwargs):
+            pass
+        cog._refresh_clan_role_panel = dummy_refresh
+
+        async def dummy_send(*args, **kwargs):
+            pass
+        ctx.send = dummy_send
+
+        run_coro(cog.clan_sync_roles_prefix.callback(cog, ctx, suffix="//"))
+
+        approved = service.get_approved_clans(guild.id)
+        assert len(approved) == 2
+        names = [c.clan_name for c in approved]
+        assert "Blue Fire" in names
+        assert "🌊 MIZU" in names
+
+        blue_fire = next(c for c in approved if c.clan_name == "Blue Fire")
+        assert blue_fire.role_id == 101
+        assert blue_fire.status == "approved"
+
+        # Now test on_guild_role_update: rename Blue Fire // -> Blue Fire
+        before_role = MagicMock()
+        before_role.id = 101
+        before_role.name = "Blue Fire //"
+        before_role.color.value = 0x3498DB
+
+        after_role = MagicMock()
+        after_role.guild = guild
+        after_role.id = 101
+        after_role.name = "Blue Fire"
+        after_role.color.value = 0xFF5500
+
+        run_coro(cog.on_guild_role_update(before_role, after_role))
+
+        updated_bf = service.get_submission(blue_fire.id)
+        assert updated_bf.clan_name == "Blue Fire"
+        assert updated_bf.role_name == "Blue Fire"
+        assert updated_bf.color_int == 0xFF5500
+        assert updated_bf.color_hex == "#ff5500"
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 
 
 
