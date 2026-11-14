@@ -611,16 +611,154 @@ class TournamentCog(commands.Cog):
         if not guild.me.guild_permissions.manage_channels:
             return False
         try:
-            await channel.set_permissions(
-                guild.default_role,
-                send_messages=can_send,
-                view_channel=True,
-                reason=reason,
-            )
+            state = self.service.get_state(guild.id)
+            is_regional = bool(state.allowed_regions and "GLOBAL" not in [r.upper() for r in state.allowed_regions])
+            if is_regional:
+                await channel.set_permissions(
+                    guild.default_role,
+                    send_messages=can_send,
+                    reason=reason,
+                )
+            else:
+                await channel.set_permissions(
+                    guild.default_role,
+                    send_messages=can_send,
+                    view_channel=True,
+                    reason=reason,
+                )
             return True
         except Exception as e:
             logger.warning("Failed to update permissions for channel %s: %s", channel_id, e)
             return False
+
+    async def _sync_category_region_permissions(
+        self,
+        guild: Optional[discord.Guild],
+        regions: Optional[list[str]] = None,
+        category: Optional[discord.CategoryChannel] = None,
+        reason: str = "Tournament Region View Restriction",
+    ) -> tuple[bool, str]:
+        """
+        Restricts viewing permissions of the tournament category to only members holding
+        the corresponding Region roles (e.g. North America, Europe, Asia, South America, Oceania, Africa).
+        If regions is ['GLOBAL'] or empty, resets @everyone to view_channel=True.
+        """
+        if not guild:
+            return False, "Guild is unavailable."
+        if not guild.me.guild_permissions.manage_channels or not guild.me.guild_permissions.manage_roles:
+            return False, "Bot is missing Manage Channels or Manage Roles permissions."
+
+        state = self.service.get_state(guild.id)
+        active_regions = [r.strip().upper() for r in (regions or state.allowed_regions or ["GLOBAL"])]
+
+        # Determine target category from registration / checkin channel or passed category
+        target_category = category
+        if not target_category:
+            for ch_id in (state.registration_channel_id, state.checkin_channel_id, state.subs_channel_id):
+                if ch_id:
+                    ch = guild.get_channel(ch_id)
+                    if ch and getattr(ch, "category", None):
+                        target_category = ch.category
+                        break
+
+        if not target_category:
+            for cat in guild.categories:
+                cat_clean = cat.name.lower()
+                if any(kw in cat_clean for kw in ("tournament", "tourney", "event", "uda", "championship", "dueling")):
+                    target_category = cat
+                    break
+
+        if not target_category:
+            return False, "No tournament category found to apply region visibility."
+
+        # Region name normalization mapping (acronym to full name and variants)
+        region_map = {
+            "NA": ["north america", "na"],
+            "EU": ["europe", "eu"],
+            "ASIA": ["asia", "as"],
+            "SA": ["south america", "sa", "latin america", "latam"],
+            "OCE": ["oceania", "oce", "australia"],
+            "AFRICA": ["africa", "afr"],
+        }
+
+        is_global = "GLOBAL" in active_regions or not active_regions
+
+        try:
+            if is_global:
+                await target_category.set_permissions(
+                    guild.default_role,
+                    view_channel=True,
+                    reason=f"{reason} (Global Tournament - Open to All)",
+                )
+                return True, f"Category **{target_category.name}** view opened to all regions (@everyone)."
+
+            # Restrict @everyone: cannot view
+            await target_category.set_permissions(
+                guild.default_role,
+                view_channel=False,
+                reason=f"{reason} (Restricted to: {', '.join(active_regions)})",
+            )
+
+            # Ensure bot has explicit view and manage access
+            if guild.me:
+                await target_category.set_permissions(
+                    guild.me,
+                    view_channel=True,
+                    manage_channels=True,
+                    reason=f"{reason} (Bot Access)",
+                )
+
+            # Ensure admin role has view access if configured
+            admin_role = None
+            if state.admin_role_id:
+                admin_role = guild.get_role(state.admin_role_id)
+            if not admin_role and (state.admin_role_name or config.admin_role_name):
+                arn = (state.admin_role_name or config.admin_role_name or "").strip().lower()
+                admin_role = discord.utils.find(lambda r: r.name.strip().lower() == arn, guild.roles)
+            if admin_role:
+                await target_category.set_permissions(
+                    admin_role,
+                    view_channel=True,
+                    reason=f"{reason} (Admin Role Access)",
+                )
+
+            # Match and grant view_channel=True to the allowed region roles
+            allowed_role_names = []
+            for r_code in active_regions:
+                aliases = region_map.get(r_code, [r_code.lower()])
+                for role in guild.roles:
+                    if role == guild.default_role or not isinstance(role.name, str):
+                        continue
+                    role_lower = role.name.lower().strip()
+                    if any(alias == role_lower or role_lower.startswith(alias + " ") or role_lower.endswith(" " + alias) for alias in aliases):
+                        await target_category.set_permissions(
+                            role,
+                            view_channel=True,
+                            reason=f"{reason} (Allowed region: {r_code})",
+                        )
+                        allowed_role_names.append(role.name)
+                        break
+
+            # Deny view_channel for other standard region roles that are NOT allowed
+            for r_code, aliases in region_map.items():
+                if r_code not in active_regions:
+                    for role in guild.roles:
+                        if role == guild.default_role or not isinstance(role.name, str):
+                            continue
+                        role_lower = role.name.lower().strip()
+                        if any(alias == role_lower or role_lower.startswith(alias + " ") or role_lower.endswith(" " + alias) for alias in aliases):
+                            await target_category.set_permissions(
+                                role,
+                                view_channel=False,
+                                reason=f"{reason} (Disallowed region: {r_code})",
+                            )
+                            break
+
+            roles_str = ", ".join(f"`@{rn}`" for rn in set(allowed_role_names)) if allowed_role_names else f"roles for {', '.join(active_regions)}"
+            return True, f"Category **{target_category.name}** visibility restricted to {roles_str}."
+        except Exception as exc:
+            logger.warning("Could not sync category region permissions: %s", exc)
+            return False, f"Failed to sync category permissions: {exc}"
 
     async def _post_or_update_registration_panel(
         self, guild: discord.Guild, channel: discord.TextChannel
@@ -922,23 +1060,24 @@ class TournamentCog(commands.Cog):
     )
     @app_commands.describe(
         ign="Your In-Game Name",
-        weapon="Your selected approved weapon",
         region="Your competition region (NA, EU, OCE, ASIA, SA)",
+        weapon="Optional weapon choice (optional)",
     )
     @app_commands.choices(weapon=WEAPON_CHOICES, region=REGION_CHOICES)
     async def register(
         self,
         interaction: discord.Interaction,
         ign: str,
-        weapon: app_commands.Choice[str],
         region: app_commands.Choice[str],
+        weapon: Optional[app_commands.Choice[str]] = None,
     ):
         guild_id = interaction.guild_id or 0
+        chosen_weapon = weapon.value if weapon else "Standard"
         success, message, participant = self.service.register_participant(
             user_id=interaction.user.id,
             user_mention=interaction.user.mention,
             ign=ign,
-            weapon=weapon.value,
+            weapon=chosen_weapon,
             region=region.value,
             guild_id=guild_id,
         )
@@ -996,23 +1135,24 @@ class TournamentCog(commands.Cog):
     )
     @app_commands.describe(
         ign="Your In-Game Name",
-        weapon="Your selected approved weapon",
         region="Your competition region (NA, EU, OCE, ASIA, SA)",
+        weapon="Optional weapon choice (optional)",
     )
     @app_commands.choices(weapon=WEAPON_CHOICES, region=REGION_CHOICES)
     async def sub_register(
         self,
         interaction: discord.Interaction,
         ign: str,
-        weapon: app_commands.Choice[str],
         region: app_commands.Choice[str],
+        weapon: Optional[app_commands.Choice[str]] = None,
     ):
         guild_id = interaction.guild_id or 0
+        chosen_weapon = weapon.value if weapon else "Standard"
         success, message, sub = self.service.register_substitute(
             user_id=interaction.user.id,
             user_mention=interaction.user.mention,
             ign=ign,
-            weapon=weapon.value,
+            weapon=chosen_weapon,
             region=region.value,
             guild_id=guild_id,
         )
@@ -1379,6 +1519,16 @@ class TournamentCog(commands.Cog):
                         await self._post_or_update_subs_panel(interaction.guild, target_subs)
                     except Exception as exc:
                         logger.warning("Could not auto-post subs panel: %s", exc)
+
+            if interaction.guild:
+                try:
+                    await self._sync_category_region_permissions(
+                        interaction.guild,
+                        regions=selected_regions or curr_state.allowed_regions,
+                        reason=f"Tournament opened for {tourney_name}",
+                    )
+                except Exception as cat_exc:
+                    logger.warning("Could not auto-sync category region permissions: %s", cat_exc)
 
             await interaction.response.send_message(embed=embed)
         except ValueError as e:
@@ -1912,6 +2062,15 @@ class TournamentCog(commands.Cog):
         msg = self.service.set_regions(selected_regions, guild_id=guild_id)
         await self._update_registration_panel(interaction.guild)
         await self._update_subs_panel(interaction.guild)
+        if interaction.guild:
+            try:
+                await self._sync_category_region_permissions(
+                    interaction.guild,
+                    regions=selected_regions,
+                    reason=f"Region filter updated to {', '.join(selected_regions)}",
+                )
+            except Exception as cat_exc:
+                logger.warning("Could not sync category region permissions on set_regions: %s", cat_exc)
         embed = discord.Embed(
             title="🌍 Allowed Regions Updated",
             description=msg,
@@ -2271,6 +2430,8 @@ class TournamentCog(commands.Cog):
             kw["subs_channel_id"] = channel.id
 
         self.service.set_channels(**kw, guild_id=guild_id)
+        if target.value in ("registration", "checkin", "substitutes") and getattr(channel, "category", None) and interaction.guild:
+            await self._sync_category_region_permissions(interaction.guild, category=channel.category)
         embed = discord.Embed(
             title="📁 Dedicated Tournament Channel Updated",
             description=f"✅ **{target.name}** successfully linked to {channel.mention}.\n\n"
@@ -2316,6 +2477,8 @@ class TournamentCog(commands.Cog):
             return
 
         self.service.set_channels(**kw, guild_id=guild_id)
+        if target.value in ("registration", "checkin", "substitutes") and getattr(channel, "category", None) and interaction.guild:
+            await self._sync_category_region_permissions(interaction.guild, category=channel.category)
         await ctx.send(f"✅ **{tname}** updated to {channel.mention}.")
 
     @app_commands.command(
@@ -4410,6 +4573,17 @@ class StaffCreateTournamentModal(discord.ui.Modal, title="Create / Configure Tou
             guild_id=guild_id,
         )
 
+        cog = interaction.client.get_cog("TournamentCog")
+        if cog and hasattr(cog, "_sync_category_region_permissions") and interaction.guild:
+            try:
+                await cog._sync_category_region_permissions(
+                    interaction.guild,
+                    regions=selected_regions,
+                    reason=f"Tournament configured for {name}",
+                )
+            except Exception as cat_exc:
+                logger.warning("Could not sync category region permissions on modal submit: %s", cat_exc)
+
         embed = discord.Embed(
             title="⚙️ Tournament Created & Configured",
             description=(
@@ -4650,6 +4824,15 @@ class TournamentStaffPanelView(discord.ui.View):
 
         reg_channel = find_target_channel(state.registration_channel_id, ["tournament-registration", "registration", "signup", "sign-up", "register"])
         reg_posted = False
+
+        if interaction.guild:
+            cog = interaction.client.get_cog("TournamentCog")
+            if cog and hasattr(cog, "_sync_category_region_permissions"):
+                await cog._sync_category_region_permissions(
+                    interaction.guild,
+                    regions=state.allowed_regions,
+                    reason=f"Registrations opened for {state.name}",
+                )
 
         if reg_channel and interaction.guild:
             cog = interaction.client.get_cog("TournamentCog")
@@ -5011,13 +5194,6 @@ class UserRegistrationModal(discord.ui.Modal, title="Register for Tournament"):
             max_length=50,
             required=True,
         )
-        weapon_sample = state.approved_weapons[0] if state.approved_weapons else "Katana"
-        self.weapon_input = discord.ui.TextInput(
-            label="Approved Weapon",
-            placeholder=f"e.g. {weapon_sample}",
-            max_length=50,
-            required=True,
-        )
         reg_placeholder = f"e.g. {', '.join(state.allowed_regions[:3])}" if state.allowed_regions else "e.g. NA, EU, ASIA"
         self.region_input = discord.ui.TextInput(
             label="Region Tag",
@@ -5026,14 +5202,13 @@ class UserRegistrationModal(discord.ui.Modal, title="Register for Tournament"):
             required=True,
         )
         self.add_item(self.ign_input)
-        self.add_item(self.weapon_input)
         self.add_item(self.region_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         guild_id = interaction.guild_id or 0
         ign = self.ign_input.value.strip()
-        weapon = self.weapon_input.value.strip()
+        weapon = "Standard"
         region = self.region_input.value.strip().upper()
 
         success, message, participant = self.service.register_participant(
@@ -5061,10 +5236,9 @@ class UserRegistrationModal(discord.ui.Modal, title="Register for Tournament"):
             title="🎟️ Registration Confirmed!",
             description=(
                 f"Welcome **{participant.ign}** to **{state.name}**!\n\n"
-                f"• **Weapon:** `{participant.weapon}`\n"
                 f"• **Region:** `{participant.region}`\n"
                 f"• **Bracket Slot:** `{len(state.participants)}/{state.max_slots}` registered\n\n"
-                "💡 *Need to adjust your weapon or IGN? Run `/tournament-edit-entry` or click Withdraw on the panel.*"
+                "💡 *Need to adjust your IGN or Region? Run `/tournament-edit-entry` or click Withdraw on the panel.*"
             ),
             color=0x2ECC71,
         )
@@ -5307,13 +5481,6 @@ class UserSubRegistrationModal(discord.ui.Modal, title="Join Standby Substitute 
             max_length=50,
             required=True,
         )
-        weapon_sample = state.approved_weapons[0] if state.approved_weapons else "Katana"
-        self.weapon_input = discord.ui.TextInput(
-            label="Approved Weapon",
-            placeholder=f"e.g. {weapon_sample}",
-            max_length=50,
-            required=True,
-        )
         reg_placeholder = f"e.g. {', '.join(state.allowed_regions[:3])}" if state.allowed_regions else "e.g. NA, EU, ASIA"
         self.region_input = discord.ui.TextInput(
             label="Region Tag",
@@ -5322,14 +5489,13 @@ class UserSubRegistrationModal(discord.ui.Modal, title="Join Standby Substitute 
             required=True,
         )
         self.add_item(self.ign_input)
-        self.add_item(self.weapon_input)
         self.add_item(self.region_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         guild_id = interaction.guild_id or 0
         ign = self.ign_input.value.strip()
-        weapon = self.weapon_input.value.strip()
+        weapon = "Standard"
         region = self.region_input.value.strip().upper()
 
         success, message, sub = self.service.register_substitute(
@@ -5355,7 +5521,6 @@ class UserSubRegistrationModal(discord.ui.Modal, title="Join Standby Substitute 
             title="🛡️ Standby Substitute Bench Joined!",
             description=(
                 f"Welcome **{sub.ign}** to the standby queue for **{state.name}**!\n\n"
-                f"• **Weapon:** `{sub.weapon}`\n"
                 f"• **Region:** `{sub.region}`\n"
                 f"• **Queue Position:** `#{pos}` in line\n\n"
                 "💡 *On match day, if any main players fail to check in, substitutes are promoted in order.*"

@@ -42,12 +42,13 @@
 - `StaffCreateTournamentModal`: `L3646` (Title, slots, regions, registration channel)
 - `StaffAnnounceModal`: `L3770` (Broadcast announcement message to players)
 - `StaffSetTimeModal`: `L3836` (Date, time, and timezone configuration)
-- `UserRegistrationModal`: `L4340` (IGN, weapon placeholder, Region Tag placeholder with mismatch validation)
-- `UserSubRegistrationModal`: `L4636` (Standby substitute registration form)
+- `UserRegistrationModal`: `L4340` (IGN and Region Tag only; weapon input removed, defaults to "Standard")
+- `UserSubRegistrationModal`: `L4636` (Standby substitute registration form; weapon input removed, defaults to "Standard")
 
 ---
 
 ## 🔗 Live Synchronization Hooks
+- `_sync_category_region_permissions()`: Category permission sync restricting visibility exclusively to allowed region roles (`North America`, `Europe`, `Asia`, `South America`, `Oceania`, `Africa`) when a regional tournament is opened, or resetting to `@everyone` if `GLOBAL`.
 - `_update_channel_permission()`: `L582`
 - `_post_or_update_registration_panel()`: `L612`
 - `_update_registration_panel()`: `L640`

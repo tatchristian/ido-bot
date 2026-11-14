@@ -7,13 +7,16 @@
 ## ⚡ Registration Lifecycle
 
 ```
+[ Category View Restricted to Server Region Roles (e.g. @Asia) ]
+                                │
+                                ▼
 [ Player clicks "⚔️ Register for Tournament" on Registration Hub ]
                                 │
                                 ▼
         [ UserRegistrationModal Pops Up (Single Modal) ]
              • In-Game Name (IGN): [ Required Input ]
-             • Approved Weapon:    [ Placeholder e.g. Daggers ]
              • Region Tag:         [ Empty Input with gray placeholder e.g. ASIA, NA ]
+             (Weapon input removed: automatically defaults to "Standard")
                                 │
                                 ▼
                        [ Player Clicks Submit ]
