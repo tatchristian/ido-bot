@@ -34,6 +34,21 @@ DEFAULT_REGIONS = ["GLOBAL"]
 STANDARD_REGIONS = ["NA", "EU", "OCE", "ASIA", "SA"]
 
 
+class CheckinResult(tuple):
+    """
+    A 2-tuple (success, message) for 100% backward compatibility with all existing
+    code and tests: `ok, msg = service.checkin_user(...)` or `ok, msg = service.cancel_checkin(...)`.
+    Also provides named attributes: .success, .message, .participant, .role_type.
+    """
+    def __new__(cls, success: bool, message: str, participant: Any = None, role_type: str = ""):
+        instance = super().__new__(cls, (success, message))
+        instance.success = success
+        instance.message = message
+        instance.participant = participant
+        instance.role_type = role_type
+        return instance
+
+
 @dataclass
 class Participant:
     user_id: int
@@ -86,10 +101,12 @@ class TournamentState:
     thirty_min_dm_sent: list[int] = field(default_factory=list)
     announcement_channel_id: int | None = None
     checkin_channel_id: int | None = None
+    checkin_log_channel_id: int | None = None
     subs_channel_id: int | None = None
     registration_channel_id: int | None = None
     registration_message_id: int | None = None
     subs_message_id: int | None = None
+    checkin_message_id: int | None = None
     participants: list[Participant] = field(default_factory=list)
     substitutes: list[Participant] = field(default_factory=list)
     created_at: str = field(
@@ -122,10 +139,12 @@ class TournamentState:
             thirty_min_dm_sent=[int(uid) for uid in data.get("thirty_min_dm_sent", [])],
             announcement_channel_id=int(data["announcement_channel_id"]) if data.get("announcement_channel_id") is not None else None,
             checkin_channel_id=int(data["checkin_channel_id"]) if data.get("checkin_channel_id") is not None else None,
+            checkin_log_channel_id=int(data["checkin_log_channel_id"]) if data.get("checkin_log_channel_id") is not None else None,
             subs_channel_id=int(data["subs_channel_id"]) if data.get("subs_channel_id") is not None else None,
             registration_channel_id=int(data["registration_channel_id"]) if data.get("registration_channel_id") is not None else None,
             registration_message_id=int(data["registration_message_id"]) if data.get("registration_message_id") is not None else None,
             subs_message_id=int(data["subs_message_id"]) if data.get("subs_message_id") is not None else None,
+            checkin_message_id=int(data["checkin_message_id"]) if data.get("checkin_message_id") is not None else None,
             participants=[
                 Participant.from_dict(p) for p in data.get("participants", [])
             ],
@@ -162,10 +181,12 @@ class TournamentState:
             "thirty_min_dm_sent": self.thirty_min_dm_sent,
             "announcement_channel_id": self.announcement_channel_id,
             "checkin_channel_id": self.checkin_channel_id,
+            "checkin_log_channel_id": self.checkin_log_channel_id,
             "subs_channel_id": self.subs_channel_id,
             "registration_channel_id": self.registration_channel_id,
             "registration_message_id": self.registration_message_id,
             "subs_message_id": self.subs_message_id,
+            "checkin_message_id": self.checkin_message_id,
             "participants": [p.to_dict() for p in self.participants],
             "substitutes": [s.to_dict() for s in self.substitutes],
             "created_at": self.created_at,
@@ -484,16 +505,19 @@ class TournamentService:
         self,
         announcement_channel_id: int | None = None,
         checkin_channel_id: int | None = None,
+        checkin_log_channel_id: int | None = None,
         subs_channel_id: int | None = None,
         registration_channel_id: int | None = None,
         guild_id: int = 0,
     ) -> str:
-        """Sets dedicated Discord channel IDs for announcements, check-in, substitutes, and registrations."""
+        """Sets dedicated Discord channel IDs for announcements, check-in, checkin logs, substitutes, and registrations."""
         state = self.get_state(guild_id)
         if announcement_channel_id is not None:
             state.announcement_channel_id = announcement_channel_id
         if checkin_channel_id is not None:
             state.checkin_channel_id = checkin_channel_id
+        if checkin_log_channel_id is not None:
+            state.checkin_log_channel_id = checkin_log_channel_id
         if subs_channel_id is not None:
             state.subs_channel_id = subs_channel_id
         if registration_channel_id is not None:
@@ -506,6 +530,7 @@ class TournamentService:
         state = self.get_state(guild_id)
         state.announcement_channel_id = None
         state.checkin_channel_id = None
+        state.checkin_log_channel_id = None
         state.subs_channel_id = None
         state.registration_channel_id = None
         self._persist(guild_id)
@@ -918,29 +943,81 @@ class TournamentService:
             f"• Standby Substitutes: `{sub_checked} / {sub_total}` ready for call-up"
         )
 
-    def checkin_user(self, user_id: int, guild_id: int = 0) -> tuple[bool, str]:
-        """Records participant or substitute check-in."""
+    def checkin_user(self, user_id: int, guild_id: int = 0) -> CheckinResult:
+        """
+        Records participant or substitute check-in.
+        Returns: CheckinResult(success, message, participant_obj, role_type)
+        """
         state = self.get_state(guild_id)
         if not state.checkin_open:
-            return False, "Tournament check-in is not currently open."
+            return CheckinResult(False, "Tournament check-in is not currently open.", None, "")
 
         p = next((p for p in state.participants if p.user_id == user_id), None)
         if p:
             if p.checked_in:
-                return False, f"You are already checked in for **{state.name}**!"
+                return CheckinResult(False, f"You are already checked in for **{state.name}**!", p, "main")
             p.checked_in = True
             self._persist(guild_id)
-            return True, f"✅ Check-in confirmed for **{p.ign}** ({p.user_mention})!"
+            return CheckinResult(True, f"✅ Check-in confirmed for **{p.ign}** ({p.user_mention})!", p, "main")
 
         s = next((s for s in state.substitutes if s.user_id == user_id), None)
         if s:
             if s.checked_in:
-                return False, f"You are already checked in as an active standby substitute!"
+                return CheckinResult(False, f"You are already checked in as an active standby substitute!", s, "sub")
             s.checked_in = True
             self._persist(guild_id)
-            return True, f"🛡️ Standby substitute check-in confirmed for **{s.ign}** ({s.user_mention})! You are verified as available for call-up."
+            return CheckinResult(True, f"🛡️ Standby substitute check-in confirmed for **{s.ign}** ({s.user_mention})! You are verified as available for call-up.", s, "sub")
 
-        return False, "You are not registered in the tournament roster or substitute queue."
+        return CheckinResult(False, "You are not registered in the tournament roster or substitute queue.", None, "")
+
+    def cancel_checkin(self, user_id: int, guild_id: int = 0) -> CheckinResult:
+        """
+        Cancels / retracts an active check-in for a main duelist or standby sub.
+        Returns: CheckinResult(success, message, participant_obj, role_type)
+        """
+        state = self.get_state(guild_id)
+        if not state.checkin_open:
+            return CheckinResult(False, "Tournament check-in is not currently open.", None, "")
+
+        p = next((p for p in state.participants if p.user_id == user_id), None)
+        if p:
+            if not p.checked_in:
+                return CheckinResult(False, f"You are not currently checked in for **{state.name}**.", p, "main")
+            p.checked_in = False
+            self._persist(guild_id)
+            return CheckinResult(True, f"↩️ Check-in retracted for **{p.ign}** ({p.user_mention}). Status reset to unconfirmed.", p, "main")
+
+        s = next((s for s in state.substitutes if s.user_id == user_id), None)
+        if s:
+            if not s.checked_in:
+                return CheckinResult(False, f"You are not currently checked in as a substitute.", s, "sub")
+            s.checked_in = False
+            self._persist(guild_id)
+            return CheckinResult(True, f"↩️ Standby check-in retracted for **{s.ign}** ({s.user_mention}). Status reset to unconfirmed.", s, "sub")
+
+        return CheckinResult(False, "You are not registered in the tournament roster or substitute queue.", None, "")
+
+    def staff_set_checkin(self, user_id: int, status: bool, guild_id: int = 0) -> CheckinResult:
+        """
+        Admin override to force set check-in status for a contestant.
+        status: True for checked_in, False for unconfirmed.
+        """
+        state = self.get_state(guild_id)
+        p = next((p for p in state.participants if p.user_id == user_id), None)
+        if p:
+            p.checked_in = status
+            self._persist(guild_id)
+            status_str = "Checked In" if status else "Unconfirmed"
+            return CheckinResult(True, f"⚙️ Staff Override: **{p.ign}** ({p.user_mention}) check-in set to **{status_str}**.", p, "main")
+
+        s = next((s for s in state.substitutes if s.user_id == user_id), None)
+        if s:
+            s.checked_in = status
+            self._persist(guild_id)
+            status_str = "Checked In (Standby Ready)" if status else "Unconfirmed"
+            return CheckinResult(True, f"⚙️ Staff Override: Standby Sub **{s.ign}** ({s.user_mention}) check-in set to **{status_str}**.", s, "sub")
+
+        return CheckinResult(False, "Participant not found in tournament roster or substitute queue.", None, "")
 
     def get_unconfirmed_participants(self, guild_id: int = 0) -> list[Participant]:
         """Returns main bracket participants who haven't checked in yet."""

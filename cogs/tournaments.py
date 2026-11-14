@@ -35,6 +35,8 @@ from services.website_sync_service import (
     parse_event_datetime,
 )
 from utils.ui import (
+    build_checkin_panel_embed,
+    build_checkin_receipt_embed,
     build_help_embed,
     build_registration_closed_embed,
     build_registration_panel_embed,
@@ -339,6 +341,9 @@ class TournamentCog(commands.Cog):
         closed_subs_view = TournamentClosedSubsView()
         self.bot.add_view(closed_subs_view)
         logger.info("Registered persistent tournament closed subs view.")
+        checkin_panel_view = TournamentCheckinPanelView()
+        self.bot.add_view(checkin_panel_view)
+        logger.info("Registered persistent tournament check-in panel view.")
         if not self.tournament_reminder_task.is_running():
             self.tournament_reminder_task.start()
             logger.info("Started tournament match day & 30-minute reminder background task.")
@@ -753,6 +758,93 @@ class TournamentCog(commands.Cog):
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
             logger.debug("Could not edit substitute panel to closed: %s", exc)
 
+    async def _post_or_update_checkin_panel(
+        self, guild: discord.Guild, channel: discord.TextChannel
+    ) -> discord.Message:
+        """
+        Posts or updates the live Tournament Check-In Hub in the specified channel.
+        Stores the message ID in the tournament state.
+        """
+        state = self.service.get_state(guild.id)
+        state.checkin_channel_id = channel.id
+        embed = build_checkin_panel_embed(state, guild)
+        view = TournamentCheckinPanelView()
+
+        msg = None
+        if state.checkin_message_id:
+            try:
+                existing = await channel.fetch_message(state.checkin_message_id)
+                await existing.edit(embed=embed, view=view)
+                msg = existing
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                msg = None
+
+        if not msg:
+            msg = await channel.send(embed=embed, view=view)
+            state.checkin_message_id = msg.id
+
+        self.service._persist(guild.id)
+        return msg
+
+    async def _update_checkin_panel(self, guild: Optional[discord.Guild]) -> None:
+        """Dynamically edits the live tournament check-in panel in the designated channel."""
+        if not guild:
+            return
+        state = self.service.get_state(guild.id)
+        if not state.checkin_channel_id or not state.checkin_message_id:
+            return
+        channel = guild.get_channel(state.checkin_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return
+        try:
+            msg = await channel.fetch_message(state.checkin_message_id)
+            embed = build_checkin_panel_embed(state, guild)
+            view = TournamentCheckinPanelView()
+            await msg.edit(embed=embed, view=view)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            logger.debug("Could not live-update check-in panel: %s", exc)
+
+    async def _update_all_live_panels(self, guild: Optional[discord.Guild]) -> None:
+        """Helper to refresh Registration, Substitute, and Check-In panels concurrently."""
+        if not guild:
+            return
+        await self._update_registration_panel(guild)
+        await self._update_subs_panel(guild)
+        await self._update_checkin_panel(guild)
+
+    async def _dispatch_checkin_log(
+        self,
+        guild: Optional[discord.Guild],
+        participant: Any,
+        action: str,
+        role_type: str = "main",
+        staff_member: Optional[discord.Member] = None,
+    ) -> None:
+        """Dispatches an audit receipt embed to the configured check-in log channel."""
+        if not guild or not participant:
+            return
+        state = self.service.get_state(guild.id)
+        log_ch_id = state.checkin_log_channel_id or state.checkin_channel_id
+        if not log_ch_id:
+            return
+        channel = guild.get_channel(log_ch_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            return
+        perms = channel.permissions_for(guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            return
+        try:
+            embed = build_checkin_receipt_embed(
+                state=state,
+                participant=participant,
+                action=action,
+                role_type=role_type,
+                staff_member=staff_member,
+            )
+            await channel.send(embed=embed)
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.debug("Could not send check-in receipt to log channel: %s", exc)
+
     # =========================================================================
     # Help & Guidance
     # =========================================================================
@@ -1056,13 +1148,14 @@ class TournamentCog(commands.Cog):
     )
     async def checkin(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id or 0
-        success, msg = self.service.checkin_user(interaction.user.id, guild_id=guild_id)
+        res = self.service.checkin_user(interaction.user.id, guild_id=guild_id)
+        success, msg, part, role_type = res.success, res.message, res.participant, res.role_type
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
 
-        await self._update_registration_panel(interaction.guild)
-        await self._update_subs_panel(interaction.guild)
+        await self._update_all_live_panels(interaction.guild)
+        await self._dispatch_checkin_log(interaction.guild, part, action="checked_in", role_type=role_type)
 
         embed = discord.Embed(
             title="🎟️ Tournament Check-In",
@@ -1072,22 +1165,13 @@ class TournamentCog(commands.Cog):
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
 
         state = self.service.get_state(guild_id)
-        checkin_ch = (
-            interaction.guild.get_channel(state.checkin_channel_id)
-            if (interaction.guild and state.checkin_channel_id)
+        log_ch = (
+            interaction.guild.get_channel(state.checkin_log_channel_id or state.checkin_channel_id)
+            if (interaction.guild and (state.checkin_log_channel_id or state.checkin_channel_id))
             else None
         )
-        if checkin_ch and checkin_ch != interaction.channel:
-            perms = checkin_ch.permissions_for(interaction.guild.me)
-            if perms.send_messages and perms.embed_links:
-                await checkin_ch.send(embed=embed)
-                await interaction.response.send_message(
-                    f"{msg}\n💡 *Logged into {checkin_ch.mention} to keep this chat clean.*",
-                    ephemeral=True,
-                )
-                return
-
-        await interaction.response.send_message(embed=embed)
+        log_note = f"\n💡 *Audit receipt logged to {log_ch.mention}.*" if log_ch else ""
+        await interaction.response.send_message(f"{msg}{log_note}", ephemeral=True)
 
     @app_commands.command(
         name="tournament-sub-checkin",
@@ -1095,39 +1179,23 @@ class TournamentCog(commands.Cog):
     )
     async def sub_checkin(self, interaction: discord.Interaction):
         guild_id = interaction.guild_id or 0
-        success, msg = self.service.checkin_user(interaction.user.id, guild_id=guild_id)
+        res = self.service.checkin_user(interaction.user.id, guild_id=guild_id)
+        success, msg, part, role_type = res.success, res.message, res.participant, res.role_type
         if not success:
             await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
             return
 
-        await self._update_registration_panel(interaction.guild)
-        await self._update_subs_panel(interaction.guild)
-
-        embed = discord.Embed(
-            title="🛡️ Substitute Check-In Confirmed",
-            description=msg,
-            color=0x3498DB,
-        )
-        embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await self._update_all_live_panels(interaction.guild)
+        await self._dispatch_checkin_log(interaction.guild, part, action="checked_in", role_type=role_type)
 
         state = self.service.get_state(guild_id)
-        target_ch_id = state.subs_channel_id or state.checkin_channel_id
-        target_ch = (
-            interaction.guild.get_channel(target_ch_id)
-            if (interaction.guild and target_ch_id)
+        log_ch = (
+            interaction.guild.get_channel(state.checkin_log_channel_id or state.checkin_channel_id)
+            if (interaction.guild and (state.checkin_log_channel_id or state.checkin_channel_id))
             else None
         )
-        if target_ch and target_ch != interaction.channel:
-            perms = target_ch.permissions_for(interaction.guild.me)
-            if perms.send_messages and perms.embed_links:
-                await target_ch.send(embed=embed)
-                await interaction.response.send_message(
-                    f"{msg}\n💡 *Logged into {target_ch.mention} to keep this chat clean.*",
-                    ephemeral=True,
-                )
-                return
-
-        await interaction.response.send_message(embed=embed)
+        log_note = f"\n💡 *Audit receipt logged to {log_ch.mention}.*" if log_ch else ""
+        await interaction.response.send_message(f"{msg}{log_note}", ephemeral=True)
 
     @app_commands.command(
         name="tournament-status",
@@ -1480,6 +1548,7 @@ class TournamentCog(commands.Cog):
             embed=embed,
             confirm_message="📢 Check-in window opened in",
         )
+        await self._update_all_live_panels(interaction.guild)
 
     @app_commands.command(
         name="tournament-close-checkin",
@@ -1506,6 +1575,7 @@ class TournamentCog(commands.Cog):
             color=0xE74C3C,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
+        await self._update_all_live_panels(interaction.guild)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     def _resolve_user_id(self, user_str: str | None, guild_id: int) -> int | None:
@@ -2176,6 +2246,7 @@ class TournamentCog(commands.Cog):
             app_commands.Choice(name="Registration Channel (#tournament-registration)", value="registration"),
             app_commands.Choice(name="Announcements Channel (#tournament-announcements)", value="announcements"),
             app_commands.Choice(name="Check-In Channel (#tournament-check-in)", value="checkin"),
+            app_commands.Choice(name="Check-In Log Channel (#checkin-logs)", value="checkin_logs"),
             app_commands.Choice(name="Substitutes Bench Channel (#substitutes-bench)", value="substitutes"),
         ]
     )
@@ -2194,6 +2265,8 @@ class TournamentCog(commands.Cog):
             kw["announcement_channel_id"] = channel.id
         elif target.value == "checkin":
             kw["checkin_channel_id"] = channel.id
+        elif target.value == "checkin_logs":
+            kw["checkin_log_channel_id"] = channel.id
         elif target.value == "substitutes":
             kw["subs_channel_id"] = channel.id
 
@@ -2232,6 +2305,9 @@ class TournamentCog(commands.Cog):
         elif tgt in ("checkin", "check-in", "check_in"):
             kw["checkin_channel_id"] = channel.id
             tname = "Check-In Channel"
+        elif tgt in ("checkin_logs", "checkin-logs", "checkinlog", "checkinlogs", "logs"):
+            kw["checkin_log_channel_id"] = channel.id
+            tname = "Check-In Log Channel"
         elif tgt in ("sub", "subs", "substitutes", "substitute"):
             kw["subs_channel_id"] = channel.id
             tname = "Substitutes Bench Channel"
@@ -3796,6 +3872,108 @@ class TournamentCog(commands.Cog):
 
         await self._post_or_update_subs_panel(ctx.guild, target_channel)
         await ctx.send(f"✅ Standby Substitute Hub posted to {target_channel.mention}!")
+
+    @app_commands.command(
+        name="tournament-post-checkin-panel",
+        description="[Admin] Post or refresh the live interactive Tournament Check-In Hub in a channel.",
+    )
+    @app_commands.describe(
+        channel="Optional channel to post into (defaults to configured check-in channel or current channel)"
+    )
+    @is_tournament_admin()
+    async def post_checkin_panel_cmd(
+        self, interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ This command must be run inside a server.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        target_channel = channel or (interaction.guild.get_channel(state.checkin_channel_id) if state.checkin_channel_id else None) or interaction.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await interaction.response.send_message("❌ Target must be a valid text channel.", ephemeral=True)
+            return
+
+        perms = target_channel.permissions_for(interaction.guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            await interaction.response.send_message(
+                f"❌ Missing Send Messages or Embed Links permission in {target_channel.mention}.",
+                ephemeral=True,
+            )
+            return
+
+        await self._post_or_update_checkin_panel(interaction.guild, target_channel)
+        await interaction.response.send_message(
+            f"✅ Tournament Check-In Hub posted to {target_channel.mention}!", ephemeral=True
+        )
+
+    @commands.command(name="post_checkin_panel", aliases=["post_checkin_hub"])
+    @commands.guild_only()
+    async def post_checkin_panel_prefix(
+        self, ctx: commands.Context, channel: Optional[discord.TextChannel] = None
+    ):
+        """Prefix command to post the interactive Tournament Check-In Hub."""
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You do not have permission to use this command.")
+            return
+
+        guild_id = ctx.guild.id
+        state = self.service.get_state(guild_id)
+        target_channel = channel or (ctx.guild.get_channel(state.checkin_channel_id) if state.checkin_channel_id else None) or ctx.channel
+        if not isinstance(target_channel, discord.TextChannel):
+            await ctx.send("❌ Target must be a valid text channel.")
+            return
+
+        await self._post_or_update_checkin_panel(ctx.guild, target_channel)
+        await ctx.send(f"✅ Tournament Check-In Hub posted to {target_channel.mention}!")
+
+    @app_commands.command(
+        name="tournament-staff-checkin",
+        description="[Admin] Manually override and set a contestant's check-in status.",
+    )
+    @app_commands.describe(
+        user="Discord user (or mention) to override",
+        status="Target check-in status (checked_in or unconfirmed)",
+    )
+    @app_commands.choices(
+        status=[
+            app_commands.Choice(name="✅ Checked In & Ready", value="checked_in"),
+            app_commands.Choice(name="❌ Unconfirmed / Not Checked In", value="unconfirmed"),
+        ]
+    )
+    @is_tournament_admin()
+    async def staff_checkin_cmd(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        status: app_commands.Choice[str],
+    ):
+        guild_id = interaction.guild_id or 0
+        new_status = (status.value == "checked_in")
+        res = self.service.staff_set_checkin(user.id, new_status, guild_id=guild_id)
+        success, msg, part, role_type = res.success, res.message, res.participant, res.role_type
+        if not success:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+
+        await self._update_all_live_panels(interaction.guild)
+        staff_actor = interaction.user if isinstance(interaction.user, discord.Member) else None
+        await self._dispatch_checkin_log(
+            interaction.guild,
+            part,
+            action="staff_override",
+            role_type=role_type,
+            staff_member=staff_actor,
+        )
+
+        embed = discord.Embed(
+            title="⚙️ Staff Check-In Override",
+            description=msg,
+            color=0x2ECC71 if new_status else 0xE67E22,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Staff Operations")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="post-staff-guide",
@@ -5382,6 +5560,207 @@ class TournamentClosedSubsView(discord.ui.View):
         guild_id = interaction.guild_id or 0
         state = srv.get_state(guild_id)
         embed = build_roster_embed(state)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class TournamentCheckinPanelView(discord.ui.View):
+    """
+    Persistent interactive Tournament Check-In Hub posted in #tournament-check-in.
+    Features 1-click check-in, cancel check-in, status check, and active attendee list.
+    """
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    def _get_service(self, interaction: discord.Interaction) -> TournamentService | None:
+        srv = getattr(interaction.client, "tournament_service", None)
+        if not srv:
+            cog = interaction.client.get_cog("TournamentCog")
+            if cog:
+                srv = getattr(cog, "service", None)
+        return srv
+
+    def _get_cog(self, interaction: discord.Interaction):
+        return interaction.client.get_cog("TournamentCog")
+
+    @discord.ui.button(
+        label="Check In",
+        emoji="🎟️",
+        style=discord.ButtonStyle.success,
+        custom_id="btn_checkin_hub_action",
+        row=0,
+    )
+    async def checkin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        cog = self._get_cog(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+
+        if not state.checkin_open:
+            await interaction.response.send_message(
+                f"🔒 Check-in for **{state.name}** is not currently open.",
+                ephemeral=True,
+            )
+            return
+
+        res = service.checkin_user(interaction.user.id, guild_id=guild_id)
+        success, msg, part, role_type = res.success, res.message, res.participant, res.role_type
+        if not success:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+
+        if cog:
+            await cog._update_all_live_panels(interaction.guild)
+            await cog._dispatch_checkin_log(interaction.guild, part, action="checked_in", role_type=role_type)
+
+        embed = discord.Embed(
+            title="🎟️ Check-In Confirmed",
+            description=msg,
+            color=0x2ECC71,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Check-In")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(
+        label="Cancel Check-In",
+        emoji="❌",
+        style=discord.ButtonStyle.danger,
+        custom_id="btn_checkin_hub_cancel",
+        row=0,
+    )
+    async def cancel_checkin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        cog = self._get_cog(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+
+        if not state.checkin_open:
+            await interaction.response.send_message(
+                f"🔒 Check-in for **{state.name}** is closed. Changes can only be made by Tournament Staff.",
+                ephemeral=True,
+            )
+            return
+
+        res = service.cancel_checkin(interaction.user.id, guild_id=guild_id)
+        success, msg, part, role_type = res.success, res.message, res.participant, res.role_type
+        if not success:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+
+        if cog:
+            await cog._update_all_live_panels(interaction.guild)
+            await cog._dispatch_checkin_log(interaction.guild, part, action="cancelled", role_type=role_type)
+
+        embed = discord.Embed(
+            title="↩️ Check-In Cancelled",
+            description=msg,
+            color=0xE67E22,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Tournament Check-In")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @discord.ui.button(
+        label="My Status",
+        emoji="📋",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_checkin_hub_status",
+        row=0,
+    )
+    async def status_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+
+        part = next((p for p in state.participants if p.user_id == interaction.user.id), None)
+        if part:
+            checked_str = "✅ **Checked In & Verified Ready**" if part.checked_in else "⚠️ **Not Checked In (Pending Attendance Confirmation)**"
+            embed = discord.Embed(
+                title=f"📋 Your Status — {state.name}",
+                color=0x2ECC71 if part.checked_in else 0xE67E22,
+            )
+            embed.add_field(name="Roster Tier", value="Main Bracket Contestant", inline=True)
+            embed.add_field(name="Registered IGN", value=f"`{part.ign}`", inline=True)
+            embed.add_field(name="Weapon / Region", value=f"`{part.weapon}` / `{part.region}`", inline=True)
+            embed.add_field(name="Check-In Status", value=checked_str, inline=False)
+            embed.set_footer(text=f"{config.organization_name} • Contestant Record")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        sub_entry = next(((idx + 1, s) for idx, s in enumerate(state.substitutes) if s.user_id == interaction.user.id), None)
+        if sub_entry:
+            pos, s = sub_entry
+            checked_str = "✅ **Checked In (Ready for Call-Up)**" if s.checked_in else "⚠️ **Not Checked In (Pending Call-Up Confirmation)**"
+            embed = discord.Embed(
+                title=f"📋 Your Status — {state.name}",
+                color=0x3498DB if s.checked_in else 0xE67E22,
+            )
+            embed.add_field(name="Roster Tier", value="Standby Substitute Bench", inline=True)
+            embed.add_field(name="Queue Position", value=f"**#{pos}** of {len(state.substitutes)}", inline=True)
+            embed.add_field(name="Registered IGN", value=f"`{s.ign}`", inline=True)
+            embed.add_field(name="Weapon / Region", value=f"`{s.weapon}` / `{s.region}`", inline=True)
+            embed.add_field(name="Check-In Status", value=checked_str, inline=False)
+            embed.set_footer(text=f"{config.organization_name} • Standby Record")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            f"❌ You are not registered for **{state.name}**. Use the registration hub or substitute bench to join!",
+            ephemeral=True,
+        )
+
+    @discord.ui.button(
+        label="Checked-In List",
+        emoji="📊",
+        style=discord.ButtonStyle.secondary,
+        custom_id="btn_checkin_hub_list",
+        row=0,
+    )
+    async def list_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        service = self._get_service(interaction)
+        if not service:
+            await interaction.response.send_message("❌ Tournament service unavailable.", ephemeral=True)
+            return
+        guild_id = interaction.guild_id or 0
+        state = service.get_state(guild_id)
+
+        main_checked = [p for p in state.participants if p.checked_in]
+        subs_checked = [s for s in state.substitutes if s.checked_in]
+
+        embed = discord.Embed(
+            title=f"📊 Checked-In Attendance — {state.name}",
+            color=0x2ECC71,
+        )
+
+        if main_checked:
+            main_lines = [f"`{idx+1}.` **{p.ign}** ({p.user_mention}) • `{p.weapon}` [{p.region}]" for idx, p in enumerate(main_checked)]
+            embed.add_field(
+                name=f"Main Bracket ({len(main_checked)}/{len(state.participants)} Checked In)",
+                value="\n".join(main_lines)[:1024],
+                inline=False,
+            )
+        else:
+            embed.add_field(name="Main Bracket (0 Checked In)", value="*No main players have checked in yet.*", inline=False)
+
+        if subs_checked:
+            subs_lines = [f"`#{idx+1}.` **{s.ign}** ({s.user_mention}) • `{s.weapon}` [{s.region}]" for idx, s in enumerate(subs_checked)]
+            embed.add_field(
+                name=f"Standby Substitutes Ready ({len(subs_checked)}/{len(state.substitutes)})",
+                value="\n".join(subs_lines)[:1024],
+                inline=False,
+            )
+
+        embed.set_footer(text=f"{config.organization_name} • Match Attendance")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 

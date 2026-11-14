@@ -33,6 +33,7 @@ class ChannelStateSnapshot:
     announcement_channel_id: Optional[int] = None
     registration_channel_id: Optional[int] = None
     checkin_channel_id: Optional[int] = None
+    checkin_log_channel_id: Optional[int] = None
     subs_channel_id: Optional[int] = None
     admin_role_id: Optional[int] = None
     admin_role_name: Optional[str] = None
@@ -42,6 +43,7 @@ class ChannelStateSnapshot:
     event_role_name: Optional[str] = None
     registration_message_id: Optional[int] = None
     subs_message_id: Optional[int] = None
+    checkin_message_id: Optional[int] = None
 
     # Clan Showcase channels & roles
     showcase_channel_id: Optional[int] = None
@@ -64,6 +66,7 @@ class ChannelStateSnapshot:
             announcement_channel_id=t_data.get("announcement_channel_id") or data.get("announcement_channel_id"),
             registration_channel_id=t_data.get("registration_channel_id") or data.get("registration_channel_id"),
             checkin_channel_id=t_data.get("checkin_channel_id") or data.get("checkin_channel_id"),
+            checkin_log_channel_id=t_data.get("checkin_log_channel_id") or data.get("checkin_log_channel_id"),
             subs_channel_id=t_data.get("subs_channel_id") or data.get("subs_channel_id"),
             admin_role_id=t_data.get("admin_role_id") or data.get("admin_role_id"),
             admin_role_name=t_data.get("admin_role_name") or data.get("admin_role_name"),
@@ -73,6 +76,7 @@ class ChannelStateSnapshot:
             event_role_name=t_data.get("event_role_name") or data.get("event_role_name"),
             registration_message_id=t_data.get("registration_message_id") or data.get("registration_message_id"),
             subs_message_id=t_data.get("subs_message_id") or data.get("subs_message_id"),
+            checkin_message_id=t_data.get("checkin_message_id") or data.get("checkin_message_id"),
             showcase_channel_id=c_data.get("showcase_channel_id") or data.get("showcase_channel_id"),
             staff_review_channel_id=c_data.get("staff_review_channel_id") or data.get("staff_review_channel_id"),
             clan_role_channel_id=c_data.get("clan_role_channel_id") or data.get("clan_role_channel_id"),
@@ -105,6 +109,7 @@ class StateSnapshotService:
             announcement_channel_id=t_state.announcement_channel_id,
             registration_channel_id=t_state.registration_channel_id,
             checkin_channel_id=t_state.checkin_channel_id,
+            checkin_log_channel_id=getattr(t_state, "checkin_log_channel_id", None),
             subs_channel_id=t_state.subs_channel_id,
             admin_role_id=t_state.admin_role_id,
             admin_role_name=t_state.admin_role_name,
@@ -114,6 +119,7 @@ class StateSnapshotService:
             event_role_name=getattr(t_state, "event_role_name", None),
             registration_message_id=t_state.registration_message_id,
             subs_message_id=t_state.subs_message_id,
+            checkin_message_id=getattr(t_state, "checkin_message_id", None),
             showcase_channel_id=showcase_ch,
             staff_review_channel_id=review_ch,
             clan_role_channel_id=role_panel_ch,
@@ -140,6 +146,7 @@ class StateSnapshotService:
                 "announcement_channel_id": snapshot.announcement_channel_id,
                 "registration_channel_id": snapshot.registration_channel_id,
                 "checkin_channel_id": snapshot.checkin_channel_id,
+                "checkin_log_channel_id": snapshot.checkin_log_channel_id,
                 "subs_channel_id": snapshot.subs_channel_id,
                 "admin_role_id": snapshot.admin_role_id,
                 "admin_role_name": snapshot.admin_role_name,
@@ -149,6 +156,7 @@ class StateSnapshotService:
                 "event_role_name": snapshot.event_role_name,
                 "registration_message_id": snapshot.registration_message_id,
                 "subs_message_id": snapshot.subs_message_id,
+                "checkin_message_id": snapshot.checkin_message_id,
             },
             "clan_showcase": {
                 "showcase_channel_id": snapshot.showcase_channel_id,
@@ -196,6 +204,8 @@ class StateSnapshotService:
             t_state.registration_channel_id = snapshot.registration_channel_id
         if snapshot.checkin_channel_id is not None:
             t_state.checkin_channel_id = snapshot.checkin_channel_id
+        if getattr(snapshot, "checkin_log_channel_id", None) is not None:
+            t_state.checkin_log_channel_id = snapshot.checkin_log_channel_id
         if snapshot.subs_channel_id is not None:
             t_state.subs_channel_id = snapshot.subs_channel_id
         if snapshot.admin_role_id is not None:
@@ -214,6 +224,8 @@ class StateSnapshotService:
             t_state.registration_message_id = snapshot.registration_message_id
         if snapshot.subs_message_id is not None:
             t_state.subs_message_id = snapshot.subs_message_id
+        if getattr(snapshot, "checkin_message_id", None) is not None:
+            t_state.checkin_message_id = snapshot.checkin_message_id
 
         tournament_service._persist(guild_id)
 

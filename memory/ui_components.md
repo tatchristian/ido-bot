@@ -22,3 +22,5 @@
 - `build_subs_panel_embed()`: `L764` (Standby Substitute Queue Hub embed)
 - `build_subs_closed_embed()`: `L802` (Substitutes closed notice)
 - `build_clan_role_panel_embed()`: `L828` (Official Clan Alignment Directory embed)
+- `build_checkin_panel_embed()`: Live match-day check-in hub displaying attendance stats (`X/Y Checked In`), visual progress bar, standby sub availability, and match start countdown.
+- `build_checkin_receipt_embed()`: Audit receipt embed dispatched to `#checkin-logs` tracking contestant, IGN, weapon, region, status, and optional staff moderator.

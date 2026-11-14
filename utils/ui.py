@@ -6,6 +6,7 @@ Matches the official UDA aesthetic, tournament status/roster layouts, and help g
 from __future__ import annotations
 
 import discord
+from datetime import datetime, timezone
 from config import config
 from services.tournament_service import DEFAULT_WEAPONS, STANDARD_REGIONS, Participant, TournamentState
 
@@ -1028,3 +1029,98 @@ def build_clan_role_panel_embed(clans: list[Any], org_name: str | None = None) -
     return embed
 
 
+
+
+def build_checkin_panel_embed(state: Any, guild: discord.Guild | None = None) -> discord.Embed:
+    """
+    Builds the interactive live Tournament Check-In Hub embed posted in #tournament-check-in.
+    Displays live check-in progress, time remaining, and instructions.
+    """
+    org = config.organization_name
+    main_total = len(state.participants)
+    main_checked = sum(1 for p in state.participants if p.checked_in)
+    subs_total = len(state.substitutes)
+    subs_checked = sum(1 for s in state.substitutes if s.checked_in)
+
+    pct = int((main_checked / main_total) * 100) if main_total > 0 else 0
+    bar = generate_progress_bar(main_checked, max(main_total, 1), bar_length=8)
+
+    time_str = f"<t:{state.start_timestamp}:F> (<t:{state.start_timestamp}:R>)" if state.start_timestamp else "*TBD*"
+    status_header = "### 🎟️ **TOURNAMENT CHECK-IN IS OPEN**" if state.checkin_open else "### 🔒 **TOURNAMENT CHECK-IN IS CLOSED**"
+    color = 0x2ECC71 if state.checkin_open else 0x95A5A6  # Emerald if open, Slate if closed
+
+    desc_lines = [
+        f"Welcome duelist! The official check-in desk for **{state.name}** is active.",
+        "",
+        status_header,
+        f"**Main Bracket Attendance:** `{main_checked} / {main_total}` ({pct}%)",
+        f"`{bar}`",
+        f"**Standby Substitutes Ready:** `{subs_checked} / {subs_total}` duelist(s)",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "**ℹ️ Check-In Rules & Match Flow:**",
+        "• All main bracket participants **must** check in before the match start.",
+        "• Unconfirmed main players when the bracket launches will be replaced by verified substitutes in queue order.",
+        "• Standby substitutes who check in are locked in prioritized FIFO queue order for call-up.",
+        f"• **Scheduled Match Start:** {time_str}",
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+        "**🎟️ How to Check In:**",
+        "• Click **`🎟️ Check In`** below for instant 1-click confirmation.",
+        "• Click **`❌ Cancel Check-In`** if you are no longer able to attend.",
+        "• Click **`📋 My Status`** to inspect your attendance and registration details.",
+        "• Click **`📊 Checked-In List`** to see who is verified ready.",
+    ]
+
+    embed = discord.Embed(
+        title=f"🎟️ {state.name} — Tournament Check-In Hub",
+        description="\n".join(desc_lines),
+        color=color,
+    )
+    embed.set_footer(text=f"{org} • Match-Day Check-In System")
+    return embed
+
+
+def build_checkin_receipt_embed(
+    state: Any,
+    participant: Any,
+    action: str,  # "checked_in", "cancelled", "staff_override"
+    role_type: str = "main",  # "main" or "sub"
+    staff_member: discord.Member | None = None,
+) -> discord.Embed:
+    """
+    Builds the audit receipt embed dispatched to the designated check-in log channel.
+    """
+    org = config.organization_name
+    role_label = "Main Bracket Contestant" if role_type == "main" else "Standby Substitute"
+
+    if action == "checked_in":
+        title = "🎟️ Contestant Check-In Confirmed"
+        color = 0x2ECC71  # Green
+        status_str = f"✅ **Checked In & Verified Ready** ({role_label})"
+    elif action == "cancelled":
+        title = "↩️ Contestant Check-In Retracted"
+        color = 0xE67E22  # Orange
+        status_str = f"⚠️ **Check-In Cancelled / Unconfirmed** ({role_label})"
+    else:  # staff_override
+        title = "⚙️ Staff Check-In Override"
+        color = 0x3498DB  # Blue
+        status_str = f"🛠️ **Updated by Staff** ({role_label})"
+
+    embed = discord.Embed(
+        title=title,
+        color=color,
+        timestamp=datetime.now(timezone.utc),
+    )
+    embed.add_field(name="Duelist", value=participant.user_mention, inline=True)
+    embed.add_field(name="IGN", value=f"`{participant.ign}`", inline=True)
+    embed.add_field(name="Weapon", value=f"`{participant.weapon}`", inline=True)
+    embed.add_field(name="Region", value=f"`{participant.region}`", inline=True)
+    embed.add_field(name="Current Status", value=status_str, inline=True)
+    embed.add_field(name="Tournament", value=f"**{state.name}**", inline=True)
+
+    if staff_member:
+        embed.add_field(name="Moderator", value=staff_member.mention, inline=True)
+
+    embed.set_footer(text=f"{org} • Check-In Audit Logs")
+    return embed

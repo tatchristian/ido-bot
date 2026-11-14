@@ -30,6 +30,12 @@
   - `btn_sub_leave_hub`: `L4757` -> Withdraws from queue
   - `btn_sub_pos_hub`: `L4789` -> Shows FIFO queue position (e.g. #1 of 5)
 
+- **Match-Day Check-In Hub View:** `TournamentCheckinPanelView` (persistent, timeout=None)
+  - `btn_checkin_hub_action`: 1-click check-in for main duelists or standby subs. Updates panels and dispatches receipt to `#checkin-logs`.
+  - `btn_checkin_hub_cancel`: Retracts an active check-in during the window, resetting status to unconfirmed.
+  - `btn_checkin_hub_status`: Ephemeral check showing tier, verified IGN, weapon/region, and sub queue spot.
+  - `btn_checkin_hub_list`: Renders formatted list of all checked-in contestants.
+
 ---
 
 ## 📋 Modal Popups

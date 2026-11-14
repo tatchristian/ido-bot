@@ -50,7 +50,6 @@ class TestApiServer(AioHTTPTestCase):
         self.bot = DummyBot()
         return create_api_app(self.bot)
 
-    @unittest_run_loop
     async def test_health_check_returns_ok_with_cors(self):
         resp = await self.client.get("/health")
         assert resp.status == 200
@@ -58,14 +57,12 @@ class TestApiServer(AioHTTPTestCase):
         assert "UDA Duke Bot API is operational" in text
         assert resp.headers.get("Access-Control-Allow-Origin") == "*"
 
-    @unittest_run_loop
     async def test_options_preflight_returns_204_with_cors(self):
         resp = await self.client.options("/tournaments")
         assert resp.status == 204
         assert resp.headers.get("Access-Control-Allow-Origin") == "*"
         assert "GET" in resp.headers.get("Access-Control-Allow-Methods", "")
 
-    @unittest_run_loop
     async def test_tournaments_empty_list_initially(self):
         resp = await self.client.get("/tournaments")
         assert resp.status == 200
@@ -73,7 +70,6 @@ class TestApiServer(AioHTTPTestCase):
         assert isinstance(data, list)
         assert len(data) == 0
 
-    @unittest_run_loop
     async def test_tournaments_scheduled_events_and_states(self):
         # Setup scheduled Discord event
         guild = DummyGuild()
@@ -105,7 +101,6 @@ class TestApiServer(AioHTTPTestCase):
         assert ev2["date"] == "2026-12-01"
         assert ev2["type"] == "Championship"
 
-    @unittest_run_loop
     async def test_leaderboard_and_clans_endpoint(self):
         # Add approved and pending clans
         sub1 = ClanSubmission(
@@ -160,7 +155,6 @@ class TestApiServer(AioHTTPTestCase):
         data_alias = await resp_alias.json()
         assert data_alias == data
 
-    @unittest_run_loop
     async def test_players_endpoint(self):
         state = TournamentState(name="Test Cup")
         state.participants.append(
@@ -179,7 +173,6 @@ class TestApiServer(AioHTTPTestCase):
         assert any(p["name"] == "Viper" and p["score"] == 1000 for p in data)
         assert any(p["name"] == "Kensei" and p["score"] == 1000 for p in data)
 
-    @unittest_run_loop
     async def test_canceled_and_completed_events_excluded_from_upcoming(self):
         guild = DummyGuild()
         now = datetime.now(timezone.utc)
@@ -200,7 +193,6 @@ class TestApiServer(AioHTTPTestCase):
         assert len(data) == 1
         assert data[0]["name"] == "Active Cup"
 
-    @unittest_run_loop
     async def test_past_results_endpoint(self):
         from services.past_results_service import PastResultsService
         storage = MagicMock()
