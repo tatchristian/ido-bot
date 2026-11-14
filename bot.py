@@ -111,7 +111,7 @@ class UDATournamentBot(commands.Bot):
                 if t_state.registration_channel_id is None or showcase_ch is None:
                     if state_file.exists():
                         self.state_snapshot_service.restore_snapshot(
-                            guild.id, self.tournament_service, self.clan_showcase_service, file_path=state_file
+                            guild.id, self.tournament_service, self.clan_showcase_service, file_path=state_file, guild=guild
                         )
                         logger.info("Auto-restored channel state snapshot from saved_state.json for guild %d", guild.id)
                     else:

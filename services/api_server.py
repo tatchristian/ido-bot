@@ -91,7 +91,7 @@ def create_api_app(bot: Any) -> web.Application:
 
         # 2. Inspect active tournament states from TournamentService
         if hasattr(bot, "tournament_service"):
-            states = getattr(bot.tournament_service, "_guild_states", {})
+            states = getattr(bot.tournament_service, "_states", getattr(bot.tournament_service, "_guild_states", {}))
             for gid, state in states.items():
                 if state.participants or state.main_open or state.subs_open:
                     created_date = (
@@ -186,7 +186,7 @@ def create_api_app(bot: Any) -> web.Application:
         seen_igns = set()
 
         if hasattr(bot, "tournament_service"):
-            states = getattr(bot.tournament_service, "_guild_states", {})
+            states = getattr(bot.tournament_service, "_states", getattr(bot.tournament_service, "_guild_states", {}))
             for state in states.values():
                 for p in getattr(state, "participants", []):
                     if p.ign and p.ign not in seen_igns:

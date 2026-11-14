@@ -5,6 +5,7 @@ Fully supports isolated per-server (multi-guild) tournaments.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import re
@@ -946,9 +947,12 @@ class TournamentCog(commands.Cog):
         """Helper to refresh Registration, Substitute, and Check-In panels concurrently."""
         if not guild:
             return
-        await self._update_registration_panel(guild)
-        await self._update_subs_panel(guild)
-        await self._update_checkin_panel(guild)
+        await asyncio.gather(
+            self._update_registration_panel(guild),
+            self._update_subs_panel(guild),
+            self._update_checkin_panel(guild),
+            return_exceptions=True,
+        )
 
     async def _dispatch_checkin_log(
         self,

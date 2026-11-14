@@ -40,7 +40,7 @@ class DummyBot:
     def __init__(self):
         self.guilds = []
         self.tournament_service = MagicMock()
-        self.tournament_service._guild_states = {}
+        self.tournament_service._states = {}
         self.clan_showcase_service = MagicMock()
         self.clan_showcase_service._submissions = {}
 
@@ -84,7 +84,7 @@ class TestApiServer(AioHTTPTestCase):
         state.participants.append(
             Participant(user_id=1, user_mention="<@1>", ign="ShadowBlade", weapon="Katana", region="NA")
         )
-        self.bot.tournament_service._guild_states[12345] = state
+        self.bot.tournament_service._states[12345] = state
 
         resp = await self.client.get("/tournaments")
         assert resp.status == 200
@@ -163,7 +163,7 @@ class TestApiServer(AioHTTPTestCase):
         state.participants.append(
             Participant(user_id=102, user_mention="<@102>", ign="Kensei", weapon="Katana", region="NA")
         )
-        self.bot.tournament_service._guild_states[999] = state
+        self.bot.tournament_service._states[999] = state
 
         resp = await self.client.get("/players")
         assert resp.status == 200
