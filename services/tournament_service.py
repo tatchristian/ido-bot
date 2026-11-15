@@ -97,6 +97,7 @@ class TournamentState:
     start_time: str | None = None
     start_timestamp: int | None = None
     event_id: int | None = None
+    event_canceled: bool = False
     day_of_dm_sent: list[int] = field(default_factory=list)
     thirty_min_dm_sent: list[int] = field(default_factory=list)
     announcement_channel_id: int | None = None
@@ -135,6 +136,7 @@ class TournamentState:
             start_time=str(data["start_time"]) if data.get("start_time") is not None else None,
             start_timestamp=int(data["start_timestamp"]) if data.get("start_timestamp") is not None else None,
             event_id=int(data["event_id"]) if data.get("event_id") is not None else None,
+            event_canceled=bool(data.get("event_canceled", False)),
             day_of_dm_sent=[int(uid) for uid in data.get("day_of_dm_sent", [])],
             thirty_min_dm_sent=[int(uid) for uid in data.get("thirty_min_dm_sent", [])],
             announcement_channel_id=int(data["announcement_channel_id"]) if data.get("announcement_channel_id") is not None else None,
@@ -177,6 +179,7 @@ class TournamentState:
             "start_time": self.start_time,
             "start_timestamp": self.start_timestamp,
             "event_id": self.event_id,
+            "event_canceled": self.event_canceled,
             "day_of_dm_sent": self.day_of_dm_sent,
             "thirty_min_dm_sent": self.thirty_min_dm_sent,
             "announcement_channel_id": self.announcement_channel_id,
@@ -394,6 +397,7 @@ class TournamentService:
         if event_id is not None:
             state.event_id = event_id
 
+        state.event_canceled = False
         state.main_open = True
         if open_subs is not None:
             state.subs_open = open_subs
@@ -547,6 +551,7 @@ class TournamentService:
         state = self.get_state(guild_id)
         state.start_time = start_time
         state.start_timestamp = start_timestamp
+        state.event_canceled = False
         if event_id is not None:
             state.event_id = event_id
         # Reset DM trackers when time changes so fresh reminders can be dispatched
@@ -556,6 +561,15 @@ class TournamentService:
         if start_timestamp:
             return f"⏰ Tournament start time set to <t:{start_timestamp}:F> (<t:{start_timestamp}:R>)."
         return "⏰ Tournament start time cleared."
+
+    def cancel_event(self, guild_id: int = 0) -> None:
+        """Cancels active scheduled event and removes tournament from website upcoming feed."""
+        state = self.get_state(guild_id)
+        state.event_id = None
+        state.start_time = None
+        state.start_timestamp = None
+        state.event_canceled = True
+        self._persist(guild_id)
 
     def mark_dm_sent(self, user_id: int, reminder_type: str, guild_id: int = 0) -> None:
         """Records that a user has been sent a reminder DM ('day_of' or '30_min')."""
@@ -581,6 +595,7 @@ class TournamentService:
         state.start_time = None
         state.start_timestamp = None
         state.event_id = None
+        state.event_canceled = False
         state.day_of_dm_sent.clear()
         state.thirty_min_dm_sent.clear()
         state.registration_message_id = None

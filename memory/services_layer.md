@@ -19,6 +19,7 @@
   - `save_roster_preset()`: `L1047` (Exports active roster snapshot to preset JSON file, e.g. `saved_roster.json`)
   - `import_roster_preset()`: `L1072` (Imports & restores roster parameters, participants & subs from preset file)
   - `bulk_register()`: `L1128` (Batch-enrolls duelists from delimited string/list with auto fallback defaults)
+  - `cancel_event(guild_id)`: Marks `event_canceled = True` and clears schedule timestamps so `api_server` immediately drops event from website feed
   - `_persist(guild_id)`: Saves to `storage/tournaments_{guild_id}.json`
 
 ---

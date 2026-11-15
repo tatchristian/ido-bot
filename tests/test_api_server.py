@@ -187,6 +187,13 @@ class TestApiServer(AioHTTPTestCase):
         )
         self.bot.guilds.append(guild)
 
+        # Active state that was canceled should also be excluded
+        canceled_state = TournamentState(name="Canceled Tournament State", event_canceled=True)
+        canceled_state.participants.append(
+            Participant(user_id=1, user_mention="<@1>", ign="PlayerOne", weapon="Katana", region="ASIA")
+        )
+        self.bot.tournament_service._states[8888] = canceled_state
+
         resp = await self.client.get("/tournaments")
         assert resp.status == 200
         data = await resp.json()

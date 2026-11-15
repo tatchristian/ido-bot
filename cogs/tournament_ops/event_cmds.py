@@ -190,18 +190,33 @@ class TournamentEventMixin:
     ) -> list[app_commands.Choice[str]]:
         choices = []
         guild = interaction.guild
+        seen_names = set()
+
         if guild:
+            # 1. Native Discord scheduled events (active and recently ended/completed)
             for ev in getattr(guild, "scheduled_events", []):
-                status_str = str(getattr(ev, "status", "")).lower()
-                if "cancel" in status_str or "complete" in status_str or "ended" in status_str:
-                    continue
                 date_str = ev.start_time.strftime("%m/%d") if ev.start_time else "TBD"
-                display_name = f"{ev.name} ({date_str})"[:100]
-                if not current or current.lower() in display_name.lower():
+                status_str = str(getattr(ev, "status", "")).lower()
+                suffix = " [Ended]" if ("complete" in status_str or "ended" in status_str) else ""
+                display_name = f"{ev.name} ({date_str}){suffix}"[:100]
+                seen_names.add(ev.name.lower())
+                if not current or current.lower() in display_name.lower() or current.lower() in ev.name.lower():
                     choices.append(app_commands.Choice(name=display_name, value=str(ev.id)))
-                    if len(choices) >= 25:
+                    if len(choices) >= 20:
                         break
-        return choices
+
+            # 2. Include active tournament state / website feed if not already in choices
+            if hasattr(self, "service") and len(choices) < 25:
+                state = self.service.get_state(guild.id)
+                if state and state.name:
+                    state_name_lower = state.name.lower()
+                    if state_name_lower not in seen_names:
+                        status_tag = " [Canceled]" if getattr(state, "event_canceled", False) else " [Active State / Website]"
+                        display_name = f"{state.name}{status_tag}"[:100]
+                        if not current or current.lower() in display_name.lower():
+                            choices.append(app_commands.Choice(name=display_name, value=state.name))
+
+        return choices[:25]
 
     async def _past_results_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -226,7 +241,7 @@ class TournamentEventMixin:
         description="Admin: Cancel and remove an upcoming scheduled event from Discord and the website schedule.",
     )
     @app_commands.describe(
-        event="The scheduled tournament event to cancel and remove"
+        event="The scheduled tournament event or active tournament to cancel and remove"
     )
     @is_event_admin()
     async def cancel_event(self, interaction: discord.Interaction, event: str):
@@ -235,37 +250,62 @@ class TournamentEventMixin:
             await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
             return
 
+        clean_event = event.strip()
+        clean_event_lower = clean_event.lower()
+
         target_event = None
         for ev in getattr(guild, "scheduled_events", []):
-            if str(ev.id) == event or ev.name.lower() == event.lower():
+            if (
+                str(ev.id) == clean_event
+                or ev.name.lower() == clean_event_lower
+                or clean_event_lower in ev.name.lower()
+            ):
                 target_event = ev
                 break
 
-        if not target_event:
+        state = self.service.get_state(guild.id)
+        is_state_match = (
+            state
+            and state.name
+            and (
+                clean_event_lower == state.name.lower()
+                or clean_event_lower in state.name.lower()
+                or state.name.lower() in clean_event_lower
+                or (state.event_id and str(state.event_id) == clean_event)
+                or (target_event and target_event.name.lower() == state.name.lower())
+            )
+        )
+
+        if not target_event and not is_state_match:
             await interaction.response.send_message(
-                f"❌ Could not find a scheduled event matching `{event}`.",
+                f"❌ Could not find a scheduled event or active tournament matching `{event}`.",
                 ephemeral=True,
             )
             return
 
-        event_name = target_event.name
-        try:
-            await target_event.delete(reason=f"Canceled by {interaction.user} via /event cancel")
-        except Exception as exc:
-            logger.error("Failed to delete scheduled event %s: %s", target_event.id, exc)
-            await interaction.response.send_message(
-                f"❌ Failed to cancel scheduled event: {exc}",
-                ephemeral=True,
-            )
-            return
+        event_name = target_event.name if target_event else (state.name if state else clean_event)
 
+        # 1. Delete Discord scheduled event if found
+        discord_deleted = False
+        if target_event:
+            try:
+                await target_event.delete(reason=f"Canceled by {interaction.user} via /event cancel")
+                discord_deleted = True
+            except Exception as exc:
+                logger.warning("Could not delete Discord scheduled event %s (may already be ended): %s", target_event.id, exc)
+
+        # 2. Mark event canceled in tournament state and clear schedule so website removes it
+        if state:
+            self.service.cancel_event(guild.id)
+
+        banner_status = "Removed" if discord_deleted else "Already offline / ended"
         embed = discord.Embed(
             title="🗑️ Tournament Event Canceled",
             description=(
                 f"**Event:** `{event_name}`\n"
                 f"**Action:** Removed from Discord server events and the website upcoming schedule.\n\n"
-                f"• The top-of-server banner has been removed.\n"
-                f"• [unitedduelingamity.org/tournaments.html](https://unitedduelingamity.org/tournaments.html) will no longer list this event."
+                f"• **Discord Server Banner:** {banner_status}\n"
+                f"• **Website Feed:** [unitedduelingamity.org/tournaments.html](https://unitedduelingamity.org/tournaments.html) will no longer list this event under Upcoming."
             ),
             color=0xE74C3C,
         )
@@ -275,6 +315,43 @@ class TournamentEventMixin:
     @cancel_event.autocomplete("event")
     async def cancel_event_autocomplete(self, interaction: discord.Interaction, current: str):
         return await self._scheduled_events_autocomplete(interaction, current)
+
+    @event_group.command(
+        name="clear-upcoming",
+        description="Admin: Remove all upcoming events from the website schedule and reset event status.",
+    )
+    @is_event_admin()
+    async def clear_upcoming_events(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        # 1. Cancel Discord scheduled events
+        canceled_count = 0
+        for ev in getattr(guild, "scheduled_events", []):
+            try:
+                await ev.delete(reason=f"Cleared by {interaction.user} via /event clear-upcoming")
+                canceled_count += 1
+            except Exception:
+                pass
+
+        # 2. Reset active tournament state
+        state = self.service.get_state(guild.id)
+        if state:
+            self.service.cancel_event(guild.id)
+
+        embed = discord.Embed(
+            title="🧹 Website Upcoming Schedule Cleared",
+            description=(
+                f"Successfully cleared upcoming events from the website schedule!\n\n"
+                f"• **Discord Server Events:** `{canceled_count}` removed\n"
+                f"• **Website Feed:** [unitedduelingamity.org/tournaments.html](https://unitedduelingamity.org/tournaments.html) upcoming schedule cleared."
+            ),
+            color=0xE74C3C,
+        )
+        embed.set_footer(text=f"{config.organization_name} • Event Operations")
+        await interaction.response.send_message(embed=embed)
 
     @event_group.command(
         name="complete",
@@ -302,17 +379,37 @@ class TournamentEventMixin:
             await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
             return
 
+        clean_event = event.strip()
+        clean_event_lower = clean_event.lower()
+
         target_event = None
         for ev in getattr(guild, "scheduled_events", []):
-            if str(ev.id) == event or ev.name.lower() == event.lower():
+            if (
+                str(ev.id) == clean_event
+                or ev.name.lower() == clean_event_lower
+                or clean_event_lower in ev.name.lower()
+            ):
                 target_event = ev
                 break
 
-        event_name = target_event.name if target_event else event.strip()
+        state = self.service.get_state(guild.id)
+        event_name = (
+            target_event.name
+            if target_event
+            else (
+                state.name
+                if state and (clean_event_lower in state.name.lower() or state.name.lower() in clean_event_lower)
+                else clean_event
+            )
+        )
         event_date = (
             target_event.start_time.strftime("%Y-%m-%d")
             if target_event and target_event.start_time
-            else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            else (
+                state.start_time[:10]
+                if state and state.start_time
+                else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            )
         )
         event_type = "Clan Cup" if "clan" in event_name.lower() else "Tournament"
 
@@ -338,6 +435,10 @@ class TournamentEventMixin:
                 await target_event.delete(reason=f"Concluded by {interaction.user} via /event complete")
             except Exception as exc:
                 logger.debug("Could not remove concluded scheduled event: %s", exc)
+
+        # Remove concluded event from upcoming website schedule and reset state event
+        if state:
+            self.service.cancel_event(guild.id)
 
         embed = discord.Embed(
             title="🏆 Tournament Concluded & Published to Past Results!",

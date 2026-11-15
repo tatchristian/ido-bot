@@ -82,8 +82,8 @@
   - `/t export` / `!tournament_export`: `L1017`
   - `/t bulk-reg` / `!tournament_bulk_register`: `L1064`, `L1125`
   - `/t clear` / `!tournament_clear`: `L1141`
-  - `/t setup-section`: `L1191`
-  - `/t remove-section`: `L1283`
+  - `/t setup-section` / `!tournament_setup_section`: `L1191`
+  - `/t remove-section` / `!tournament_remove_section`: `L1283`
   - `/t staff-checkin`: `L1345` (Manual staff check-in override)
   - `!post_staff_guide`: `L1392`
 - **`state_cmds.py` (397 lines) - `TournamentStateMixin`:**

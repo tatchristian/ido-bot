@@ -10,7 +10,7 @@
 - `cogs/tournament_ops/config_cmds.py` (373 lines): Server configuration (`/config`, `/set-channel`, `/post` panels, prefix fallbacks).
 - `cogs/tournament_ops/staff_cmds.py` (1,415 lines): Staff bracket management (`t_group = app_commands.Group(name="t", ...)` with 24 subcommands and prefix fallbacks).
 - `cogs/tournament_ops/state_cmds.py` (397 lines): State snapshot and disaster recovery (`state_group = app_commands.Group(name="state", ...)` with 5 subcommands and prefix fallbacks).
-- `cogs/tournament_ops/event_cmds.py` (399 lines): Discord event scheduling and website sync (`event_group = app_commands.Group(name="event", ...)` with 4 subcommands).
+- `cogs/tournament_ops/event_cmds.py` (420 lines): Discord event scheduling and website sync (`event_group = app_commands.Group(name="event", ...)` with 5 subcommands: `create`, `cancel`, `complete`, `clear-upcoming`, `remove-past-result`).
 - `utils/tournament_views.py` (persistent views, selects, modals, admin checks).
 - `utils/tournament_embeds.py` (embed builders, visual helpers, color palette).
 **Backlink:** [[index]] | [[services_layer]] | [[ui_components]] | [[workflow_tournament_panel_sync]]
@@ -107,3 +107,12 @@
 - `/t bulk-reg` / `!tournament_bulk_register`: Enrolls batch list of contestants with auto delimiter parsing.
 - `saved_roster.json`: Stores the 19-player Asia Tournament roster preset (6 checked in, 13 pending, 0 substitutes) ready for `/state restore-roster`.
 - `bot.py` `on_ready`: Auto-restores `saved_state.json` (or regex auto-discovers channels) on startup. Roster restoration from `saved_roster.json` is strictly manual via `/state restore-roster` to prevent overwriting new tournaments.
+
+---
+
+## 🌐 Event & Website Synchronization (`cogs/tournament_ops/event_cmds.py` & `services/api_server.py`)
+- `/event create`: Creates Discord scheduled event (with top-of-server banner) and syncs to `TournamentService.set_tournament_time` and website feed.
+- `/event cancel`: Cancels and deletes Discord scheduled event if active; falls back to active tournament state if the event already ended/went offline; marks `state.event_canceled = True` so `GET /tournaments` immediately drops it from `unitedduelingamity.org/tournaments.html`.
+- `/event clear-upcoming`: Emergency administrative clear that wipes all upcoming tournaments from both Discord events and the website feed.
+- `/event complete`: Concludes tournament, crowning champion/runner-up, publishing to Past Results, and setting `state.event_canceled = True` to remove from Upcoming.
+- `_scheduled_events_autocomplete`: Includes active scheduled events, ended/completed events, and active tournament state so options never show "No options match your search" when events go offline.

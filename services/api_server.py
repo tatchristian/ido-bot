@@ -93,18 +93,24 @@ def create_api_app(bot: Any) -> web.Application:
         if hasattr(bot, "tournament_service"):
             states = getattr(bot.tournament_service, "_states", getattr(bot.tournament_service, "_guild_states", {}))
             for gid, state in states.items():
+                if getattr(state, "event_canceled", False):
+                    continue
                 if state.participants or state.main_open or state.subs_open:
-                    created_date = (
-                        state.created_at[:10]
-                        if getattr(state, "created_at", None)
-                        else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    event_date = (
+                        state.start_time[:10]
+                        if getattr(state, "start_time", None)
+                        else (
+                            state.created_at[:10]
+                            if getattr(state, "created_at", None)
+                            else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                        )
                     )
                     # Don't duplicate if already listed in scheduled events
                     if not any(e["name"].lower() == state.name.lower() for e in events):
                         events.append({
                             "id": f"guild-{gid}",
                             "name": state.name,
-                            "date": created_date,
+                            "date": event_date,
                             "type": "Championship",
                             "description": f"Slots: {len(state.participants)}/{state.max_slots} | Regions: {', '.join(state.allowed_regions)}",
                         })

@@ -762,3 +762,33 @@ def test_bulk_register(service: TournamentService):
     assert state.substitutes[0].weapon == "Katana"
 
 
+def test_cancel_event_and_state_flag(service: TournamentService):
+    service.set_tournament_time(
+        start_time="2026-11-15T18:00:00Z",
+        start_timestamp=1794772800,
+        event_id=123456789,
+        guild_id=0,
+    )
+    state = service.get_state(0)
+    assert state.event_id == 123456789
+    assert state.event_canceled is False
+
+    # Cancel event
+    service.cancel_event(guild_id=0)
+    state = service.get_state(0)
+    assert state.event_id is None
+    assert state.start_time is None
+    assert state.start_timestamp is None
+    assert state.event_canceled is True
+
+    # Re-opening or setting time resets event_canceled
+    service.set_tournament_time(
+        start_time="2026-11-20T18:00:00Z",
+        start_timestamp=1795204800,
+        event_id=987654321,
+        guild_id=0,
+    )
+    assert service.get_state(0).event_canceled is False
+
+
+
