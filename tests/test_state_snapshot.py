@@ -139,3 +139,69 @@ def test_restore_snapshot_missing_file_with_auto_discovery(test_env):
     snapshot = snapshot_service.capture_snapshot(guild_id, t_service, c_service)
     assert snapshot.registration_channel_id == 701
 
+
+def test_multi_guild_isolation_and_cross_guild_prevention(test_env):
+    t_service = test_env["t_service"]
+    c_service = test_env["c_service"]
+    snapshot_service = test_env["snapshot_service"]
+
+    guild_a = 11111
+    guild_b = 22222
+
+    # 1. Guild A sets up channels
+    state_a = t_service.get_state(guild_a)
+    state_a.registration_channel_id = 1001
+    state_a.announcement_channel_id = 1002
+    t_service._persist(guild_a)
+
+    # Save Guild A
+    snapshot_service.save_snapshot(guild_a, t_service, c_service)
+
+    # 2. Guild B sets up channels
+    state_b = t_service.get_state(guild_b)
+    state_b.registration_channel_id = 2001
+    state_b.announcement_channel_id = 2002
+    t_service._persist(guild_b)
+
+    # Save Guild B
+    snapshot_service.save_snapshot(guild_b, t_service, c_service)
+
+    # 3. Load Guild A -> Must be Guild A's channels
+    snap_a = snapshot_service.load_snapshot(guild_id=guild_a)
+    assert snap_a.registration_channel_id == 1001
+    assert snap_a.announcement_channel_id == 1002
+
+    # 4. Load Guild B -> Must be Guild B's channels
+    snap_b = snapshot_service.load_snapshot(guild_id=guild_b)
+    assert snap_b.registration_channel_id == 2001
+    assert snap_b.announcement_channel_id == 2002
+
+    # 5. Cross-Guild Channel Validation:
+    mock_guild_b = MagicMock()
+    mock_guild_b.id = guild_b
+    ch_b = MagicMock()
+    ch_b.id = 2001
+    ch_b.name = "tournament-registration"
+    mock_guild_b.text_channels = [ch_b]
+    mock_guild_b.get_channel.side_effect = lambda cid: ch_b if cid == 2001 else None
+
+    # Clear Guild B state
+    state_b.registration_channel_id = None
+    state_b.announcement_channel_id = None
+    t_service._persist(guild_b)
+
+    # Attempt to restore Guild B passing snap_a (foreign snapshot)
+    snapshot_service.restore_snapshot(
+        guild_id=guild_b,
+        tournament_service=t_service,
+        clan_showcase_service=c_service,
+        snapshot=snap_a,
+        guild=mock_guild_b,
+    )
+    # Foreign IDs (1001, 1002) must NOT be applied to Guild B
+    # Instead, auto_discover finds ch_b (2001) inside mock_guild_b
+    res_b = t_service.get_state(guild_b)
+    assert res_b.registration_channel_id == 2001
+    assert res_b.announcement_channel_id is None
+
+

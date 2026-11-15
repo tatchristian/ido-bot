@@ -359,7 +359,7 @@ class TournamentStateMixin:
 
         current = snapshot_service.capture_snapshot(guild_id, self.service, clan_service)
         try:
-            saved = snapshot_service.load_snapshot()
+            saved = snapshot_service.load_snapshot(guild_id=guild_id)
         except FileNotFoundError:
             saved = None
 
