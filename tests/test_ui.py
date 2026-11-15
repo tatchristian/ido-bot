@@ -124,7 +124,8 @@ def test_build_help_embed():
     embed_admin_allowed = build_help_embed("admin", is_admin=True)
     assert len(embed_admin_allowed.fields) == 2
     assert any("Operations" in f.name for f in embed_admin_allowed.fields)
-    assert any("/tournament-open" in f.value for f in embed_admin_allowed.fields)
+    assert any("/t open" in f.value for f in embed_admin_allowed.fields)
+    assert any("/t staff-checkin" in f.value for f in embed_admin_allowed.fields)
 
     # Test setup section for non-admin vs admin
     embed_setup_denied = build_help_embed("setup", is_admin=False)
@@ -134,14 +135,16 @@ def test_build_help_embed():
     embed_setup_allowed = build_help_embed("setup", is_admin=True)
     assert len(embed_setup_allowed.fields) == 2
     assert any("Server Setup" in f.name for f in embed_setup_allowed.fields)
-    assert any("/tournament-setup-section" in f.value for f in embed_setup_allowed.fields)
-    assert any("/tournament-set-channel" in f.value for f in embed_setup_allowed.fields)
+    assert any("/t setup-section" in f.value for f in embed_setup_allowed.fields)
+    assert any("/t remove-section" in f.value for f in embed_setup_allowed.fields)
+    assert any("/set-channel" in f.value for f in embed_setup_allowed.fields)
+    assert any("/state save-roster" in f.value for f in embed_setup_allowed.fields)
 
     # Test clans only section
     embed_clans = build_help_embed("clans")
     assert len(embed_clans.fields) == 1
     assert "Clan Profile Showcase Portal" in embed_clans.fields[0].name
-    assert "/clan-showcase-edit" in embed_clans.fields[0].value
+    assert "/clan edit" in embed_clans.fields[0].value
 
     # Test events_sync section for non-admin vs admin
     embed_events_denied = build_help_embed("events_sync", is_admin=False)
@@ -151,7 +154,7 @@ def test_build_help_embed():
     embed_events_allowed = build_help_embed("events_sync", is_admin=True)
     assert len(embed_events_allowed.fields) == 1
     assert "Events & Website Live Sync" in embed_events_allowed.fields[0].name
-    assert "/tournament-complete-event" in embed_events_allowed.fields[0].value
+    assert "/event complete" in embed_events_allowed.fields[0].value
 
     assert all(len(f.value) <= 1024 for f in embed_all_admin.fields)
 

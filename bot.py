@@ -92,7 +92,7 @@ class UDATournamentBot(commands.Bot):
         logger.info("Logged in as %s (ID: %d)", self.user, self.user.id)
         activity = discord.Activity(
             type=discord.ActivityType.competing,
-            name=f"{config.organization_name} Tournaments (/tournament-status)",
+            name=f"{config.organization_name} Tournaments (/status)",
         )
         await self.change_presence(activity=activity)
 

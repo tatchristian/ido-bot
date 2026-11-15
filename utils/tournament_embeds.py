@@ -89,7 +89,7 @@ def build_status_embed(
     color: int | None = None,
 ) -> discord.Embed:
     """
-    Builds the /tournament-status embed matching the official UDA layout.
+    Builds the /status embed matching the official UDA layout.
     """
     org = org_name or config.organization_name
     embed_color = color or config.embed_color
@@ -153,10 +153,10 @@ def build_status_embed(
     )
 
     commands_text = (
-        "• `/tournament-register` — Enter main bracket\n"
-        "• `/tournament-sub-register` — Enter as substitute\n"
-        "• `/tournament-roster` — View full roster\n"
-        "• `/tournament-checkin` — Confirm tournament day check-in\n"
+        "• `/register` — Enter main bracket\n"
+        "• `/sub` — Enter as substitute\n"
+        "• `/roster` — View full roster\n"
+        "• `/checkin` — Confirm tournament day check-in\n"
         "• `/help` — View interactive command manual"
     )
     embed.add_field(
@@ -169,13 +169,63 @@ def build_status_embed(
     return embed
 
 
+def build_config_embed(
+    state: TournamentState,
+    guild: discord.Guild | None = None,
+    org_name: str | None = None,
+) -> discord.Embed:
+    """Builds a diagnostic overview of active tournament and server configuration settings."""
+    org = org_name or config.organization_name
+    embed = discord.Embed(
+        title=f"⚙️ Configuration Dashboard — {state.name}",
+        description="Comprehensive overview of server roles, operational channels, limits, and scheduling.",
+        color=config.embed_color,
+    )
+    admin_r = f"<@&{state.admin_role_id}>" if state.admin_role_id else (f"`@{state.admin_role_name}`" if state.admin_role_name else "`None`")
+    event_r = f"<@&{state.event_role_id}>" if state.event_role_id else (f"`@{state.event_role_name}`" if state.event_role_name else "`None`")
+    part_r = f"<@&{state.participant_role_id}>" if state.participant_role_id else (f"`@{state.participant_role_name}`" if state.participant_role_name else "`None`")
+    roles_text = (
+        f"• **Tournament Admin:** {admin_r}\n"
+        f"• **Event Admin:** {event_r}\n"
+        f"• **Participant Role:** {part_r}"
+    )
+    embed.add_field(name="🛡️ Configured Roles", value=roles_text, inline=False)
+
+    reg_ch = f"<#{state.registration_channel_id}>" if state.registration_channel_id else "`Not Set`"
+    sub_ch = f"<#{state.subs_channel_id}>" if state.subs_channel_id else "`Not Set`"
+    chk_ch = f"<#{state.checkin_channel_id}>" if state.checkin_channel_id else "`Not Set`"
+    log_ch = f"<#{state.checkin_log_channel_id}>" if getattr(state, "checkin_log_channel_id", None) else "`Not Set`"
+    ann_ch = f"<#{state.announcement_channel_id}>" if state.announcement_channel_id else "`Not Set`"
+    channels_text = (
+        f"• **Registration Hub:** {reg_ch}\n"
+        f"• **Substitutes Bench:** {sub_ch}\n"
+        f"• **Check-In Hub:** {chk_ch}\n"
+        f"• **Check-In Logs:** {log_ch}\n"
+        f"• **Announcements:** {ann_ch}"
+    )
+    embed.add_field(name="📁 Operational Channels", value=channels_text, inline=False)
+
+    regions = ", ".join(state.allowed_regions) if state.allowed_regions else "GLOBAL"
+    time_str = f"<t:{state.start_timestamp}:F> (<t:{state.start_timestamp}:R>)" if getattr(state, "start_timestamp", None) else "`Not Set`"
+    params_text = (
+        f"• **Max Bracket Slots:** `{state.max_slots}`\n"
+        f"• **Allowed Regions:** `{regions}`\n"
+        f"• **Match Day Start:** {time_str}\n"
+        f"• **Status:** Main: `{'OPEN' if state.main_open else 'CLOSED'}` | Subs: `{'OPEN' if state.subs_open else 'CLOSED'}` | Check-In: `{'OPEN' if state.checkin_open else 'CLOSED'}`"
+    )
+    embed.add_field(name="📊 Parameters & Scheduling", value=params_text, inline=False)
+
+    embed.set_footer(text=f"{org} • Configuration Center")
+    return embed
+
+
 def build_roster_embed(
     state: TournamentState,
     org_name: str | None = None,
     color: int | None = None,
 ) -> discord.Embed:
     """
-    Builds the /tournament-roster embed matching the official UDA layout.
+    Builds the /roster embed matching the official UDA layout.
     Automatically paginates main bracket and substitute rosters across multiple
     embed fields when the list exceeds Discord's 1024-character field limit.
     """
@@ -337,7 +387,7 @@ def build_help_embed(
     is_admin: bool = False,
 ) -> discord.Embed:
     """
-    Builds the /tournament-help command manual.
+    Builds the /help command manual.
     Sections: 'all', 'participants', 'admin', 'setup', 'weapons_regions', 'clans', 'events_sync'.
     Admin, Setup, and Event Sync sections are strictly restricted to verified administrators.
     """
@@ -356,15 +406,15 @@ def build_help_embed(
 
     if section in ("all", "participants"):
         participant_cmds = (
-            "• `/tournament-register` — Enter the main tournament bracket.\n"
-            "• `/tournament-unregister` — Withdraw and free up your bracket slot.\n"
-            "• `/tournament-sub-register` — Join standby substitute queue.\n"
-            "• `/tournament-sub-unregister` — Withdraw from substitute queue.\n"
-            "• `/tournament-edit-entry` — Update weapon, IGN, or region without losing slot.\n"
-            "• `/tournament-checkin` — Confirm presence during tournament check-in.\n"
-            "• `/tournament-sub-checkin` — Confirm availability as a standby substitute.\n"
-            "• `/tournament-status` — View registration status, slots & progress bar.\n"
-            "• `/tournament-roster` — View full player list and check-in status."
+            "• `/register` — Enter the main tournament bracket.\n"
+            "• `/unregister` — Withdraw and free up your bracket slot.\n"
+            "• `/sub` — Join standby substitute queue.\n"
+            "• `/sub-unregister` — Withdraw from substitute queue.\n"
+            "• `/edit-entry` — Update weapon, IGN, or region without losing slot.\n"
+            "• `/checkin` — Confirm presence during tournament check-in.\n"
+            "• `/sub-checkin` — Confirm availability as a standby substitute.\n"
+            "• `/status` — View registration status, slots & progress bar.\n"
+            "• `/roster` — View full player list and check-in status."
         )
         embed.add_field(
             name="👥 Participant Commands",
@@ -382,14 +432,16 @@ def build_help_embed(
                 )
         else:
             admin_lifecycle = (
-                "• `/tournament-open` — Open bracket, set capacity, regions & optional channel.\n"
-                "• `/tournament-close` — Close main bracket registrations.\n"
-                "• `/tournament-open-subs` / `/tournament-close-subs` — Toggle substitute signups.\n"
-                "• `/tournament-open-checkin` / `/tournament-close-checkin` — Run check-in window.\n"
-                "• `/tournament-promote-sub` — Swap no-show player with standby sub (with autocomplete).\n"
-                "• `/tournament-kick` — Remove player from main or sub queue (with autocomplete).\n"
-                "• `/tournament-announce` — Broadcast announcement to players.\n"
-                "• `/tournament-clear` — Wipe roster clean for next event."
+                "• `/t open` — Open bracket, set capacity, regions & optional channel.\n"
+                "• `/t close` — Close main bracket registrations.\n"
+                "• `/t open-subs` / `/t close-subs` — Toggle substitute signups.\n"
+                "• `/t checkin-open` / `/t checkin-close` — Run check-in window.\n"
+                "• `/t promote` — Swap no-show player with standby sub (with autocomplete).\n"
+                "• `/t kick` — Remove player from main or sub queue (with autocomplete).\n"
+                "• `/t force-reg` — Manually add a participant or VIP.\n"
+                "• `/t announce` — Broadcast announcement to players.\n"
+                "• `/t staff-checkin` — Manually override and set a contestant's check-in status.\n"
+                "• `/t clear` — Wipe roster clean for next event."
             )
             embed.add_field(
                 name="🛠️ Tournament Admin Controls — Operations",
@@ -398,14 +450,13 @@ def build_help_embed(
             )
 
             admin_config = (
-                "• `/tournament-set-time` — Set match day date, time & timezone for contestant reminders.\n"
-                "• `/tournament-view-time` — View match schedule & reminder delivery stats.\n"
-                "• `/tournament-test-reminder` — Send preview Day-Of or 30-min DM to yourself.\n"
-                "• `/tournament-force-register` — Manually add a participant or VIP.\n"
-                "• `/tournament-set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
-                "• `/tournament-set-regions` — Update allowed regions filter.\n"
-                "• `/tournament-set-weapons` — Set approved weapon classes for the event.\n"
-                "• `/tournament-export` — Download CSV (Excel/Start.gg) or Challonge roster."
+                "• `/t set-time` — Set match day date, time & timezone for contestant reminders.\n"
+                "• `/t test-reminder` — Send preview Day-Of or 30-min DM to yourself.\n"
+                "• `/t set-limit` — Adjust max participant capacity (e.g. 16, 32).\n"
+                "• `/t set-regions` — Update allowed regions filter.\n"
+                "• `/t set-weapons` — Set approved weapon classes for the event.\n"
+                "• `/t export` — Download CSV (Excel/Start.gg) or Challonge roster.\n"
+                "• `/t bulk-reg` — Batch register duelists from text list."
             )
             embed.add_field(
                 name="🛠️ Tournament Admin Controls — Roster & Config",
@@ -423,15 +474,15 @@ def build_help_embed(
                 )
         else:
             setup_channels = (
-                "• `/tournament-setup-section` (or `!tournament_setup_section`) — One-click setup wizard creating category & channels automatically.\n"
-                "• `/tournament-set-channels` — Link dedicated channels for announcements, registration, checkin, subs.\n"
-                "• `/tournament-set-channel` (or `!set_channel`) — Quickly set or re-link a specific channel.\n"
-                "• `/tournament-view-channels` — View configured tournament channels and status.\n"
-                "• `/tournament-set-admin-role` (or `!set_admin_role`) — Configure staff role required for tournament admin.\n"
-                "• `/tournament-view-admin-role` — View current authorized tournament staff role.\n"
-                "• `/tournament-set-event-role` (or `/set-event-role`) — Configure role authorized for event scheduling & sync.\n"
-                "• `/tournament-view-event-role` — View current authorized event manager role.\n"
-                "• `/tournament-set-role` / `/tournament-view-role` — Configure automatic contestant role."
+                "• `/t setup-section` — One-click setup wizard creating category & channels automatically.\n"
+                "• `/t remove-section` — Safely clean up tournament categories and arena channels.\n"
+                "• `/set-channel` (or `!set_channel`) — Quickly set or re-link a specific channel.\n"
+                "• `/config` — Diagnostic overview of all roles, channels, and limits.\n"
+                "• `/t set-admin-role` — Configure staff role required for tournament admin.\n"
+                "• `/t set-event-role` (or `!set_event_role`) — Configure role authorized for event scheduling & sync.\n"
+                "• `/t set-role` — Configure automatic contestant role.\n"
+                "• `/state save` / `/state restore` / `/state status` — Disaster recovery and snapshots.\n"
+                "• `/state save-roster` / `/state restore-roster` — Snapshot & restore active roster presets."
             )
             embed.add_field(
                 name="⚙️ Server Setup & Channels",
@@ -440,12 +491,13 @@ def build_help_embed(
             )
 
             setup_panels = (
-                "• `/post-tournament-staff-panel` — Post 1-click Staff Control Center panel.\n"
-                "• `/post-staff-guide` — Post interactive Staff Guide with phase dropdown selector.\n"
-                "• `/post-event-scheduler-panel` — Post 1-click Event Scheduler for banners & web sync.\n"
-                "• `/post-clan-submission-panel` — Post interactive Clan Showcase intake portal.\n"
-                "• `/clan-showcase-channels` — Configure showcase and staff review channels for clans.\n"
-                "• `/clan-showcase-view-channels` — View configured clan showcase channels."
+                "• `/post panel:[staff]` — Post 1-click Staff Control Center panel.\n"
+                "• `/post panel:[guide]` — Post interactive Staff Guide with phase dropdown selector.\n"
+                "• `/post panel:[reg]` — Post Player Registration Hub panel.\n"
+                "• `/post panel:[subs]` — Post Standby Substitutes Bench panel.\n"
+                "• `/post panel:[checkin]` — Post Match-Day Check-In Hub panel.\n"
+                "• `/post panel:[clan_submit]` — Post interactive Clan Showcase intake portal.\n"
+                "• `/post panel:[clan_roles]` — Post self-serve Clan Role Directory panel."
             )
             embed.add_field(
                 name="⚙️ Interactive Panels & Portals",
@@ -470,14 +522,14 @@ def build_help_embed(
 
     if section in ("all", "clans"):
         clan_cmds = (
-            "• `/clan-submit` — Submit or draft your clan profile (choose photo/GIF directly from phone or paste link).\n"
-            "• `/post-clan-submission-panel` (or `!post_clan_submission_panel`) — Post interactive submission panel with persistent buttons.\n"
-            "• `/clan-showcase-channels` — Configure target showcase and staff review channels.\n"
-            "• `/clan-showcase-view-channels` — View current configured channels for submissions.\n"
-            "• `/clan-showcase-edit` — Edit any existing clan profile live (updates database & published embed).\n"
-            "• `/clan-showcase-preview` — Test embed rendering with custom colors and artwork.\n"
-            "• **Clan Intake Flow:** Leaders submit via `/clan-submit` or click **`📋 Submit Clan Profile`** on the panel.\n"
-            "• **Staff Workflow:** Review submissions with **`Approve & Publish`** or **`Reject`** (with custom reason prompt)."
+            "• `/clan submit` — Submit or draft your clan profile (choose photo/GIF directly from phone or paste link).\n"
+            "• `/clan claim` / `/clan leave` — Self-serve clan role alignment in `#clan-roles`.\n"
+            "• `/clan edit` — Edit any existing clan profile live (updates database & published embed).\n"
+            "• `/clan delete` — Remove clan from database and directory panel.\n"
+            "• `/clan sync-roles` — Scan server roles ending in `//`.\n"
+            "• `/clan channels` — Configure target showcase and staff review channels.\n"
+            "• `/post panel:[clan_submit]` — Post interactive submission panel with persistent buttons.\n"
+            "• `/post panel:[clan_roles]` — Post interactive clan directory dropdown panel."
         )
         embed.add_field(
             name="🏛️ Clan Profile Showcase Portal",
@@ -495,13 +547,10 @@ def build_help_embed(
                 )
         else:
             events_sync_cmds = (
-                "• `/tournament-set-event-role` (or `/set-event-role`) — Set or clear specific role authorized for event scheduling & website sync.\n"
-                "• `/tournament-view-event-role` — View which role is currently authorized for event controls.\n"
-                "• `/post-event-scheduler-panel` (or `!post_event_scheduler_panel`) — Post interactive 1-click event scheduler panel in staff channels.\n"
-                "• `/tournament-schedule-event` — Schedule an official Discord server event (displayed at the top of the server banner).\n"
-                "• `/tournament-cancel-event` — Cancel and delete an upcoming event (removes from Discord & website schedule).\n"
-                "• `/tournament-complete-event` — Conclude a tournament, crown champion & runner-up, and publish to website Past Results.\n"
-                "• `/tournament-remove-past-result` — Delete an archived result from the website Past Results list.\n"
+                "• `/event create` — Schedule an official Discord server event (displayed at the top of the server banner).\n"
+                "• `/event cancel` — Cancel and delete an upcoming event (removes from Discord & website schedule).\n"
+                "• `/event complete` — Conclude a tournament, crown champion & runner-up, and publish to website Past Results.\n"
+                "• `/event remove-past-result` — Delete an archived result from the website Past Results list.\n"
                 "• **Live Website Sync:** All active Discord events and approved clans automatically feed into `unitedduelingamity.org`!"
             )
             embed.add_field(
@@ -566,13 +615,13 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
         embed.add_field(
             name="📍 Where to Deploy Each Panel",
             value=(
-                "• **Staff Operations Panel (`/post-tournament-staff-panel`):**\n"
+                "• **Staff Operations Panel (`/post panel:staff`):**\n"
                 "  Post in your private staff channel (e.g. `#tournament-staff`). Only staff and Tournament Admins can see and click these buttons.\n\n"
-                "• **Player Registration Hub (`/post-registration-panel`):**\n"
+                "• **Player Registration Hub (`/post panel:reg`):**\n"
                 "  Post in `#tournament-registration`. The public entry banner for duelists.\n\n"
-                "• **Standby Substitute Queue Hub (`/post-subs-panel`):**\n"
+                "• **Standby Substitute Queue Hub (`/post panel:subs`):**\n"
                 "  Post in `#substitutes-bench`. The standby bench for late sign-ups.\n\n"
-                "• **Staff Operations Guide (`/post-staff-guide`):**\n"
+                "• **Staff Operations Guide (`/post panel:guide`):**\n"
                 "  Post in `#staff-announcements` or pin in staff channels as your permanent operational manual."
             ),
             inline=False,
@@ -618,15 +667,15 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
             title=f"1️⃣ {org} Staff Guide — Phase 1: Pre-Tournament Setup & Arenas",
             description=(
                 "**Build arena categories, schedule matches, and configure participant roles.**\n\n"
-                "• **Auto-Build Categories & Arenas:** Run `/tournament-setup-section` to auto-construct "
+                "• **Auto-Build Categories & Arenas:** Run `/t setup-section` to auto-construct "
                 "`🏆 TOURNAMENT HUB 🏆` and `⚔️ MATCH ARENAS ⚔️` with pre-configured permissions.\n\n"
-                "• **Bind Dedicated Channels:** Run `/tournament-set-channels` to connect your announcements, "
-                "registration, check-in, and subs channels all in a single command.\n\n"
-                "• **Schedule Match & Arm Automated DMs:** Run `/tournament-set-time` or `/tournament-schedule-event`. "
+                "• **Bind Dedicated Channels:** Run `/set-channel` to connect your announcements, "
+                "registration, check-in, and subs channels.\n\n"
+                "• **Schedule Match & Arm Automated DMs:** Run `/t set-time` or `/event create`. "
                 "The bot automatically dispatches private DMs to contestants on match morning and 30 minutes before match time.\n\n"
                 "• **Automatic Participant Role:** The bot automatically creates and assigns `@{Tournament} Participant` "
                 "to every entrant upon registration, making announcement pings effortless.\n\n"
-                "• **Weapons & Region Restrictions:** Restrict approved weapons via `/tournament-set-weapons` and regions via `/tournament-set-regions`."
+                "• **Weapons & Region Restrictions:** Restrict approved weapons via `/t set-weapons` and regions via `/t set-regions`."
             ),
             color=COLOR_EMERALD,
         )
@@ -635,17 +684,17 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
             title=f"2️⃣ {org} Staff Guide — Phase 2: Registration & Roster Monitoring",
             description=(
                 "**Open sign-ups, monitor entries, mass-register players, and handle kicks.**\n\n"
-                "• **Open Sign-Ups:** Click `🟢 Open Bracket` on the Staff Panel or run `/tournament-open`. "
+                "• **Open Sign-Ups:** Click `🟢 Open Bracket` on the Staff Panel or run `/t open`. "
                 "Specify capacity (e.g. 16 or 32), allowed regions, and whether the substitute queue is active. "
                 "This unlocks `#tournament-registration` and posts the interactive player hub.\n\n"
-                "• **Close Sign-Ups:** Click `🔒 Close Bracket` on the Staff Panel or run `/tournament-close`. "
+                "• **Close Sign-Ups:** Click `🔒 Close Bracket` on the Staff Panel or run `/t close`. "
                 "Locks `#tournament-registration` and edits the live hub into a closed notice directing players to subs.\n\n"
-                "• **Bulk / Mass Registration:** Run `/tournament-bulk-register` to mass-enroll contestants from a text block (`IGN | Weapon | Region`).\n\n"
-                "• **Roster Snapshot & Backups:** Run `/tournament-save-roster` to snapshot your active roster into `saved_roster.json`. "
+                "• **Bulk / Mass Registration:** Run `/t bulk-reg` to mass-enroll contestants from a text block (`IGN | Weapon | Region`).\n\n"
+                "• **Roster Snapshot & Backups:** Run `/state save-roster` to snapshot your active roster into `saved_roster.json`. "
                 "On fresh container deploys or bot restarts, the bot automatically restores your full roster on boot!\n\n"
-                "• **Player Autocomplete Kick:** Run `/tournament-kick user:` — type the first letters of any player's IGN "
+                "• **Player Autocomplete Kick:** Run `/t kick user:` — type the first letters of any player's IGN "
                 "to select and kick them directly. Mentions and raw user IDs also work.\n\n"
-                "• **Admin Manual Entry:** Use `/tournament-force-register` to bypass open registration windows and directly "
+                "• **Admin Manual Entry:** Use `/t force-reg` to bypass open registration windows and directly "
                 "seed contestants or VIPs into the main bracket or substitute queue."
             ),
             color=COLOR_BLUE,
@@ -657,13 +706,13 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
                 "**Manage match day check-ins, automated reminders, and substitute promotions.**\n\n"
                 "• **Automated Player DMs:** Contestants automatically receive personal DMs on tournament morning "
                 "and 30 minutes before match time showing their selected region and Discord's live dynamic timestamp.\n\n"
-                "• **Open Check-In (T - 60m):** Click `🎟️ Toggle Check-In` on the panel or run `/tournament-open-checkin`. "
+                "• **Open Check-In (T - 60m):** Click `🎟️ Toggle Check-In` on the panel or run `/t checkin-open`. "
                 "Unlocks `#tournament-checkin` and enables check-in buttons on player registration hubs.\n\n"
-                "• **Close Check-In (T - 10m):** Click `🎟️ Toggle Check-In` or run `/tournament-close-checkin`. "
+                "• **Close Check-In (T - 10m):** Click `🎟️ Toggle Check-In` or run `/t checkin-close`. "
                 "Locks `#tournament-checkin`, closes the window, and reports ready players vs no-shows.\n\n"
                 "• **Promote Standby Substitutes (T - 05m):** Click `🔄 Promote Sub` on the panel or run "
-                "`/tournament-promote-sub replace:@NoShow` to swap in checked-in FIFO substitutes.\n\n"
-                "• **Broadcast Announcements:** Click `📢 Broadcast Announce` on the panel or run `/tournament-announce` "
+                "`/t promote replace:@NoShow` to swap in checked-in FIFO substitutes.\n\n"
+                "• **Broadcast Announcements:** Click `📢 Broadcast Announce` on the panel or run `/t announce` "
                 "to send formatted embed pings to contestants."
             ),
             color=COLOR_GOLD,
@@ -673,13 +722,13 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
             title=f"4️⃣ {org} Staff Guide — Phase 4: Concluding, Archiving & Website Sync",
             description=(
                 "**Crown champions, export brackets, sync to website, and reset.**\n\n"
-                "• **Export Brackets for Challonge & Start.gg:** Run `/tournament-export format:Challonge target:Main` "
+                "• **Export Brackets for Challonge & Start.gg:** Run `/t export format:Challonge target:Main` "
                 "(or CSV/Text) to generate instant seed lists without substitutes accidentally mixed in.\n\n"
-                "• **Crown Champion & Website Sync:** Run `/tournament-complete-event` to record the tournament champion. "
+                "• **Crown Champion & Website Sync:** Run `/event complete` to record the tournament champion. "
                 "The result automatically syncs to [unitedduelingamity.org](https://unitedduelingamity.org) and server feeds.\n\n"
-                "• **Wipe Bracket for Next Event:** Run `/tournament-clear` to wipe the active roster and temporary "
+                "• **Wipe Bracket for Next Event:** Run `/t clear` to wipe the active roster and temporary "
                 "roles for a fresh tournament cycle (preserves configured channels).\n\n"
-                "• **Clean Up Arenas:** Run `/tournament-remove-section` to safely remove match categories and voice channels."
+                "• **Clean Up Arenas:** Run `/t remove-section` to safely remove match categories and voice channels."
             ),
             color=COLOR_PURPLE,
         )
@@ -689,15 +738,15 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
             description=(
                 "**Critical operational timeline for tournament referees & admins.**\n\n"
                 "• **T - 60m (Open Check-In):**\n"
-                "  Run `/tournament-open-checkin` or click `🎟️ Toggle Check-In` on the Staff Panel. "
+                "  Run `/t checkin-open` or click `🎟️ Toggle Check-In` on the Staff Panel. "
                 "Unlocks `#tournament-checkin` and arms player check-in buttons.\n\n"
                 "• **T - 10m (Close Check-In):**\n"
-                "  Run `/tournament-close-checkin` or toggle the panel button. "
+                "  Run `/t checkin-close` or toggle the panel button. "
                 "Locks `#tournament-checkin` and lists confirmed players vs no-shows.\n\n"
                 "• **T - 05m (Promote Ready Subs):**\n"
-                "  Run `/tournament-promote-sub replace:@NoShow` or click `🔄 Promote Sub` to advance checked-in subs into open slots.\n\n"
+                "  Run `/t promote replace:@NoShow` or click `🔄 Promote Sub` to advance checked-in subs into open slots.\n\n"
                 "• **T - 00m (Seed Bracket & Start):**\n"
-                "  Run `/tournament-export format:Challonge target:Main` ➔ Import into Challonge/Start.gg ➔ Run `/tournament-announce` with match pairings!"
+                "  Run `/t export format:Challonge target:Main` ➔ Import into Challonge/Start.gg ➔ Run `/t announce` with match pairings!"
             ),
             color=COLOR_CRIMSON,
         )
@@ -706,11 +755,11 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
             title=f"💾 {org} Staff Guide — State Preservation & Host Redeployment",
             description=(
                 "**Never lose your channels, roles, or rosters after a git push or server restart.**\n\n"
-                "• **Save Channels & Roles (`/state-save`):**\n"
-                "  Once your channels are set, run `/state-save`. Writes all channel IDs, role IDs, and panel links to `saved_state.json`.\n\n"
-                "• **Restore After Deploy (`/state-restore`):**\n"
-                "  Run `/state-restore [repost_panels:True]` to immediately re-bind all channels and re-sync interactive button embeds.\n\n"
-                "• **Status & Diagnostics (`/state-status`):**\n"
+                "• **Save Channels & Roles (`/state save`):**\n"
+                "  Once your channels are set, run `/state save`. Writes all channel IDs, role IDs, and panel links to `saved_state.json`.\n\n"
+                "• **Restore After Deploy (`/state restore`):**\n"
+                "  Run `/state restore [repost_panels:True]` to immediately re-bind all channels and re-sync interactive button embeds.\n\n"
+                "• **Status & Diagnostics (`/state status`):**\n"
                 "  Shows a side-by-side diagnostic check comparing active Discord server channels vs. saved disk snapshots.\n\n"
                 "• **Zero-Click Auto-Restore on Boot:**\n"
                 "  Whenever the bot boots up on your host (Discloud/Docker), it automatically loads `saved_state.json` and `saved_roster.json` on startup!"
@@ -722,10 +771,10 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
             title=f"🛡️ {org} Staff Guide — Role Permissions Reference",
             description=(
                 "**Understand permission boundaries and authorizations across staff tiers.**\n\n"
-                "• **Tournament Admin Role (`/tournament-set-admin-role`):**\n"
+                "• **Tournament Admin Role (`/t set-admin-role`):**\n"
                 "  Authorized for tournament operations: staff panel, registrations, check-in, kicks, match schedules, and roster controls.\n"
                 "  *Strictly restricted from server administrative settings, clan approvals, or website event feeds.*\n\n"
-                "• **Event & Website Role (`/tournament-set-event-role`):**\n"
+                "• **Event & Website Role (`/t set-event-role`):**\n"
                 "  Authorized for scheduling official Discord server banner events and pushing public schedule updates to the website.\n\n"
                 "• **Server Administrator:**\n"
                 "  Server Owner and members with Discord `Administrator` permissions. Full access to system building, role assignments, and resets."
@@ -745,76 +794,76 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
         embed.add_field(
             name="🎛️ 1-Click Operations Control Center",
             value=(
-                "• `/post-tournament-staff-panel` — Spawns the 1-click button operations center.\n"
-                "• `/post-registration-panel` — Spawns player registration hub in `#tournament-registration`.\n"
-                "• `/post-subs-panel` — Spawns standby substitute hub in `#substitutes-bench`."
+                "• `/post panel:staff` — Spawns the 1-click button operations center.\n"
+                "• `/post panel:reg` — Spawns player registration hub in `#tournament-registration`.\n"
+                "• `/post panel:subs` — Spawns standby substitute hub in `#substitutes-bench`."
             ),
             inline=False,
         )
         embed.add_field(
             name="1️⃣ Phase 1: Pre-Tournament Setup",
             value=(
-                "• **Build Arenas:** `/tournament-setup-section` (Builds categories, match arenas & voice booths).\n"
-                "• **Set Channels:** `/tournament-set-channels` (Binds announcements, registration, check-in & subs).\n"
-                "• **Schedule Match:** `/tournament-set-time` (Arms automated contestant DMs for match morning & 30m before).\n"
-                "• **Weapons & Regions:** Limits via `/tournament-set-weapons` & `/tournament-set-regions`."
+                "• **Build Arenas:** `/t setup-section` (Builds categories, match arenas & voice booths).\n"
+                "• **Set Channels:** `/set-channel` (Binds announcements, registration, check-in & subs).\n"
+                "• **Schedule Match:** `/t set-time` (Arms automated contestant DMs for match morning & 30m before).\n"
+                "• **Weapons & Regions:** Limits via `/t set-weapons` & `/t set-regions`."
             ),
             inline=False,
         )
         embed.add_field(
             name="2️⃣ Phase 2: Registration & Roster Monitoring",
             value=(
-                "• **Open/Close Sign-Ups:** Click Staff Panel buttons or run `/tournament-open` / `/tournament-close` (auto-locks channel).\n"
-                "• **Bulk Registration:** `/tournament-bulk-register` (Mass enrolls lists of contestants).\n"
-                "• **Roster Persistence:** `/tournament-save-roster` (Saves roster to `saved_roster.json` & auto-restores on boot).\n"
-                "• **Quick Kicking & Manual Entry:** `/tournament-kick` (instant autocomplete) & `/tournament-force-register`."
+                "• **Open/Close Sign-Ups:** Click Staff Panel buttons or run `/t open` / `/t close` (auto-locks channel).\n"
+                "• **Bulk Registration:** `/t bulk-reg` (Mass enrolls lists of contestants).\n"
+                "• **Roster Persistence:** `/state save-roster` (Saves roster to `saved_roster.json` & auto-restores on boot).\n"
+                "• **Quick Kicking & Manual Entry:** `/t kick` (instant autocomplete) & `/t force-reg`."
             ),
             inline=False,
         )
         embed.add_field(
             name="3️⃣ Phase 3: Match Day & Reminders",
             value=(
-                "• **Check-In Window (T - 60m):** `/tournament-open-checkin` (Unlocks `#tournament-checkin`).\n"
-                "• **Close Check-In (T - 10m):** `/tournament-close-checkin` (Locks channel & lists no-shows).\n"
-                "• **Promote Subs (T - 05m):** `/tournament-promote-sub replace:@NoShow` (Swaps in ready FIFO subs).\n"
-                "• **Broadcast Alerts:** `/tournament-announce` (Pings contestants with stylized embed)."
+                "• **Check-In Window (T - 60m):** `/t checkin-open` (Unlocks `#tournament-checkin`).\n"
+                "• **Close Check-In (T - 10m):** `/t checkin-close` (Locks channel & lists no-shows).\n"
+                "• **Promote Subs (T - 05m):** `/t promote replace:@NoShow` (Swaps in ready FIFO subs).\n"
+                "• **Broadcast Alerts:** `/t announce` (Pings contestants with stylized embed)."
             ),
             inline=False,
         )
         embed.add_field(
             name="4️⃣ Phase 4: Concluding & Archiving",
             value=(
-                "• **Export Seed List:** `/tournament-export format:Challonge target:Main` (Start.gg/Excel ready).\n"
-                "• **Crown Champion:** `/tournament-complete-event` (Publishes winner to website & server feeds).\n"
-                "• **Wipe Roster:** `/tournament-clear` (Wipes contestants for next event while keeping channels).\n"
-                "• **Clean Up Arenas:** `/tournament-remove-section` (Safely deletes temporary arena channels)."
+                "• **Export Seed List:** `/t export format:Challonge target:Main` (Start.gg/Excel ready).\n"
+                "• **Crown Champion:** `/event complete` (Publishes winner to website & server feeds).\n"
+                "• **Wipe Roster:** `/t clear` (Wipes contestants for next event while keeping channels).\n"
+                "• **Clean Up Arenas:** `/t remove-section` (Safely deletes temporary arena channels)."
             ),
             inline=False,
         )
         embed.add_field(
             name="⚡ Match Day Quick Checklist",
             value=(
-                "• **T - 60m:** `/tournament-open-checkin` (or click Toggle Check-In)\n"
-                "• **T - 10m:** `/tournament-close-checkin` (Locks channel)\n"
-                "• **T - 05m:** `/tournament-promote-sub replace:@NoShow` (Promotes ready subs)\n"
-                "• **T - 00m:** `/tournament-export format:Challonge target:Main` ➔ Seed ➔ `/tournament-announce`"
+                "• **T - 60m:** `/t checkin-open` (or click Toggle Check-In)\n"
+                "• **T - 10m:** `/t checkin-close` (Locks channel)\n"
+                "• **T - 05m:** `/t promote replace:@NoShow` (Promotes ready subs)\n"
+                "• **T - 00m:** `/t export format:Challonge target:Main` ➔ Seed ➔ `/t announce`"
             ),
             inline=False,
         )
         embed.add_field(
             name="💾 State Preservation Across Git Pushes",
             value=(
-                "• `/state-save` — Saves all channel IDs and roles to `saved_state.json`.\n"
-                "• `/state-restore [repost_panels:True]` — Re-binds all channels & refreshes live embeds.\n"
-                "• `/state-status` — Diagnostics check of active channels vs saved disk snapshot."
+                "• `/state save` — Saves all channel IDs and roles to `saved_state.json`.\n"
+                "• `/state restore [repost_panels:True]` — Re-binds all channels & refreshes live embeds.\n"
+                "• `/state status` — Diagnostics check of active channels vs saved disk snapshot."
             ),
             inline=False,
         )
         embed.add_field(
             name="🛡️ Role Permissions Reference",
             value=(
-                "• **Tournament Admin Role (`/tournament-set-admin-role`):** Operations, bracket runner, check-in & kicks.\n"
-                "• **Event & Website Role (`/tournament-set-event-role`):** Server banner events & website publishing.\n"
+                "• **Tournament Admin Role (`/t set-admin-role`):** Operations, bracket runner, check-in & kicks.\n"
+                "• **Event & Website Role (`/t set-event-role`):** Server banner events & website publishing.\n"
                 "• **Server Administrator:** System setup, channel builder & role assignments."
             ),
             inline=False,
@@ -832,7 +881,7 @@ def build_staff_guide_embed(section: str = "overview", org_name: str | None = No
                 "• 3️⃣ **Phase 3: Match Day & Reminders** — Automated contestant DMs, check-in & FIFO sub swaps\n"
                 "• 4️⃣ **Phase 4: Concluding & Archiving** — Crown champions, Challonge export & bracket wipe\n"
                 "• ⚡ **Match Day Quick Checklist** — Critical timeline from T-60m to T-00m\n"
-                "• 💾 **State Preservation** — Saving channels & rosters across bot redeployments (`/state-save`)\n"
+                "• 💾 **State Preservation** — Saving channels & rosters across bot redeployments (`/state save`)\n"
                 "• 🛡️ **Role Permissions Reference** — Tournament Admin vs. Event & Website staff boundaries\n\n"
                 "💡 *Select an operational phase below to view step-by-step guidance.*"
             ),
@@ -1120,6 +1169,7 @@ __all__ = [
     "format_participant_line",
     "_chunk_lines",
     "build_status_embed",
+    "build_config_embed",
     "build_roster_embed",
     "build_tournament_reminder_embed",
     "build_help_embed",

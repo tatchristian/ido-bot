@@ -696,7 +696,7 @@ class TournamentService:
 
         if len(state.participants) >= state.max_slots:
             sub_hint = (
-                " You can sign up as a standby substitute with `/tournament-sub-register`."
+                " You can sign up as a standby substitute with `/sub`."
                 if state.subs_open
                 else ""
             )
@@ -899,7 +899,7 @@ class TournamentService:
             return (
                 False,
                 f"Main bracket is full ({len(state.participants)}/{state.max_slots}). "
-                "Specify a player to replace (`replace:<user>`) or expand slot capacity with `/tournament-set-limit`.",
+                "Specify a player to replace (`replace:<user>`) or expand slot capacity with `/t set-limit`.",
                 None,
             )
 

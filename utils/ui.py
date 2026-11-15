@@ -22,6 +22,7 @@ from utils.tournament_embeds import (
     _chunk_lines,
     build_checkin_panel_embed,
     build_checkin_receipt_embed,
+    build_config_embed,
     build_help_embed,
     build_registration_closed_embed,
     build_registration_panel_embed,
@@ -61,7 +62,7 @@ def build_clan_role_panel_embed(clans: list[Any], org_name: str | None = None) -
     ]
 
     if count == 0:
-        desc_lines.append("\n*No approved clans are currently registered. Use `/clan-submit` to submit a profile!*")
+        desc_lines.append("\n*No approved clans are currently registered. Use `/clan submit` to submit a profile!*")
 
     embed = discord.Embed(
         title=f"🏛️ {org} Clan Alignment — Select Your Official Clan Role",
@@ -85,6 +86,7 @@ __all__ = [
     "format_participant_line",
     "_chunk_lines",
     "build_status_embed",
+    "build_config_embed",
     "build_roster_embed",
     "build_tournament_reminder_embed",
     "build_help_embed",

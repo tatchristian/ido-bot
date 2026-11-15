@@ -1,10 +1,18 @@
 # 🏆 Tournaments Cog Memory Node
 
-**File Path:** `cogs/tournaments.py` (3,709 lines)
-**Main Cog Class:** `TournamentCog` (`L149`)
+**File Path:** `cogs/tournaments.py` (161 lines)
+**Main Cog Class:** `TournamentCog`
+**Architecture:** Composed via modular mixins under `cogs/tournament_ops/` (total 4,038 lines)
 **Extracted Modules:**
-- `utils/tournament_views.py` (persistent views, selects, modals, admin checks)
-- `utils/tournament_embeds.py` (embed builders, visual helpers, color palette)
+- `cogs/tournament_ops/constants.py` (84 lines): Choice definitions for regions, weapons, timezones, formats, panels, and help sections.
+- `cogs/tournament_ops/helpers.py` (804 lines): Lifecycle hooks (`cog_load`, `cog_unload`), background reminder loop (`tournament_reminder_task`), participant role management, channel permissions & region locking, live panel synchronization (`asyncio.gather`), autocomplete resolvers.
+- `cogs/tournament_ops/player_cmds.py` (365 lines): 1-word player slash commands (`/help`, `/register`, `/unregister`, `/sub`, `/sub-unregister`, `/edit-entry`, `/checkin`, `/sub-checkin`, `/status`, `/roster`).
+- `cogs/tournament_ops/config_cmds.py` (373 lines): Server configuration (`/config`, `/set-channel`, `/post` panels, prefix fallbacks).
+- `cogs/tournament_ops/staff_cmds.py` (1,415 lines): Staff bracket management (`t_group = app_commands.Group(name="t", ...)` with 24 subcommands and prefix fallbacks).
+- `cogs/tournament_ops/state_cmds.py` (397 lines): State snapshot and disaster recovery (`state_group = app_commands.Group(name="state", ...)` with 5 subcommands and prefix fallbacks).
+- `cogs/tournament_ops/event_cmds.py` (399 lines): Discord event scheduling and website sync (`event_group = app_commands.Group(name="event", ...)` with 4 subcommands).
+- `utils/tournament_views.py` (persistent views, selects, modals, admin checks).
+- `utils/tournament_embeds.py` (embed builders, visual helpers, color palette).
 **Backlink:** [[index]] | [[services_layer]] | [[ui_components]] | [[workflow_tournament_panel_sync]]
 
 ---
@@ -49,7 +57,7 @@
   - `select_staff_guide_page`: 9 operational sections (overview, panels, phase 1-4, checklist, persistence, roles).
 
 - **Navigation Help View:** `HelpView`
-  - Ephemeral view (`timeout=180.0`) for `/tournament-help` command navigation.
+  - Ephemeral view (`timeout=180.0`) for `/help` command navigation.
 
 ---
 
@@ -74,25 +82,27 @@
 
 ---
 
-## 🔗 Live Synchronization Hooks
+## 🔗 Live Synchronization Hooks (`cogs/tournament_ops/helpers.py`)
 - `_sync_category_region_permissions()`: Category permission sync restricting visibility exclusively to allowed region roles (`North America`, `Europe`, `Asia`, `South America`, `Oceania`, `Africa`) when a regional tournament is opened, or resetting to `@everyone` if `GLOBAL`.
-- `_update_channel_permission()`
+- `_update_channel_permission()`: Locks/unlocks channel send perms.
 - `_post_or_update_registration_panel()`
 - `_update_registration_panel()`
 - `_close_registration_panel()`
 - `_post_or_update_subs_panel()`
 - `_update_subs_panel()`
 - `_close_subs_panel()`
+- `_post_or_update_checkin_panel()`
+- `_update_checkin_panel()`
 - `_update_all_live_panels()`
 - `_dispatch_checkin_log()`
 
 ---
 
-## 💾 Roster & State Persistence Commands
-- `/state-save` / `!state_save`: Snapshots all set channels, roles, and panel links to `saved_state.json`.
-- `/state-restore` / `!state_restore`: Restores all channels and roles; optionally re-syncs panels.
-- `/state-status`: Compares active channels against saved snapshot with diagnostics.
-- `/tournament-save-roster` / `!tournament_save_roster`: Saves active roster to `saved_roster.json` preset.
-- `/tournament-restore-roster` / `!tournament_restore_roster`: Loads preset file and restores roster into active tournament.
-- `/tournament-bulk-register` / `!tournament_bulk_register`: Enrolls batch list of contestants with auto delimiter parsing.
-- `bot.py` `on_ready`: Auto-restores `saved_state.json` (or regex auto-discovers channels) on startup. Roster restoration from `saved_roster.json` is strictly manual via `/tournament-restore-roster` to prevent overwriting new tournaments.
+## 💾 Roster & State Persistence Commands (`cogs/tournament_ops/state_cmds.py`)
+- `/state save` / `!state_save`: Snapshots all set channels, roles, and panel links to `saved_state.json`.
+- `/state restore` / `!state_restore`: Restores all channels and roles; optionally re-syncs panels.
+- `/state status`: Compares active channels against saved snapshot with diagnostics.
+- `/state save-roster` / `!tournament_save_roster`: Saves active roster to `saved_roster.json` preset.
+- `/state restore-roster` / `!tournament_restore_roster`: Loads preset file and restores roster into active tournament.
+- `/t bulk-reg` / `!tournament_bulk_register`: Enrolls batch list of contestants with auto delimiter parsing.
+- `bot.py` `on_ready`: Auto-restores `saved_state.json` (or regex auto-discovers channels) on startup. Roster restoration from `saved_roster.json` is strictly manual via `/state restore-roster` to prevent overwriting new tournaments.

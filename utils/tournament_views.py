@@ -167,7 +167,7 @@ def is_server_admin():
 
 
 class HelpView(discord.ui.View):
-    """Interactive navigation buttons for the /tournament-help command."""
+    """Interactive navigation buttons for the /help command."""
 
     def __init__(self, is_admin: bool = False, timeout: float = 180.0):
         super().__init__(timeout=timeout)
@@ -893,7 +893,7 @@ class TournamentStaffPanelView(discord.ui.View):
             f"🏆 **{state.name}** registrations are now **OPEN**!\n",
             f"• **Capacity:** `{state.max_slots}` slots",
             f"• **Regions:** `{', '.join(state.allowed_regions) if state.allowed_regions else 'GLOBAL'}`",
-            f"• **Registration Channel:** {reg_channel.mention + ' (✅ Live Hub Posted)' if reg_posted else ('⚠️ Could not post' if reg_channel else '*None found (use /tournament-set-channel)*')}",
+            f"• **Registration Channel:** {reg_channel.mention + ' (✅ Live Hub Posted)' if reg_posted else ('⚠️ Could not post' if reg_channel else '*None found (use /set-channel)*')}",
         ]
         embed = discord.Embed(
             title="🟢 Tournament Registrations Opened!",
@@ -1019,7 +1019,7 @@ class TournamentStaffPanelView(discord.ui.View):
                 title="🛡️ Standby Substitute Signups Opened",
                 description=(
                     f"{msg}\n\n"
-                    f"• **Channel:** {subs_channel.mention + ' (✅ Live Hub Posted)' if subs_posted else ('⚠️ Could not post' if subs_channel else '*None found (use /tournament-set-channel)*')}\n\n"
+                    f"• **Channel:** {subs_channel.mention + ' (✅ Live Hub Posted)' if subs_posted else ('⚠️ Could not post' if subs_channel else '*None found (use /set-channel)*')}\n\n"
                     f"*Opened by {interaction.user.mention}*"
                 ),
                 color=0x3498DB,
@@ -1082,7 +1082,7 @@ class TournamentStaffPanelView(discord.ui.View):
                 title="🎟️ Tournament Check-In Opened",
                 description=(
                     f"{msg}\n\n"
-                    f"Contestants can check in using `/tournament-checkin` or the Check-In button in registration channels.\n\n"
+                    f"Contestants can check in using `/checkin` or the Check-In button in registration channels.\n\n"
                     f"*Opened by {interaction.user.mention}*"
                 ),
                 color=0x2ECC71,
@@ -1276,7 +1276,7 @@ class UserRegistrationModal(discord.ui.Modal, title="Register for Tournament"):
                 f"Welcome **{participant.ign}** to **{state.name}**!\n\n"
                 f"• **Region:** `{participant.region}`\n"
                 f"• **Bracket Slot:** `{len(state.participants)}/{state.max_slots}` registered\n\n"
-                "💡 *Need to adjust your IGN or Region? Run `/tournament-edit-entry` or click Withdraw on the panel.*"
+                "💡 *Need to adjust your IGN or Region? Run `/edit-entry` or click Withdraw on the panel.*"
             ),
             color=0x2ECC71,
         )

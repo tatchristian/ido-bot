@@ -204,7 +204,7 @@ class ClanSubmissionModal(discord.ui.Modal, title="Clan Showcase Submission"):
             await interaction.response.send_message(
                 f"❌ **Invalid Logo / Emblem URL:** {url_error}\n\n"
                 "**How to provide your image:**\n"
-                "• **Choice 1 (Direct Device Upload):** Use `/clan-submit image:[Select Photo or GIF]` to choose directly from your phone gallery or files!\n"
+                "• **Choice 1 (Direct Device Upload):** Use `/clan submit image:[Select Photo or GIF]` to choose directly from your phone gallery or files!\n"
                 "• **Choice 2 (Image Link):** Provide a direct link (PNG, JPG, GIF) or Discord image link.",
                 ephemeral=True,
             )
@@ -365,7 +365,7 @@ class ClanDraftConfirmationView(discord.ui.View):
         if not review_channel or not isinstance(review_channel, discord.TextChannel):
             await interaction.response.send_message(
                 "⚠️ **Staff review channel is not configured on this server.**\n"
-                "Please notify a server administrator to configure the review channel using `/clan-showcase-channels`.",
+                "Please notify a server administrator to configure the review channel using `/clan channels`.",
                 ephemeral=True,
             )
             return
@@ -810,7 +810,7 @@ class ClanReviewButtonsView(discord.ui.View):
         if not showcase_channel or not isinstance(showcase_channel, discord.TextChannel):
             await interaction.response.send_message(
                 "⚠️ **Showcase channel is not configured.**\n"
-                "Please configure where clan profiles should be posted using `/clan-showcase-channels`.",
+                "Please configure where clan profiles should be posted using `/clan channels`.",
                 ephemeral=True,
             )
             return
@@ -1124,7 +1124,7 @@ class ClanSubmissionPanelView(discord.ui.View):
             content=(
                 "📱 **Upload Directly from your Device (Phone or PC):**\n\n"
                 "If you want to choose a photo or saved GIF directly from your **Camera Roll, Gallery, or Files** without having to copy/paste any links:\n\n"
-                "1️⃣ Type **/clan-submit** in chat.\n"
+                "1️⃣ Type **/clan submit** in chat.\n"
                 "2️⃣ Select the **`image`** option — your phone's photo library will open directly!\n"
                 "3️⃣ Pick your clan emblem or saved GIF.\n"
                 "4️⃣ The submission form will pop up immediately with your image attached!\n\n"
@@ -1279,8 +1279,8 @@ class ClanSearchModal(discord.ui.Modal, title="Search & Claim Clan Role"):
             await interaction.response.send_message(
                 f"❌ No registered clan found matching `{self.query_input.value}`.\n"
                 "• Check the spelling or tag.\n"
-                "• Or use `/clan-claim` with live search suggestions.\n"
-                "• If your clan isn't registered, your leader can apply via `/clan-submit`.",
+                "• Or use `/clan claim` with live search suggestions.\n"
+                "• If your clan isn't registered, your leader can apply via `/clan submit`.",
                 ephemeral=True,
             )
             return
@@ -1410,9 +1410,9 @@ class ClanRoleAssignmentPanelView(discord.ui.View):
                 "**How to Manage Your Clan Alignment:**\n\n"
                 "• **1 Clan Limit:** You can only represent one clan at a time. Selecting a new clan role immediately removes your previous clan role.\n"
                 "• **Clanless Rule:** Selecting any clan role automatically removes the `@Clanless` role. Clicking **Leave Clan / Clanless** removes your clan role and restores `@Clanless`.\n"
-                "• **Search by Typing:** Click **`🔍 Search / Type Clan`** or use `/clan-claim <name>` with live autocomplete search!\n"
+                "• **Search by Typing:** Click **`🔍 Search / Type Clan`** or use `/clan claim clan:<name>` with live autocomplete search!\n"
                 "• **New Clans:** When a new clan is officially approved by staff, it is instantly added to this panel automatically.\n"
-                "• **Missing Clan?** If your clan is not registered yet, have your clan leader apply using `/clan-submit`."
+                "• **Missing Clan?** If your clan is not registered yet, have your clan leader apply using `/clan submit`."
             ),
             color=0x10B981,
         )
@@ -1424,6 +1424,8 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
     Modular Discord Cog for automated clan profile submissions, staff reviews,
     and official showcase publishing.
     """
+
+    clan_group = app_commands.Group(name="clan", description="Clan management and showcase")
 
     def __init__(self, bot: commands.Bot, service: Optional[ClanShowcaseService] = None):
         self.bot = bot
@@ -1650,10 +1652,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             logger.warning("Could not refresh Clan Role Assignment Panel: %s", exc)
 
     # -------------------------------------------------------------------------
-    # Command: /clan-submit and !clan_submit
+    # Command: /clan submit and !clan_submit
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-submit",
+    @clan_group.command(
+        name="submit",
         description="Submit or draft your clan showcase profile (choose photo/GIF from device or paste link).",
     )
     @app_commands.describe(
@@ -1725,24 +1727,16 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
 
         msg = (
             "ℹ️ Discord modals must be opened via interactive slash commands or buttons.\n"
-            "Please use the slash command: **/clan-submit**\n"
-            "• **To select a photo/GIF from your phone:** Use `/clan-submit image:[Select Photo]`!\n"
-            "• **To use a link:** Use `/clan-submit` or click **📋 Submit Clan Profile** on the registration panel."
+            "Please use the slash command: **/clan submit**\n"
+            "• **To select a photo/GIF from your phone:** Use `/clan submit image:[Select Photo]`!\n"
+            "• **To use a link:** Use `/clan submit` or click **📋 Submit Clan Profile** on the registration panel."
         )
         await ctx.send(msg)
 
     # -------------------------------------------------------------------------
-    # Command: /post-clan-submission-panel and !post_clan_submission_panel
+    # Panel Poster: /post panel:clan_submit and !post_clan_submission_panel
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="post-clan-submission-panel",
-        description="Admin: Drop the interactive Clan Profile Submission panel with persistent buttons.",
-    )
-    @app_commands.describe(
-        channel="Channel to post the submission panel in (defaults to current channel)"
-    )
-    @app_commands.default_permissions(manage_guild=True)
-    async def post_clan_submission_panel_slash(
+    async def post_clan_submission_panel(
         self,
         interaction: discord.Interaction,
         channel: Optional[discord.TextChannel] = None,
@@ -1771,7 +1765,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "Choose your preferred method below to submit your clan's profile for staff review:\n\n"
                 "**How to Provide Your Clan Logo / GIF (Choose One):**\n"
                 "• **Choice 1 — Pick Photo/GIF from Device (Mobile & PC):**\n"
-                "  Type `/clan-submit` and select **`image`** to choose directly from your phone's Camera Roll / Gallery or files!\n"
+                "  Type `/clan submit` and select **`image`** to choose directly from your phone's Camera Roll / Gallery or files!\n"
                 "• **Choice 2 — Paste Image Link in Form:**\n"
                 "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
@@ -1822,7 +1816,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 "Choose your preferred method below to submit your clan's profile for staff review:\n\n"
                 "**How to Provide Your Clan Logo / GIF (Choose One):**\n"
                 "• **Choice 1 — Pick Photo/GIF from Device (Mobile & PC):**\n"
-                "  Type `/clan-submit` and select **`image`** to choose directly from your phone's Camera Roll / Gallery or files!\n"
+                "  Type `/clan submit` and select **`image`** to choose directly from your phone's Camera Roll / Gallery or files!\n"
                 "• **Choice 2 — Paste Image Link in Form:**\n"
                 "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
                 "**Form Guidelines & Tips:**\n"
@@ -1844,11 +1838,11 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         await ctx.send(f"✅ Clan submission panel posted in {target_chan.mention}!")
 
     # -------------------------------------------------------------------------
-    # Command: /clan-showcase-channels
+    # Command: /clan channels
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-showcase-channels",
-        description="Admin: Configure target showcase and staff review channels for this server.",
+    @clan_group.command(
+        name="channels",
+        description="Admin: Configure or view target showcase and staff review channels for this server.",
     )
     @app_commands.describe(
         showcase_channel="Public channel where approved clan embeds will be published",
@@ -1873,10 +1867,25 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             return
 
         if not showcase_channel and not staff_review_channel:
-            await interaction.response.send_message(
-                "⚠️ Please provide at least one channel to update (`showcase_channel` or `staff_review_channel`).",
-                ephemeral=True,
+            s_id, r_id = self.service.get_guild_channels(interaction.guild.id)
+            embed = discord.Embed(
+                title="📁 Current Clan Showcase Channels",
+                color=DEFAULT_CLAN_COLOR,
             )
+            embed.add_field(
+                name="Public Showcase Channel",
+                value=f"<#{s_id}> (`{s_id}`)" if s_id else "*(Not configured)*",
+                inline=False,
+            )
+            embed.add_field(
+                name="Staff Review Channel",
+                value=f"<#{r_id}> (`{r_id}`)" if r_id else "*(Not configured)*",
+                inline=False,
+            )
+            embed.set_footer(
+                text="Use /clan channels showcase_channel:... staff_review_channel:... to update."
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         self.service.set_guild_channels(
@@ -1904,50 +1913,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     # -------------------------------------------------------------------------
-    # Command: /clan-showcase-view-channels
+    # Command: /clan edit and !clan_edit
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-showcase-view-channels",
-        description="Admin: View current showcase and staff review channels for this server.",
-    )
-    @app_commands.default_permissions(manage_guild=True)
-    async def view_clan_channels(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
-            return
-
-        if not is_staff_user(interaction.user, interaction.guild):
-            await interaction.response.send_message(
-                "❌ You must be an administrator or tournament staff to view channel settings.",
-                ephemeral=True,
-            )
-            return
-
-        s_id, r_id = self.service.get_guild_channels(interaction.guild.id)
-        embed = discord.Embed(
-            title="📁 Current Clan Showcase Channels",
-            color=DEFAULT_CLAN_COLOR,
-        )
-        embed.add_field(
-            name="Public Showcase Channel",
-            value=f"<#{s_id}> (`{s_id}`)" if s_id else "*(Not configured)*",
-            inline=False,
-        )
-        embed.add_field(
-            name="Staff Review Channel",
-            value=f"<#{r_id}> (`{r_id}`)" if r_id else "*(Not configured)*",
-            inline=False,
-        )
-        embed.set_footer(
-            text="Use /clan-showcase-channels to update target channels anytime."
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # -------------------------------------------------------------------------
-    # Command: /clan-showcase-edit and !clan_edit
-    # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-showcase-edit",
+    @clan_group.command(
+        name="edit",
         description="Admin: Edit an existing clan showcase profile live in Discord.",
     )
     @app_commands.describe(
@@ -2014,14 +1983,14 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             return
 
         await ctx.send(
-            f"ℹ️ To open the interactive edit form for **{sub.clan_name}**, please use the slash command: `/clan-showcase-edit clan:{sub.clan_name}`"
+            f"ℹ️ To open the interactive edit form for **{sub.clan_name}**, please use the slash command: `/clan edit clan:{sub.clan_name}`"
         )
 
     # -------------------------------------------------------------------------
-    # Command: /clan-showcase-preview
+    # Command: /clan preview
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-showcase-preview",
+    @clan_group.command(
+        name="preview",
         description="Preview how a clan showcase embed will look before submitting.",
     )
     @app_commands.describe(
@@ -2069,15 +2038,9 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         )
 
     # -------------------------------------------------------------------------
-    # Command: /post-clan-role-panel and !post_clan_role_panel
+    # Panel Poster: /post panel:clan_roles and !post_clan_role_panel
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="post-clan-role-panel",
-        description="Admin: Post or move the interactive Clan Role Assignment Panel.",
-    )
-    @app_commands.describe(channel="Target channel to post the panel (defaults to current)")
-    @app_commands.default_permissions(manage_guild=True)
-    async def post_clan_role_panel_slash(
+    async def post_clan_role_panel(
         self,
         interaction: discord.Interaction,
         channel: Optional[discord.TextChannel] = None,
@@ -2139,10 +2102,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         await ctx.send(f"✅ Clan Role Assignment Panel posted in {target_channel.mention} ([Jump to Panel]({panel_msg.jump_url}))")
 
     # -------------------------------------------------------------------------
-    # Command: /clan-claim and !clan_claim
+    # Command: /clan claim and !clan_claim
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-claim",
+    @clan_group.command(
+        name="claim",
         description="Claim or switch to your official clan role.",
     )
     @app_commands.describe(clan="Select or type your registered clan name or tag")
@@ -2165,7 +2128,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
 
         if not sub:
             await interaction.response.send_message(
-                f"❌ No approved clan matching `{clan}` was found in this server. Use `/clan-claim` with autocomplete or check the clan role panel.",
+                f"❌ No approved clan matching `{clan}` was found in this server. Use `/clan claim` with autocomplete or check the clan role panel.",
                 ephemeral=True,
             )
             return
@@ -2182,7 +2145,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
 
         if not role_id:
             await interaction.response.send_message(
-                f"❌ **{sub.clan_name}** does not have an active Discord role linked. Please ask an admin to configure it using `/clan-role-edit`.",
+                f"❌ **{sub.clan_name}** does not have an active Discord role linked. Please ask an admin to configure it using `/clan role-edit`.",
                 ephemeral=True,
             )
             return
@@ -2269,10 +2232,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         await ctx.send(f"✅ {ctx.author.mention} claimed the **{target_role.name}** clan role!")
 
     # -------------------------------------------------------------------------
-    # Command: /clan-leave and !clan_leave
+    # Command: /clan leave and !clan_leave
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-leave",
+    @clan_group.command(
+        name="leave",
         description="Leave your current clan and return to @Clanless status.",
     )
     async def clan_leave_slash(self, interaction: discord.Interaction):
@@ -2309,10 +2272,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         await ctx.send(f"✅ {ctx.author.mention} left their clan{clanless_str}.")
 
     # -------------------------------------------------------------------------
-    # Command: /clan-set-clanless-role and !set_clanless_role
+    # Command: /clan set-clanless-role and !set_clanless_role
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-set-clanless-role",
+    @clan_group.command(
+        name="set-clanless-role",
         description="Admin: Configure the @Clanless role assigned to players without a clan.",
     )
     @app_commands.describe(role="The role to use for @Clanless members")
@@ -2353,10 +2316,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         await ctx.send(f"✅ Configured @Clanless role to {role.mention} (`{role.id}`).")
 
     # -------------------------------------------------------------------------
-    # Command: /clan-role-edit
+    # Command: /clan role-edit
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-role-edit",
+    @clan_group.command(
+        name="role-edit",
         description="Admin: Edit, rename, or link a Discord role for an approved clan.",
     )
     @app_commands.describe(
@@ -2397,7 +2360,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
                 curr_role = interaction.guild.get_role(sub.role_id)
                 if curr_role and curr_role < interaction.guild.me.top_role:
                     try:
-                        await curr_role.edit(name=sub.clan_name[:100], reason="Renamed via /clan-role-edit")
+                        await curr_role.edit(name=sub.clan_name[:100], reason="Renamed via /clan role-edit")
                         changes.append(f"• Renamed role {curr_role.mention}")
                     except Exception as exc:
                         changes.append(f"• *(Could not rename role: {exc})*")
@@ -2441,10 +2404,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         return choices
 
     # -------------------------------------------------------------------------
-    # Command: /clan-role-panel-refresh and !refresh_clan_role_panel
+    # Command: /clan refresh-panel and !refresh_clan_role_panel
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-role-panel-refresh",
+    @clan_group.command(
+        name="refresh-panel",
         description="Admin: Manually re-sync and refresh the Clan Role Assignment Panel.",
     )
     @app_commands.default_permissions(manage_guild=True)
@@ -2459,7 +2422,7 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         chan_id, msg_id = self.service.get_clan_role_panel_info(interaction.guild.id)
         if not chan_id or not msg_id:
             await interaction.response.send_message(
-                "⚠️ No active Clan Role Assignment Panel found for this server. Use `/post-clan-role-panel` first.",
+                "⚠️ No active Clan Role Assignment Panel found for this server. Use `/post panel:clan_roles` first.",
                 ephemeral=True,
             )
             return
@@ -2487,10 +2450,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         await ctx.send(f"✅ Clan Role Assignment Panel refreshed in <#{chan_id}>.")
 
     # -------------------------------------------------------------------------
-    # Command: /clan-delete and !clan_delete
+    # Command: /clan delete and !clan_delete
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-delete",
+    @clan_group.command(
+        name="delete",
         description="Admin: Remove a clan from the database and Claim Role Panel (optional: delete Discord role).",
     )
     @app_commands.describe(
@@ -2605,10 +2568,10 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         await ctx.send(f"✅ Deleted **{name}** from registry and updated Claim Role Panel. {role_msg}")
 
     # -------------------------------------------------------------------------
-    # Command: /clan-sync-roles and !clan_sync_roles
+    # Command: /clan sync-roles and !clan_sync_roles
     # -------------------------------------------------------------------------
-    @app_commands.command(
-        name="clan-sync-roles",
+    @clan_group.command(
+        name="sync-roles",
         description="Admin: Scan server roles ending with '//', import all clans into the database, and link roles.",
     )
     @app_commands.describe(

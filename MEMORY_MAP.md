@@ -19,95 +19,111 @@
 
 ## 2. Core Discord Cogs (`cogs/`)
 
-### `cogs/tournaments.py` (3,709 lines)
-- **Class:** `TournamentCog(commands.Cog)` (`L149`)
-- **Panel Synchronization & Lifecycle Hooks:**
-  - `_update_channel_permission()`: `L430` (Dynamically locks/unlocks text channel send permissions)
-  - `_sync_category_region_permissions()`: `L469` (Restricts category channel visibility to matching region roles)
-  - `_post_or_update_registration_panel()`: `L598` (Posts or edits live registration hub in `#tournament-registration`)
-  - `_update_registration_panel()`: `L626` (Edits live hub: updates progress bar, slot counter, sub status)
-  - `_close_registration_panel()`: `L648` (Edits live hub into the closed notice with links to subs)
-  - `_post_or_update_subs_panel()`: `L666` (Posts or edits standby subs hub in `#substitutes-bench`)
-  - `_update_subs_panel()`: `L694` (Edits live subs hub: updates queue size count)
-  - `_close_subs_panel()`: `L716` (Edits live subs hub into closed notice)
-  - `_post_or_update_checkin_panel()`: `L734` (Posts or edits live check-in hub in `#tournament-checkin`)
-  - `_update_checkin_panel()`: `L762` (Edits live check-in hub: progress and sub readiness counters)
-  - `_update_all_live_panels()`: `L780` (Concurrent refresh of Reg, Subs, and Check-In panels via `asyncio.gather`)
-  - `_dispatch_checkin_log()`: `L791` (Dispatches audit receipt embed to `#checkin-logs`)
-- **Primary Slash & Prefix Commands:**
-  - `/tournament-help` (`L840`) / `/help` (`L874`)
-  - `/tournament-register`: `L895`
-  - `/tournament-unregister`: `L944`
-  - `/tournament-sub-register`: `L970`
-  - `/tournament-sub-unregister`: `L1034`
-  - `/tournament-edit-entry`: `L1075`
-  - `/tournament-checkin`: `L1123`
-  - `/tournament-sub-checkin`: `L1154`
-  - `/tournament-status`: `L1178`
-  - `/tournament-roster`: `L1188`
-  - `/tournament-open`: `L1202` (Opens bracket, creates participant role, sets channels, syncs category perms)
-  - `/tournament-close`: `L1375` (Locks bracket, edits panel to closed)
-  - `/tournament-open-subs`: `L1403` (Opens substitute queue, syncs reg panel)
-  - `/tournament-close-subs`: `L1452` (Closes substitute queue, syncs reg panel)
-  - `/tournament-open-checkin`: `L1487`
-  - `/tournament-close-checkin`: `L1541`
-  - `/tournament-kick`: `L1657`
-  - `/tournament-force-register`: `L1709`
-  - `/tournament-promote-sub`: `L1757`
-  - `/tournament-set-limit`: `L1833`
-  - `/tournament-set-regions`: `L1854` (Updates regions and updates category permissions)
-  - `/tournament-set-weapons`: `L1920`
-  - `/tournament-set-admin-role`: `L1941`
-  - `/tournament-set-event-role`: `L1995`
-  - `/tournament-set-channels`: `L2161` (Configure all channels at once)
-  - `/tournament-set-channel`: `L2233` (Configure single dedicated channel)
-  - `/tournament-set-time`: `L2322`
-  - `/tournament-announce`: `L2459`
-  - `/tournament-export`: `L2547` (Export to Challonge, Start.gg, Battlefy CSV, Text)
-  - `/tournament-save-roster` (`!tournament_save_roster`): `L2594`
-  - `/tournament-restore-roster` (`!tournament_restore_roster`): `L2629`
-  - `/tournament-bulk-register` (`!tournament_bulk_register`): `L2729`
-  - `/state-save` (`!state_save`): `L2810`
-  - `/state-restore` (`!state_restore`): `L2888`
-  - `/state-status`: `L2995`
-  - `/tournament-clear`: `L3047`
-  - `/tournament-setup-section`: `L3097` (Constructs official server categories & arenas)
-  - `/tournament-remove-section`: `L3189` (Safely deletes server categories & match channels)
-  - `/tournament-schedule-event`: `L3255` (Discord event + web sync)
-  - `/tournament-cancel-event`: `L3448`
-  - `/tournament-complete-event`: `L3503`
-  - `/post-event-scheduler-panel`: `L3637`
-  - `/post-tournament-staff-panel`: `L3714` (The 1-click Control Center)
-  - `/post-registration-panel`: `L3767`
-  - `/post-subs-panel`: `L3822`
-  - `/post-checkin-panel`: `L3877`
-  - `/tournament-staff-checkin`: `L3932` (Staff check-in override)
-  - `/post-staff-guide`: `L3979`
+### `cogs/tournaments.py` (161 lines)
+- **Class:** `TournamentCog(commands.Cog, TournamentHelpersMixin, TournamentPlayerMixin, TournamentConfigMixin, TournamentStaffMixin, TournamentStateMixin, TournamentEventMixin)` (`L76`)
+- Main orchestrator cog composing all tournament modular mixins located in `cogs/tournament_ops/`.
+- Re-exports persistent views, modals, and embeds for backwards compatibility with tests.
 
-### `cogs/clan_showcase.py` (2,499 lines)
-- **Class:** `ClanShowcaseCog(commands.Cog)` (`L670`)
+### `cogs/tournament_ops/` (Modular Mixins & Constants - 3,877 lines total)
+- **`constants.py` (84 lines):**
+  - Choice definitions for `TIMEZONE_CHOICES`, `WEAPON_CHOICES`, `REGION_CHOICES`, `REGION_FILTER_CHOICES`, `EXPORT_FORMAT_CHOICES`, `EXPORT_TARGET_CHOICES`, `ANNOUNCE_TARGET_CHOICES`, `HELP_SECTION_CHOICES`, `PANEL_CHOICES`.
+- **`helpers.py` (804 lines) - `TournamentHelpersMixin`:**
+  - `cog_load()` / `cog_unload()`: `L41` (View registration & loop management)
+  - `tournament_reminder_task()`: `L86` (Background 1-minute reminder loop)
+  - `_check_and_send_reminders()`: `L95` (Day-of and 30-minute reminder checks)
+  - `_assign_participant_role()` / `_remove_participant_role()`: `L245`, `L269`
+  - `_update_channel_permission()`: `L320` (Dynamically locks/unlocks channel send permissions)
+  - `_sync_category_region_permissions()`: `L359` (Restricts category channels to allowed region roles)
+  - `_post_or_update_registration_panel()`: `L488`
+  - `_update_registration_panel()` / `_close_registration_panel()`: `L516`, `L538`
+  - `_post_or_update_subs_panel()`: `L556`
+  - `_update_subs_panel()` / `_close_subs_panel()`: `L584`, `L606`
+  - `_post_or_update_checkin_panel()`: `L624`
+  - `_update_checkin_panel()`: `L652`
+  - `_update_all_live_panels()`: `L670` (Concurrent refresh via `asyncio.gather`)
+  - `_dispatch_checkin_log()`: `L681` (Dispatches audit receipt embed to `#checkin-logs`)
+  - Autocomplete resolvers (`_resolve_user_id`, `_kick_participants_autocomplete`, `_substitute_candidates_autocomplete`, `_replace_candidates_autocomplete`): `L719`-`L788`
+- **`player_cmds.py` (365 lines) - `TournamentPlayerMixin`:**
+  - `/help`: `L52` (Interactive guide & command manual with dropdown categories)
+  - `/register`: `L74` (Main bracket registration modal or direct command)
+  - `/unregister`: `L117` (Withdraw from main bracket and free slot)
+  - `/sub`: `L149` (Join standby substitute FIFO queue)
+  - `/sub-unregister`: `L207` (Withdraw from standby substitute queue)
+  - `/edit-entry`: `L248` (Update registered IGN or region)
+  - `/checkin`: `L296` (Confirm tournament match presence)
+  - `/sub-checkin`: `L327` (Confirm standby sub readiness for call-ups)
+  - `/status`: `L351` (Live slots, regions, weapon restrictions, and phase status)
+  - `/roster`: `L361` (Paginated view of active bracket duelists and subs)
+- **`config_cmds.py` (373 lines) - `TournamentConfigMixin`:**
+  - `/config`: `L39` (Configuration dashboard showing server state, roles, channels, and limits)
+  - `/set-channel` / `!set_channel`: `L66`, `L115` (Channel routing: registration, subs, checkin, checkin_logs, announcements)
+  - `/post`: `L147` (Interactive panel poster: staff, guide, reg, subs, checkin, event_scheduler, clan_submit, clan_roles)
+  - Prefix fallbacks: `!post_event_scheduler_panel` (`L257`), `!post_tournament_staff_panel` (`L296`), `!post_registration_panel` (`L320`), `!post_subs_panel` (`L340`), `!post_checkin_panel` (`L360`)
+- **`staff_cmds.py` (1,415 lines) - `TournamentStaffMixin`:**
+  - `t_group = app_commands.Group(name="t", description="Tournament staff and bracket management")`: `L47`
+  - `/t open` / `!tournament_open`: `L58`
+  - `/t close` / `!tournament_close`: `L231`
+  - `/t open-subs` / `!tournament_open_subs`: `L259`
+  - `/t close-subs` / `!tournament_close_subs`: `L308`
+  - `/t checkin-open` / `!tournament_open_checkin`: `L343`
+  - `/t checkin-close` / `!tournament_close_checkin`: `L397`
+  - `/t kick` / `!tournament_kick`: `L425`
+  - `/t force-reg` / `!tournament_force_register`: `L477`
+  - `/t promote` / `!tournament_promote_sub`: `L525`
+  - `/t set-limit` / `!tournament_set_limit`: `L601`
+  - `/t set-regions` / `!tournament_set_regions`: `L622`
+  - `/t set-weapons` / `!tournament_set_weapons`: `L688`
+  - `/t set-admin-role` / `!tournament_set_admin_role`: `L709`
+  - `/t set-event-role` / `!set_event_role`: `L732`, `L770`
+  - `/t set-role` / `!tournament_set_role`: `L788`
+  - `/t set-time` / `!tournament_set_time`: `L829`
+  - `/t test-reminder` / `!tournament_test_reminder`: `L877`
+  - `/t announce` / `!tournament_announce`: `L929`
+  - `/t export` / `!tournament_export`: `L1017`
+  - `/t bulk-reg` / `!tournament_bulk_register`: `L1064`, `L1125`
+  - `/t clear` / `!tournament_clear`: `L1141`
+  - `/t setup-section`: `L1191`
+  - `/t remove-section`: `L1283`
+  - `/t staff-checkin`: `L1345` (Manual staff check-in override)
+  - `!post_staff_guide`: `L1392`
+- **`state_cmds.py` (397 lines) - `TournamentStateMixin`:**
+  - `state_group = app_commands.Group(name="state", description="Server state snapshot and disaster recovery")`: `L27`
+  - `/state save-roster` / `!tournament_save_roster`: `L33`, `L54` (Preset snapshot to `saved_roster.json`)
+  - `/state restore-roster` / `!tournament_restore_roster`: `L68`, `L134` (Manual preset restore)
+  - `/state save` / `!state_save`: `L168`, `L227` (Channels, roles, panel links snapshot)
+  - `/state restore` / `!state_restore`: `L247`, `L323` (Channel/role recovery with panel refresh)
+  - `/state status`: `L352` (Diagnostic comparison of active channels vs saved snapshot)
+- **`event_cmds.py` (399 lines) - `TournamentEventMixin`:**
+  - `event_group = app_commands.Group(name="event", description="Discord event scheduling and calendar")`: `L30`
+  - `/event create`: `L35` (Schedule Discord server event and sync to website)
+  - `/event cancel`: `L232` (Cancel scheduled event and sync cancellation)
+  - `/event complete`: `L291` (Conclude tournament, record champion, and publish to website)
+  - `/event remove-past-result`: `L370` (Remove historical tournament result)
+
+### `cogs/clan_showcase.py` (2,766 lines)
+- **Class:** `ClanShowcaseCog(commands.Cog, name="ClanShowcase")` (`L1422`)
+- **Command Group:**
+  - `clan_group = app_commands.Group(name="clan", description="Clan management and showcase")`
 - **Interactive UI Components:**
-  - `ClanSubmissionModal`: `L144` (5-field clan profile submission modal)
-  - `ClanDraftPreviewView`: `L361` (Ephemeral 2-stage confirmation view with edit & discard)
+  - `ClanSubmissionModal`: `L126` (Clan profile submission form)
+  - `ClanDraftPreviewView`: `L380` (Ephemeral 2-stage confirmation view with live color editor)
   - `ClanStaffReviewView`: `L749` (Staff approval/rejection panel view)
-  - `ClanRejectReasonModal`: `L982` (Interactive staff rejection reason input)
-  - `ClanSubmissionPanelView`: `L1054` (Persistent submission button posted to public channel)
-  - `ClanRoleSelect`: `L1152` (Self-serve clan role claim select menu with 25-option chunking)
-  - `ClanRoleDirectoryView`: `L1362` (Multi-dropdown clan directory panel with search modal)
-  - `ClanSearchModal`: `L1294` (Instant keyword popup search modal for clan claims)
-- **Primary Slash & Prefix Commands:**
-  - `/clan-submit`: `L1655`
-  - `/clan-showcase-channels`: `L1737`
-  - `/clan-showcase-edit`: `L1849`
-  - `/post-clan-submission-panel`: `L1909`
-  - `/post-clan-role-panel`: `L1949`
-  - `/clan-claim`: `L2023`
-  - `/clan-leave`: `L2074`
-  - `/clan-set-clanless-role`: `L2144`
-  - `/clan-role-edit`: `L2274`
-  - `/clan-role-panel-refresh`: `L2314`
-  - `/clan-delete` (`!clan_delete`): `L2358`
-  - `/clan-sync-roles` (`!clan_sync_roles`): `L2492`
+  - `ClanSubmissionPanelView`: `L1094` (Persistent submission button posted to public channel)
+  - `ClanRoleSelect`: `L1167` (Self-serve clan role claim select menu with 25-option chunking)
+  - `ClanRoleAssignmentPanelView`: `L1334` (Live self-serve role directory panel)
+  - `ClanSearchModal`: `L1271` (Instant keyword popup search modal for clan claims)
+- **Primary Slash & Prefix Commands (`/clan <subcommand>`):**
+  - `/clan submit`: `L1657` (Submit clan profile with mobile photo picker or image URL)
+  - `/clan channels`: `L1843` (Configure or inspect showcase and staff review channels)
+  - `/clan edit`: `L1918` (Staff live profile editor modal with autocomplete)
+  - `/clan preview`: `L1992` (Preview Sapphire-identical showcase embed live)
+  - `/clan claim`: `L2107` (Claim or switch to official clan role with autocomplete)
+  - `/clan leave`: `L2237` (Leave current clan and restore `@Clanless` status)
+  - `/clan set-clanless-role`: `L2277` (Configure the default `@Clanless` role)
+  - `/clan role-edit`: `L2321` (Edit, rename, or link a Discord role for an approved clan)
+  - `/clan refresh-panel`: `L2409` (Manually re-sync and refresh Clan Role Assignment Panel)
+  - `/clan delete`: `L2455` (Remove clan from database & Claim Role panel, optional role deletion)
+  - `/clan sync-roles`: `L2573` (Scan server roles ending with `//` and auto-import clans)
 
 ---
 
