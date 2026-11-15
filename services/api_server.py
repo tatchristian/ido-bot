@@ -61,6 +61,15 @@ def create_api_app(bot: Any) -> web.Application:
         """
         events: List[Dict[str, Any]] = []
 
+        # Collect names of concluded/past results to prevent them from showing as upcoming
+        concluded_names = set()
+        past_service = getattr(bot, "past_results_service", None)
+        if past_service:
+            try:
+                concluded_names = {r.name.strip().lower() for r in past_service.get_all_results() if r.name}
+            except Exception as exc:
+                logger.debug("Could not read concluded events: %s", exc)
+
         # 1. Inspect native Discord Scheduled Events from connected guilds
         if hasattr(bot, "guilds"):
             for guild in bot.guilds:
@@ -69,6 +78,8 @@ def create_api_app(bot: Any) -> web.Application:
                         # Filter out canceled or completed events
                         status_str = str(getattr(ev, "status", "")).lower()
                         if "cancel" in status_str or "complete" in status_str or "ended" in status_str:
+                            continue
+                        if ev.name.strip().lower() in concluded_names:
                             continue
 
                         # Extract YYYY-MM-DD date required by script.js date parser
@@ -94,6 +105,8 @@ def create_api_app(bot: Any) -> web.Application:
             states = getattr(bot.tournament_service, "_states", getattr(bot.tournament_service, "_guild_states", {}))
             for gid, state in states.items():
                 if getattr(state, "event_canceled", False):
+                    continue
+                if state.name.strip().lower() in concluded_names:
                     continue
                 if state.participants or state.main_open or state.subs_open:
                     event_date = (

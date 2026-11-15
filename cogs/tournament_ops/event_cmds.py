@@ -439,6 +439,23 @@ class TournamentEventMixin:
         # Remove concluded event from upcoming website schedule and reset state event
         if state:
             self.service.cancel_event(guild.id)
+            state.main_open = False
+            state.subs_open = False
+            state.checkin_open = False
+            self.service._persist(guild.id)
+
+        # Also ensure all matching states in memory/disk are marked concluded
+        if hasattr(self.service, "_states"):
+            for gid, s in list(self.service._states.items()):
+                if s.name.lower() == event_name.lower():
+                    s.event_canceled = True
+                    s.event_id = None
+                    s.start_time = None
+                    s.start_timestamp = None
+                    s.main_open = False
+                    s.subs_open = False
+                    s.checkin_open = False
+                    self.service._persist(gid)
 
         embed = discord.Embed(
             title="🏆 Tournament Concluded & Published to Past Results!",

@@ -194,6 +194,20 @@ class TestApiServer(AioHTTPTestCase):
         )
         self.bot.tournament_service._states[8888] = canceled_state
 
+        # Tournament state whose name is in past_results should also be excluded
+        from services.past_results_service import PastResultsService
+        storage = MagicMock()
+        storage.load.return_value = {"results": []}
+        past_svc = PastResultsService(storage=storage)
+        past_svc.add_result(name="Concluded Tourney", champion="Best Clan")
+        self.bot.past_results_service = past_svc
+
+        concluded_state = TournamentState(name="Concluded Tourney")
+        concluded_state.participants.append(
+            Participant(user_id=2, user_mention="<@2>", ign="PlayerTwo", weapon="Katana", region="ASIA")
+        )
+        self.bot.tournament_service._states[9999] = concluded_state
+
         resp = await self.client.get("/tournaments")
         assert resp.status == 200
         data = await resp.json()
