@@ -265,10 +265,10 @@ class TournamentStateMixin:
             if interaction.guild:
                 snapshot_service.auto_discover_channels(interaction.guild, self.service, clan_service)
                 snapshot_service.save_snapshot(guild_id, self.service, clan_service)
+                snapshot = snapshot_service.capture_snapshot(guild_id, self.service, clan_service)
             else:
                 await interaction.response.send_message("❌ `saved_state.json` preset file was not found.", ephemeral=True)
                 return
-            return
 
         # Optionally refresh or repost panels
         reposted_notes: list[str] = []

@@ -117,3 +117,25 @@ def test_auto_discover_channels(test_env):
     assert t_state.announcement_channel_id == 552
     showcase_ch, _ = c_service.get_guild_channels(guild_id)
     assert showcase_ch == 553
+
+
+def test_restore_snapshot_missing_file_with_auto_discovery(test_env):
+    t_service = test_env["t_service"]
+    c_service = test_env["c_service"]
+    snapshot_service = test_env["snapshot_service"]
+    guild_id = 88888
+
+    mock_guild = MagicMock()
+    mock_guild.id = guild_id
+
+    ch1 = MagicMock()
+    ch1.id = 701
+    ch1.name = "tournament-registration"
+    mock_guild.text_channels = [ch1]
+
+    discovered = snapshot_service.auto_discover_channels(mock_guild, t_service, c_service)
+    assert discovered["registration"] == 701
+    snapshot_service.save_snapshot(guild_id, t_service, c_service)
+    snapshot = snapshot_service.capture_snapshot(guild_id, t_service, c_service)
+    assert snapshot.registration_channel_id == 701
+
