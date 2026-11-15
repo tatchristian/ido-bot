@@ -9,10 +9,10 @@
 
 | Note | Scope & Contents | Source File |
 | :--- | :--- | :--- |
-| [[tournaments_cog]] | Bracket management, Staff Operations Panel (L3896), Player Registration Hub (L4415), Substitute Hub (L4709), and slash commands. | `cogs/tournaments.py` |
+| [[tournaments_cog]] | Bracket management, slash commands, background reminder loops, and channel permissions. | `cogs/tournaments.py` |
 | [[clan_showcase_cog]] | Clan profile submission, staff review panel (L749), self-serve clan role directory (L1362), automated role scanner (L2522), and `@Clanless` role enforcement. | `cogs/clan_showcase.py` |
 | [[services_layer]] | `TournamentService` (bracket state, FIFO queue), `ClanShowcaseService` (approved clans), `WebsiteSyncService`, `ServerBuilder`. | `services/*.py` |
-| [[ui_components]] | Embed builders (`utils/ui.py`), ASCII progress bars, participant formatters, and closed panel notices. | `utils/ui.py` |
+| [[ui_components]] | Extracted tournament UI: persistent views (`utils/tournament_views.py`), embed builders (`utils/tournament_embeds.py`), and facade (`utils/ui.py`). | `utils/` |
 | [[testing_suite]] | Pytest test suite breakdown across all 7 test modules and execution standards. | `tests/*.py` |
 | [[architecture_map]] | Complete consolidated code index with line-by-line function, class, and command pointers. | Full repository |
 

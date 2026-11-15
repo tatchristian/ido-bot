@@ -1,7 +1,7 @@
 # 🏆 Tournaments Cog Memory Node
 
-**File Path:** `cogs/tournaments.py` (~4,082 lines)
-**Main Cog Class:** `TournamentCog` (`L126`)
+**File Path:** `cogs/tournaments.py` (3,709 lines)
+**Main Cog Class:** `TournamentCog` (`L149`)
 **Extracted Modules:**
 - `utils/tournament_views.py` (persistent views, selects, modals, admin checks)
 - `utils/tournament_embeds.py` (embed builders, visual helpers, color palette)
