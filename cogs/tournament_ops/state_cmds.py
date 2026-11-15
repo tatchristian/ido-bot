@@ -5,6 +5,7 @@ Bot state persistence, channel/role backup and disaster recovery commands:
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 import discord
@@ -73,6 +74,11 @@ class TournamentStateMixin:
         def resolver(ign: str, mention_str: str) -> tuple[int, str] | None:
             if not guild:
                 return None
+            m_id = re.search(r"<@!?(\d+)>", mention_str)
+            if m_id:
+                member_by_id = guild.get_member(int(m_id.group(1)))
+                if member_by_id:
+                    return member_by_id.id, member_by_id.mention
             clean_mention = mention_str.lstrip("@").lower()
             clean_ign = ign.lower()
             for m in guild.members:
@@ -138,6 +144,11 @@ class TournamentStateMixin:
             return
 
         def resolver(ign: str, mention_str: str) -> tuple[int, str] | None:
+            m_id = re.search(r"<@!?(\d+)>", mention_str)
+            if m_id:
+                member_by_id = ctx.guild.get_member(int(m_id.group(1)))
+                if member_by_id:
+                    return member_by_id.id, member_by_id.mention
             clean_mention = mention_str.lstrip("@").lower()
             clean_ign = ign.lower()
             for m in ctx.guild.members:

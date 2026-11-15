@@ -103,6 +103,7 @@
 - `/state restore` / `!state_restore`: Restores all channels and roles; optionally re-syncs panels.
 - `/state status`: Compares active channels against saved snapshot with diagnostics.
 - `/state save-roster` / `!tournament_save_roster`: Saves active roster to `saved_roster.json` preset.
-- `/state restore-roster` / `!tournament_restore_roster`: Loads preset file and restores roster into active tournament.
+- `/state restore-roster` / `!tournament_restore_roster`: Loads preset file and restores roster into active tournament (resolves mentions via `<@id>` regex and member display names).
 - `/t bulk-reg` / `!tournament_bulk_register`: Enrolls batch list of contestants with auto delimiter parsing.
+- `saved_roster.json`: Stores the 19-player Asia Tournament roster preset (6 checked in, 13 pending, 0 substitutes) ready for `/state restore-roster`.
 - `bot.py` `on_ready`: Auto-restores `saved_state.json` (or regex auto-discovers channels) on startup. Roster restoration from `saved_roster.json` is strictly manual via `/state restore-roster` to prevent overwriting new tournaments.
