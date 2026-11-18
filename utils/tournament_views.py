@@ -2302,6 +2302,8 @@ class TournamentBracketPanelView(discord.ui.View):
 
     @discord.ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="bracket_prev", row=0)
     async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.message:
+            self.message = interaction.message
         bracket = self.service.get_bracket(self.guild_id)
         self.round_num = max(1, self.round_num - 1)
         self._sync_buttons()
@@ -2311,6 +2313,8 @@ class TournamentBracketPanelView(discord.ui.View):
 
     @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary, custom_id="bracket_next", row=0)
     async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.message:
+            self.message = interaction.message
         bracket = self.service.get_bracket(self.guild_id)
         max_r = self._get_max_rounds(bracket)
         self.round_num = min(max_r, self.round_num + 1)
@@ -2321,6 +2325,8 @@ class TournamentBracketPanelView(discord.ui.View):
 
     @discord.ui.button(label="🏆 Winners", style=discord.ButtonStyle.primary, custom_id="bracket_winners", row=0)
     async def btn_winners(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.message:
+            self.message = interaction.message
         self.section = "winners"
         self.round_num = 1
         bracket = self.service.get_bracket(self.guild_id)
@@ -2331,6 +2337,8 @@ class TournamentBracketPanelView(discord.ui.View):
 
     @discord.ui.button(label="🛡️ Losers", style=discord.ButtonStyle.primary, custom_id="bracket_losers", row=0)
     async def btn_losers(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.message:
+            self.message = interaction.message
         bracket = self.service.get_bracket(self.guild_id)
         if bracket.format != "double":
             await interaction.response.send_message("ℹ️ Losers bracket is only active in Double Elimination format.", ephemeral=True)
@@ -2344,6 +2352,8 @@ class TournamentBracketPanelView(discord.ui.View):
 
     @discord.ui.button(label="👑 Finals", style=discord.ButtonStyle.primary, custom_id="bracket_finals", row=0)
     async def btn_finals(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.message:
+            self.message = interaction.message
         bracket = self.service.get_bracket(self.guild_id)
         if bracket.format != "double":
             await interaction.response.send_message("ℹ️ Grand Finals view is only active in Double Elimination format.", ephemeral=True)
@@ -2360,6 +2370,8 @@ class TournamentBracketPanelView(discord.ui.View):
         if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
             await interaction.response.send_message("🛡️ Tournament staff permissions required to record matches.", ephemeral=True)
             return
+        if interaction.message:
+            self.message = interaction.message
         view = TournamentMatchReportSelectView(self.service, self.guild_id, parent_view=self)
         await interaction.response.send_message("Select a match ready to play:", view=view, ephemeral=True)
 
@@ -2368,6 +2380,8 @@ class TournamentBracketPanelView(discord.ui.View):
         if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
             await interaction.response.send_message("🛡️ Tournament staff permissions required to shuffle seeds.", ephemeral=True)
             return
+        if interaction.message:
+            self.message = interaction.message
         msg = self.service.shuffle_bracket_seeds(self.guild_id)
         bracket = self.service.get_bracket(self.guild_id)
         self._sync_buttons()
@@ -2380,6 +2394,8 @@ class TournamentBracketPanelView(discord.ui.View):
         if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
             await interaction.response.send_message("🛡️ Tournament staff permissions required to change format.", ephemeral=True)
             return
+        if interaction.message:
+            self.message = interaction.message
         bracket = self.service.get_bracket(self.guild_id)
         new_fmt = "double" if bracket.format == "single" else "single"
         msg = self.service.set_bracket_format(new_fmt, self.guild_id)
@@ -2394,6 +2410,8 @@ class TournamentBracketPanelView(discord.ui.View):
         if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
             await interaction.response.send_message("🛡️ Tournament staff permissions required to lock/unlock bracket.", ephemeral=True)
             return
+        if interaction.message:
+            self.message = interaction.message
         bracket = self.service.get_bracket(self.guild_id)
         if bracket.is_locked:
             self.service.unlock_bracket(self.guild_id)
@@ -2407,6 +2425,8 @@ class TournamentBracketPanelView(discord.ui.View):
 
     @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary, custom_id="bracket_refresh", row=1)
     async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.message:
+            self.message = interaction.message
         bracket = self.service.get_bracket(self.guild_id)
         self._sync_buttons()
         state = self.service.get_state(self.guild_id)

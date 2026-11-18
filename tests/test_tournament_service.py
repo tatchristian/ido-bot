@@ -854,6 +854,26 @@ def test_bracket_operations_in_tournament_service(service: TournamentService):
     else:
         assert eve_m.player2_ign == "Eve"
 
+    # 9. Verify unique match history ID scoping
+    id1 = service.get_match_history_id(guild_id=0, match_id="WB-R1-M1")
+    assert "WB-R1-M1" in id1
+
+    # 10. Verify clear_tournament wipes bracket data and advances tournament_id
+    service.get_state(0).bracket_channel_id = 999
+    service.get_state(0).bracket_message_id = 888
+    prev_t_id = service.get_state(0).tournament_id
+
+    service.clear_tournament(0)
+    state_after = service.get_state(0)
+    assert state_after.bracket_data is None
+    assert state_after.bracket_channel_id is None
+    assert state_after.bracket_message_id is None
+    assert state_after.tournament_id != prev_t_id
+
+    id2 = service.get_match_history_id(guild_id=0, match_id="WB-R1-M1")
+    assert id1 != id2  # Match IDs for Tournament 2 will NEVER collide with Tournament 1!
+
+
 
 
 

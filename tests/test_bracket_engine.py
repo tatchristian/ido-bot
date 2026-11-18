@@ -138,15 +138,29 @@ def test_double_elimination_grand_finals_reset():
     BracketEngine.report_match(bracket, "WB-R1-M1", winner_id=1)
     BracketEngine.report_match(bracket, "WB-R1-M2", winner_id=2)
 
-    # Winners Finals: Player 1 beats Player 2 -> Player 1 is WB Champion in GF slot 1
+    # LB R1: Player 3 defeats Player 4 and advances to Losers Finals slot 2
+    assert bracket.matches["LB-R1-M1"].state == "ready"
+    assert bracket.matches["LB-R1-M1"].player1_id == 4
+    assert bracket.matches["LB-R1-M1"].player2_id == 3
+    BracketEngine.report_match(bracket, "LB-R1-M1", winner_id=3)
+
+    # Winners Finals: Player 1 beats Player 2 -> Player 1 advances to GF slot 1
+    # AND Player 2 automatically drops into Losers Finals (LB-R2-M1) slot 1!
     BracketEngine.report_match(bracket, "WB-R2-M1", winner_id=1)
     gf = bracket.matches["GF"]
     assert gf.player1_id == 1
 
-    # In Losers Bracket: Player 2 advances to GF slot 2
-    gf.player2_id = 2
-    gf.player2_ign = "Player_2"
-    gf.state = "ready"
+    # Verify Losers Finals (LB-R2-M1) automatically received Player 2
+    lb_finals = bracket.matches["LB-R2-M1"]
+    assert lb_finals.state == "ready"
+    assert lb_finals.player1_id == 2
+    assert lb_finals.player2_id == 3
+
+    # Player 2 wins Losers Finals -> advances to Grand Finals slot 2
+    BracketEngine.report_match(bracket, "LB-R2-M1", winner_id=2)
+    assert gf.state == "ready"
+    assert gf.player2_id == 2
+    assert gf.player2_ign == "Player_2"
 
     # If Losers Bracket champion (Player 2, slot 2) wins GF Game 1:
     ok_gf, msg_gf, _ = BracketEngine.report_match(bracket, "GF", winner_id=2, score="2 - 1")
@@ -160,6 +174,32 @@ def test_double_elimination_grand_finals_reset():
     assert ok_reset is True
     assert bracket.champion_id == 2
     assert bracket.champion_ign == "Player_2"
+
+
+def test_double_elimination_undo_protection():
+    participants = [{"user_id": i, "ign": f"Player_{i}"} for i in range(1, 5)]
+    bracket = BracketEngine.build_bracket(participants, format="double")
+
+    # Play WB R1
+    BracketEngine.report_match(bracket, "WB-R1-M1", winner_id=1)
+    BracketEngine.report_match(bracket, "WB-R1-M2", winner_id=2)
+
+    # Play LB R1
+    BracketEngine.report_match(bracket, "LB-R1-M1", winner_id=3)
+
+    # Attempting to undo WB-R1-M1 must be BLOCKED because its loser (Player 4) already completed LB-R1-M1!
+    ok_undo, err = BracketEngine.undo_match(bracket, "WB-R1-M1")
+    assert ok_undo is False
+    assert "loser's next match" in err.lower()
+
+    # If we undo LB-R1-M1 first, then undoing WB-R1-M1 succeeds and clears the loser from LB!
+    ok_lb_undo, _ = BracketEngine.undo_match(bracket, "LB-R1-M1")
+    assert ok_lb_undo is True
+
+    ok_wb_undo, _ = BracketEngine.undo_match(bracket, "WB-R1-M1")
+    assert ok_wb_undo is True
+    assert bracket.matches["LB-R1-M1"].player1_id is None
+    assert bracket.matches["LB-R1-M1"].state == "pending"
 
 
 def test_build_bracket_embed_rendering():

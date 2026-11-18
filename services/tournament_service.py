@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import threading
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,6 +83,9 @@ class Participant:
 
 @dataclass
 class TournamentState:
+    tournament_id: str = field(
+        default_factory=lambda: uuid.uuid4().hex[:8]
+    )
     name: str = "UDA Championship"
     main_open: bool = False
     subs_open: bool = False
@@ -646,6 +650,12 @@ class TournamentService:
         self._persist(guild_id)
         return "🔓 Tournament bracket unlocked back to draft mode."
 
+    def get_match_history_id(self, guild_id: int, match_id: str) -> str:
+        """Constructs a collision-proof unique match ID scoped to this tournament event."""
+        state = self.get_state(guild_id)
+        t_id = getattr(state, "tournament_id", None) or "t0"
+        return f"{guild_id}_{t_id}_{match_id}"
+
     def report_bracket_match(
         self,
         match_id: str,
@@ -673,6 +683,7 @@ class TournamentService:
                     except Exception:
                         pass
 
+                hist_match_id = self.get_match_history_id(guild_id, match.match_id)
                 match_history_service.record_match(
                     winner_id=match.winner_id,
                     winner_ign=match.winner_ign or "Unknown",
@@ -686,7 +697,7 @@ class TournamentService:
                     round_name=f"{match.section.title()} Round {match.round_number}",
                     bracket_format=bracket.format,
                     recorded_by=recorded_by,
-                    match_id=f"{guild_id}_{match.match_id}",
+                    match_id=hist_match_id,
                 )
 
         return ok, msg, match
@@ -704,7 +715,8 @@ class TournamentService:
             state.bracket_data = bracket.to_dict()
             self._persist(guild_id)
             if match_history_service:
-                match_history_service.void_match(f"{guild_id}_{match_id}", reason="Match undone by staff")
+                hist_match_id = self.get_match_history_id(guild_id, match_id)
+                match_history_service.void_match(hist_match_id, reason="Match undone by staff")
         return ok, msg
 
     def forfeit_bracket_match(
@@ -828,6 +840,10 @@ class TournamentService:
         state.thirty_min_dm_sent.clear()
         state.registration_message_id = None
         state.subs_message_id = None
+        state.bracket_channel_id = None
+        state.bracket_message_id = None
+        state.bracket_data = None
+        state.tournament_id = uuid.uuid4().hex[:8]
         self._persist(guild_id)
         return f"🧹 Tournament roster wiped clean ({p_count} main players and {s_count} substitutes removed)."
 

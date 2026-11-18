@@ -291,6 +291,17 @@ class BracketEngine:
                 bracket.matches[wb_id].loser_match_id = lb_id
                 bracket.matches[wb_id].loser_match_slot = 1 if m_idx % 2 != 0 else 2
 
+        # Route WB Round 2..N losers to corresponding drop-down LB rounds
+        for r in range(2, wb_rounds + 1):
+            matches_in_r = bracket.bracket_size // (1 << r)
+            target_lb_round = 2 * (r - 1)
+            for m_idx in range(1, matches_in_r + 1):
+                wb_id = f"WB-R{r}-M{m_idx}"
+                lb_id = f"LB-R{target_lb_round}-M{m_idx}"
+                if wb_id in bracket.matches and lb_id in bracket.matches:
+                    bracket.matches[wb_id].loser_match_id = lb_id
+                    bracket.matches[wb_id].loser_match_slot = 1
+
     @classmethod
     def evaluate_ready_states(cls, bracket: TournamentBracket) -> None:
         """
@@ -359,12 +370,18 @@ class BracketEngine:
         if not match.loser_match_id or match.loser_match_id not in bracket.matches:
             return
         target = bracket.matches[match.loser_match_id]
+        loser_clan = match.player1_clan if match.loser_id == match.player1_id else match.player2_clan
+        loser_checked = match.player1_checked_in if match.loser_id == match.player1_id else match.player2_checked_in
         if match.loser_match_slot == 1:
             target.player1_id = match.loser_id
             target.player1_ign = match.loser_ign or "TBD"
+            target.player1_clan = loser_clan
+            target.player1_checked_in = loser_checked
         else:
             target.player2_id = match.loser_id
             target.player2_ign = match.loser_ign or "TBD"
+            target.player2_clan = loser_clan
+            target.player2_checked_in = loser_checked
 
     @classmethod
     def report_match(
@@ -442,7 +459,7 @@ class BracketEngine:
         if match.state != "completed":
             return False, f"Match `{match_id}` is not completed."
 
-        # Check if downstream match is already played
+        # Check if downstream winner match is already played
         if match.next_match_id and match.next_match_id in bracket.matches:
             downstream = bracket.matches[match.next_match_id]
             if downstream.state == "completed":
@@ -452,10 +469,40 @@ class BracketEngine:
             if match.next_match_slot == 1:
                 downstream.player1_id = None
                 downstream.player1_ign = "TBD"
+                downstream.player1_clan = None
+                downstream.player1_checked_in = False
             else:
                 downstream.player2_id = None
                 downstream.player2_ign = "TBD"
+                downstream.player2_clan = None
+                downstream.player2_checked_in = False
             downstream.state = "pending"
+
+        # Check if downstream loser match is already played
+        if match.loser_match_id and match.loser_match_id in bracket.matches:
+            downstream_l = bracket.matches[match.loser_match_id]
+            if downstream_l.state == "completed":
+                return False, f"Cannot undo `{match_id}`: loser's next match `{downstream_l.match_id}` has already been completed. Undo that match first."
+
+            # Remove loser from downstream
+            if match.loser_match_slot == 1:
+                downstream_l.player1_id = None
+                downstream_l.player1_ign = "TBD"
+                downstream_l.player1_clan = None
+                downstream_l.player1_checked_in = False
+            else:
+                downstream_l.player2_id = None
+                downstream_l.player2_ign = "TBD"
+                downstream_l.player2_clan = None
+                downstream_l.player2_checked_in = False
+            downstream_l.state = "pending"
+
+        # If this was GF and triggered GF-RESET, clean up GF-RESET
+        if match.match_id == "GF" and "GF-RESET" in bracket.matches:
+            reset_m = bracket.matches["GF-RESET"]
+            if reset_m.state == "completed":
+                return False, "Cannot undo `GF`: Grand Finals Reset match has already been completed. Undo `GF-RESET` first."
+            del bracket.matches["GF-RESET"]
 
         # Clear champion if this was finals
         if bracket.champion_id == match.winner_id:
