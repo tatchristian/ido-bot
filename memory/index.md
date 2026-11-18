@@ -25,3 +25,4 @@
 | [[workflow_tournament_panel_sync]] | Explains how Staff Panel actions (e.g. `Toggle Subs`) dynamically edit live channel embeds in real time. |
 | [[workflow_user_registration]] | Documents the single modal registration flow and active Region Tag mismatch validation. |
 | [[workflow_clan_role_directory]] | Documents self-serve clan alignment, 25-option select chunking, search modal, automated role scanner, and `@Clanless` switching rules. |
+| [[workflow_bracket_system]] | Documents the Single/Double elimination bracket engine, out-of-order ready match pipeline, Supabase cloud sync, and Herald REST API. |
