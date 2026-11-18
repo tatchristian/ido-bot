@@ -7,9 +7,11 @@ and approval/rejection lifecycle management.
 from __future__ import annotations
 
 import io
+import ipaddress
 import logging
 import re
 import struct
+import urllib.parse
 import urllib.request
 import uuid
 import zlib
@@ -51,11 +53,53 @@ NAMED_CLAN_COLORS: Dict[str, Tuple[str, int]] = {
 }
 
 
+def is_safe_image_url(url: str) -> bool:
+    """
+    Validates that a URL is a valid, publicly routable HTTP/HTTPS web address.
+    Protects against Server-Side Request Forgery (SSRF) targeting loopback,
+    private LAN, or cloud metadata endpoints.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        hostname_lower = hostname.lower()
+        if hostname_lower in ("localhost", "127.0.0.1", "::1"):
+            return False
+        if hostname_lower.endswith((".local", ".internal", ".localhost", ".lan", ".arpa")):
+            return False
+        if "metadata" in hostname_lower:
+            return False
+        try:
+            ip = ipaddress.ip_address(hostname_lower)
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_multicast
+                or ip.is_reserved
+                or ip.is_unspecified
+            ):
+                return False
+        except ValueError:
+            # Valid domain name format
+            pass
+        return True
+    except Exception:
+        return False
+
+
 async def fetch_image_bytes(
     url: str, timeout: float = 8.0, max_bytes: int = 5 * 1024 * 1024
 ) -> Optional[bytes]:
-    """Asynchronously downloads image bytes from a URL with browser headers and SSL handling."""
-    if not url or not (url.startswith("http://") or url.startswith("https://")):
+    """Asynchronously downloads image bytes from a URL with browser headers and SSL verification."""
+    if not is_safe_image_url(url):
+        logger.warning("Blocked potentially unsafe or SSRF image URL: %s", url)
         return None
     try:
         headers = {
@@ -64,7 +108,7 @@ async def fetch_image_bytes(
         }
         client_timeout = aiohttp.ClientTimeout(total=timeout)
         async with aiohttp.ClientSession(timeout=client_timeout) as session:
-            async with session.get(url, headers=headers, ssl=False) as resp:
+            async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
                     data = await resp.read()
                     if len(data) > max_bytes:
@@ -213,6 +257,8 @@ def validate_image_url(url: str) -> Tuple[bool, str]:
         return False, "Logo/Banner URL must start with `http://` or `https://`."
     if " " in stripped:
         return False, "Logo/Banner URL cannot contain spaces."
+    if not is_safe_image_url(stripped):
+        return False, "Invalid image URL (private, local, or metadata network addresses are not permitted)."
     return True, ""
 
 

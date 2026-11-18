@@ -64,3 +64,22 @@ def test_storage_load_missing_file_with_default(tmp_path: Path):
     loaded = manager.load(default_factory=lambda: {"default": True})
     assert loaded == {"default": True}
 
+
+def test_storage_backup_interval_throttling(tmp_path: Path):
+    storage_file = tmp_path / "throttled.json"
+    backup_dir = tmp_path / "backups"
+    manager = StorageManager(storage_file, backup_dir=backup_dir, min_backup_interval=60.0)
+
+    # Initial write
+    manager.save({"count": 0})
+    assert len(list(backup_dir.glob("*.json"))) == 0
+
+    # Rapid writes without force_backup should be throttled (no new backups created)
+    for i in range(1, 10):
+        manager.save({"count": i})
+    assert len(list(backup_dir.glob("*.json"))) == 1
+
+    # Force backup bypasses the 60s throttle interval
+    manager.save({"count": 100}, force_backup=True)
+    assert len(list(backup_dir.glob("*.json"))) == 2
+

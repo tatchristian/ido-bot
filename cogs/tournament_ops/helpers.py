@@ -667,16 +667,51 @@ class TournamentHelpersMixin:
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
             logger.debug("Could not live-update check-in panel: %s", exc)
 
-    async def _update_all_live_panels(self, guild: Optional[discord.Guild]) -> None:
-        """Helper to refresh Registration, Substitute, and Check-In panels concurrently."""
+    async def _update_all_live_panels(
+        self, guild: Optional[discord.Guild], delay: float = 0.5
+    ) -> None:
+        """
+        Debounced helper to refresh Registration, Substitute, and Check-In panels.
+        Coalesces concurrent rapid check-in / registration updates to avoid Discord HTTP 429 rate limits.
+        """
         if not guild:
             return
-        await asyncio.gather(
-            self._update_registration_panel(guild),
-            self._update_subs_panel(guild),
-            self._update_checkin_panel(guild),
-            return_exceptions=True,
-        )
+
+        guild_id = guild.id
+        if not hasattr(self, "_panel_update_tasks"):
+            self._panel_update_tasks: dict[int, asyncio.Task] = {}
+        if not hasattr(self, "_panel_update_needs_rerun"):
+            self._panel_update_needs_rerun: dict[int, bool] = {}
+
+        if guild_id in self._panel_update_tasks and not self._panel_update_tasks[guild_id].done():
+            self._panel_update_needs_rerun[guild_id] = True
+            return
+
+        async def _debounced_worker():
+            try:
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                while True:
+                    self._panel_update_needs_rerun[guild_id] = False
+                    await asyncio.gather(
+                        self._update_registration_panel(guild),
+                        self._update_subs_panel(guild),
+                        self._update_checkin_panel(guild),
+                        return_exceptions=True,
+                    )
+                    if self._panel_update_needs_rerun.get(guild_id):
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                        continue
+                    break
+            except Exception as exc:
+                logger.debug("Error in debounced live panel worker for guild %s: %s", guild_id, exc)
+            finally:
+                self._panel_update_tasks.pop(guild_id, None)
+                self._panel_update_needs_rerun.pop(guild_id, None)
+
+        task = asyncio.create_task(_debounced_worker())
+        self._panel_update_tasks[guild_id] = task
 
     async def _dispatch_checkin_log(
         self,

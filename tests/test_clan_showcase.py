@@ -101,6 +101,19 @@ def test_validate_image_url():
     assert invalid_spaces is False
     assert "spaces" in err3
 
+    # SSRF / private network protection
+    for unsafe_url in (
+        "http://localhost/logo.png",
+        "http://127.0.0.1/logo.png",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.1/logo.png",
+        "http://192.168.1.1/secret.jpg",
+        "https://instance-data.internal/logo.png",
+    ):
+        safe, err = validate_image_url(unsafe_url)
+        assert safe is False, f"Should have rejected unsafe URL: {unsafe_url}"
+        assert "not permitted" in err or "http" in err
+
 
 def test_resolve_image_url_direct_link():
     valid, resolved, err = run_coro(

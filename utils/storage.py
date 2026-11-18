@@ -10,6 +10,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ class StorageManager:
         file_path: Path,
         backup_dir: Path | None = None,
         max_backups: int = 20,
+        min_backup_interval: float = 0.0,
     ):
         self.file_path = Path(file_path).resolve()
         self.backup_dir = (
@@ -35,6 +37,8 @@ class StorageManager:
             else self.file_path.parent / "backups"
         )
         self.max_backups = max_backups
+        self.min_backup_interval = min_backup_interval
+        self._last_backup_time: float = 0.0
         self._lock = threading.Lock()
 
         # Ensure directories exist
@@ -69,15 +73,25 @@ class StorageManager:
                 logger.error("Recovery failed. Using default data.")
                 return default_factory() if callable(default_factory) else (default_factory or {})
 
-    def save(self, data: dict[str, Any], create_backup: bool = True) -> None:
+    def save(
+        self,
+        data: dict[str, Any],
+        create_backup: bool = True,
+        force_backup: bool = False,
+    ) -> None:
         """
         Atomically writes data to the primary storage file. Creates a rotating backup
-        of the prior valid version if requested.
+        of the prior valid version if requested and within interval limits.
         """
         with self._lock:
-            # Create backup of current file if it exists and has content
-            if create_backup and self.file_path.exists() and self.file_path.stat().st_size > 0:
+            # Create backup of current file if it exists, has content, and throttle allows
+            now = time.time()
+            should_backup = create_backup and (
+                force_backup or (now - self._last_backup_time >= self.min_backup_interval)
+            )
+            if should_backup and self.file_path.exists() and self.file_path.stat().st_size > 0:
                 self._archive_backup()
+                self._last_backup_time = now
 
             # Atomic write via temporary file in the same directory
             dir_path = self.file_path.parent
@@ -105,6 +119,22 @@ class StorageManager:
                         pass
                 logger.error("Failed to write storage file atomically: %s", e)
                 raise
+
+    async def save_async(
+        self,
+        data: dict[str, Any],
+        create_backup: bool = True,
+        force_backup: bool = False,
+    ) -> None:
+        """Asynchronously writes data to disk in a separate thread without blocking the event loop."""
+        import asyncio
+
+        await asyncio.to_thread(
+            self.save,
+            data,
+            create_backup=create_backup,
+            force_backup=force_backup,
+        )
 
     def _archive_backup(self) -> None:
         """

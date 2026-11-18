@@ -78,6 +78,7 @@ class TournamentPlayerMixin:
         region: app_commands.Choice[str],
         weapon: Optional[app_commands.Choice[str]] = None,
     ):
+        await interaction.response.defer()
         guild_id = interaction.guild_id or 0
         chosen_weapon = weapon.value if weapon else "Standard"
         success, message, participant = self.service.register_participant(
@@ -90,7 +91,7 @@ class TournamentPlayerMixin:
         )
 
         if not success:
-            await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+            await interaction.followup.send(f"❌ {message}")
             return
 
         await self._assign_participant_role(interaction.guild, interaction.user)
@@ -108,17 +109,18 @@ class TournamentPlayerMixin:
             color=0x2ECC71,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="unregister",
         description="Withdraw from the main bracket (frees up slot for others).",
     )
     async def unregister(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         guild_id = interaction.guild_id or 0
         success, message = self.service.unregister_participant(interaction.user.id, guild_id=guild_id)
         if not success:
-            await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+            await interaction.followup.send(f"❌ {message}")
             return
 
         await self._remove_participant_role(interaction.guild, interaction.user)
@@ -134,7 +136,7 @@ class TournamentPlayerMixin:
             color=0xE74C3C,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="sub",
@@ -153,6 +155,7 @@ class TournamentPlayerMixin:
         region: app_commands.Choice[str],
         weapon: Optional[app_commands.Choice[str]] = None,
     ):
+        await interaction.response.defer()
         guild_id = interaction.guild_id or 0
         chosen_weapon = weapon.value if weapon else "Standard"
         success, message, sub = self.service.register_substitute(
@@ -165,7 +168,7 @@ class TournamentPlayerMixin:
         )
 
         if not success:
-            await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+            await interaction.followup.send(f"❌ {message}")
             return
 
         await self._update_subs_panel(interaction.guild)
@@ -192,23 +195,23 @@ class TournamentPlayerMixin:
             perms = subs_ch.permissions_for(interaction.guild.me)
             if perms.send_messages and perms.embed_links:
                 await subs_ch.send(embed=embed)
-                await interaction.response.send_message(
-                    f"🛡️ Registered as Standby Substitute (**{sub.ign}**)!\n💡 *Logged into {subs_ch.mention} to keep this chat clean.*",
-                    ephemeral=True,
+                await interaction.followup.send(
+                    f"🛡️ Registered as Standby Substitute (**{sub.ign}**)!\n💡 *Logged into {subs_ch.mention} to keep this chat clean.*"
                 )
                 return
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="sub-unregister",
         description="Withdraw from the substitute queue.",
     )
     async def sub_unregister(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         guild_id = interaction.guild_id or 0
         success, message = self.service.unregister_substitute(interaction.user.id, guild_id=guild_id)
         if not success:
-            await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+            await interaction.followup.send(f"❌ {message}")
             return
 
         await self._update_subs_panel(interaction.guild)
@@ -233,13 +236,12 @@ class TournamentPlayerMixin:
             perms = subs_ch.permissions_for(interaction.guild.me)
             if perms.send_messages and perms.embed_links:
                 await subs_ch.send(embed=embed)
-                await interaction.response.send_message(
-                    f"{message}\n💡 *Logged into {subs_ch.mention} to keep this chat clean.*",
-                    ephemeral=True,
+                await interaction.followup.send(
+                    f"{message}\n💡 *Logged into {subs_ch.mention} to keep this chat clean.*"
                 )
                 return
 
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(
         name="edit-entry",
@@ -258,8 +260,9 @@ class TournamentPlayerMixin:
         ign: Optional[str] = None,
         region: Optional[app_commands.Choice[str]] = None,
     ):
+        await interaction.response.defer(ephemeral=True)
         if not weapon and not ign and not region:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "❌ Please specify at least one field (`weapon`, `ign`, or `region`) to update.",
                 ephemeral=True,
             )
@@ -275,7 +278,7 @@ class TournamentPlayerMixin:
         )
 
         if not success:
-            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
             return
 
         await self._update_registration_panel(interaction.guild)
@@ -287,18 +290,19 @@ class TournamentPlayerMixin:
             color=0x2ECC71,
         )
         embed.set_footer(text=f"{config.organization_name} • Tournament System")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
     @app_commands.command(
         name="checkin",
         description="Confirm your presence on tournament day during the check-in window.",
     )
     async def checkin(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         guild_id = interaction.guild_id or 0
         res = self.service.checkin_user(interaction.user.id, guild_id=guild_id)
         success, msg, part, role_type = res.success, res.message, res.participant, res.role_type
         if not success:
-            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
             return
 
         await self._update_all_live_panels(interaction.guild)
@@ -318,18 +322,19 @@ class TournamentPlayerMixin:
             else None
         )
         log_note = f"\n💡 *Audit receipt logged to {log_ch.mention}.*" if log_ch else ""
-        await interaction.response.send_message(f"{msg}{log_note}", ephemeral=True)
+        await interaction.followup.send(f"{msg}{log_note}", ephemeral=True)
 
     @app_commands.command(
         name="sub-checkin",
         description="Confirm your standby availability as a substitute on tournament day.",
     )
     async def sub_checkin(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
         guild_id = interaction.guild_id or 0
         res = self.service.checkin_user(interaction.user.id, guild_id=guild_id)
         success, msg, part, role_type = res.success, res.message, res.participant, res.role_type
         if not success:
-            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
             return
 
         await self._update_all_live_panels(interaction.guild)
@@ -342,7 +347,7 @@ class TournamentPlayerMixin:
             else None
         )
         log_note = f"\n💡 *Audit receipt logged to {log_ch.mention}.*" if log_ch else ""
-        await interaction.response.send_message(f"{msg}{log_note}", ephemeral=True)
+        await interaction.followup.send(f"{msg}{log_note}", ephemeral=True)
 
     @app_commands.command(
         name="status",

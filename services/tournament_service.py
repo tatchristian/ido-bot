@@ -219,6 +219,8 @@ class TournamentService:
             backup_dir or (storage.backup_dir if storage else self.data_dir / "backups")
         )
         self.max_backups = max_backups
+        if self._default_storage is not None and getattr(self._default_storage, "min_backup_interval", 0.0) == 0.0:
+            self._default_storage.min_backup_interval = 60.0
         self._managers: dict[int, StorageManager] = {}
         self._states: dict[int, TournamentState] = {}
         self._lock = threading.Lock()
@@ -234,7 +236,10 @@ class TournamentService:
             file_path = self.data_dir / file_name
             backup_dir = self.backup_dir if guild_id == 0 else (self.backup_dir / str(guild_id))
             manager = StorageManager(
-                file_path, backup_dir=backup_dir, max_backups=self.max_backups
+                file_path,
+                backup_dir=backup_dir,
+                max_backups=self.max_backups,
+                min_backup_interval=60.0,
             )
 
         self._managers[guild_id] = manager
@@ -264,11 +269,11 @@ class TournamentService:
         """Backward-compatible default state accessor (guild_id=0)."""
         return self.get_state(0)
 
-    def _persist(self, guild_id: int = 0) -> None:
+    def _persist(self, guild_id: int = 0, force_backup: bool = False) -> None:
         state = self.get_state(guild_id)
         state.updated_at = datetime.now(timezone.utc).isoformat()
         manager = self._get_manager(guild_id)
-        manager.save(state.to_dict())
+        manager.save(state.to_dict(), force_backup=force_backup)
 
     # ---------------------------------------------------------
     # Region Validation
@@ -530,14 +535,17 @@ class TournamentService:
         return "📁 Tournament dedicated channels updated."
 
     def clear_channels(self, guild_id: int = 0) -> str:
-        """Clears all dedicated channel configurations."""
+        """Clears all dedicated channel configurations and panel message IDs."""
         state = self.get_state(guild_id)
         state.announcement_channel_id = None
         state.checkin_channel_id = None
         state.checkin_log_channel_id = None
         state.subs_channel_id = None
         state.registration_channel_id = None
-        self._persist(guild_id)
+        state.registration_message_id = None
+        state.subs_message_id = None
+        state.checkin_message_id = None
+        self._persist(guild_id, force_backup=True)
         return "📁 Tournament dedicated channels cleared."
 
     def set_tournament_time(

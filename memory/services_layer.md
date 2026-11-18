@@ -20,11 +20,14 @@
   - `import_roster_preset()`: `L1072` (Imports & restores roster parameters, participants & subs from preset file)
   - `bulk_register()`: `L1128` (Batch-enrolls duelists from delimited string/list with auto fallback defaults)
   - `cancel_event(guild_id)`: Marks `event_canceled = True` and clears schedule timestamps so `api_server` immediately drops event from website feed
-  - `_persist(guild_id)`: Saves to `storage/tournaments_{guild_id}.json`
+  - `clear_channels(guild_id)`: Clears all dedicated channel configurations and panel message IDs
+  - `_persist(guild_id, force_backup=False)`: Saves state with 60s backup interval throttling via `StorageManager`
 
 ---
 
 ## 🛡️ `ClanShowcaseService` (`services/clan_showcase_service.py`)
+- `is_safe_image_url(url)`: Validates URLs against SSRF (blocks loopback, private RFC1918 IPs, cloud metadata, link-local, and non-HTTP/HTTPS schemes)
+- `fetch_image_bytes(url)`: Asynchronously downloads image bytes with browser headers and strict SSL verification (no `ssl=False`)
 - `class ClanSubmission`: `L339` (Includes `role_id`, `role_name`, `logo_url`, `status`)
 - `class ClanShowcaseService`: `L406`
   - `get_approved_clans(guild_id)`: `L468` (Alphabetical list of verified clans)
@@ -40,5 +43,6 @@
 - **`WebsiteSyncService` (`services/website_sync_service.py`):** `L341` (REST sync to `unitedduelingamity.org`)
 - **`APIServer` (`services/api_server.py`):** Public REST API for `unitedduelingamity.org` (`/tournaments`, `/past-results`, `/leaderboard`, `/players`, `/health`) reading directly from `TournamentService._states` with CORS support.
 - **`StateSnapshotService` (`services/state_snapshot_service.py`):** Saves, restores, and regex auto-discovers server channels, roles, and panels across deployments (`saved_state.json`), integrating directly with `bot.py` using `guild=guild` context.
-- **`ServerBuilder` (`services/server_builder.py`):** Auto-creates categories and dueling arenas
+- **`ServerBuilder` (`services/server_builder.py`):** Auto-creates categories and dueling arenas; `UndoTournamentSectionView.undo_callback` invokes `tournament_service.clear_channels(guild_id)` upon section deletion.
+- **`StorageManager` (`utils/storage.py`):** Atomic writes with 60s backup rotation throttling (`min_backup_interval`), `force_backup`, and non-blocking `save_async()`.
 - **`PastResultsService` (`services/past_results_service.py`):** Concluded tournaments archive

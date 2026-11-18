@@ -375,6 +375,21 @@ class UndoTournamentSectionView(discord.ui.View):
 
         results = await delete_tournament_section(interaction.guild)
 
+        # Clear persisted tournament channel bindings and panel IDs
+        if interaction.guild:
+            t_service = getattr(interaction.client, "tournament_service", None)
+            if not t_service:
+                t_cog = interaction.client.get_cog("Tournaments") or interaction.client.get_cog(
+                    "TournamentOperationsCog"
+                )
+                if t_cog and hasattr(t_cog, "service"):
+                    t_service = t_cog.service
+            if t_service:
+                try:
+                    t_service.clear_channels(interaction.guild.id)
+                except Exception as exc:
+                    logger.warning("Failed to clear tournament channels in state on undo: %s", exc)
+
         embed = discord.Embed(
             title="🧹 Tournament Section Removed",
             description=f"Cleaned up tournament categories and channels in **{interaction.guild.name}**.",

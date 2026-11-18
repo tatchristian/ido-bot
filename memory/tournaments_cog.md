@@ -5,8 +5,8 @@
 **Architecture:** Composed via modular mixins under `cogs/tournament_ops/` (total 4,038 lines)
 **Extracted Modules:**
 - `cogs/tournament_ops/constants.py` (84 lines): Choice definitions for regions, weapons, timezones, formats, panels, and help sections.
-- `cogs/tournament_ops/helpers.py` (804 lines): Lifecycle hooks (`cog_load`, `cog_unload`), background reminder loop (`tournament_reminder_task`), participant role management, channel permissions & region locking, live panel synchronization (`asyncio.gather`), autocomplete resolvers.
-- `cogs/tournament_ops/player_cmds.py` (365 lines): 1-word player slash commands (`/help`, `/register`, `/unregister`, `/sub`, `/sub-unregister`, `/edit-entry`, `/checkin`, `/sub-checkin`, `/status`, `/roster`).
+- `cogs/tournament_ops/helpers.py` (804 lines): Lifecycle hooks (`cog_load`, `cog_unload`), background reminder loop (`tournament_reminder_task`), participant role management, channel permissions & region locking, debounced live panel synchronization (`_update_all_live_panels` with 0.5s trailing edge to avoid HTTP 429), autocomplete resolvers.
+- `cogs/tournament_ops/player_cmds.py` (365 lines): 1-word player slash commands (`/help`, `/register`, `/unregister`, `/sub`, `/sub-unregister`, `/edit-entry`, `/checkin`, `/sub-checkin`, `/status`, `/roster`), using immediate `defer()` to eliminate Discord 3-second timeout errors.
 - `cogs/tournament_ops/config_cmds.py` (373 lines): Server configuration (`/config`, `/set-channel`, `/post` panels, prefix fallbacks).
 - `cogs/tournament_ops/staff_cmds.py` (1,415 lines): Staff bracket management (`t_group = app_commands.Group(name="t", ...)` with 24 subcommands and prefix fallbacks).
 - `cogs/tournament_ops/state_cmds.py` (397 lines): State snapshot and disaster recovery (`state_group = app_commands.Group(name="state", ...)` with 5 subcommands and prefix fallbacks).

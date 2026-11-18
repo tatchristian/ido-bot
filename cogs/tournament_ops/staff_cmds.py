@@ -94,6 +94,7 @@ class TournamentStaffMixin:
         timezone: Optional[app_commands.Choice[str]] = None,
         registration_channel: Optional[discord.TextChannel] = None,
     ):
+        await interaction.response.defer()
         guild_id = interaction.guild_id or 0
         if registration_channel:
             self.service.set_channels(registration_channel_id=registration_channel.id, guild_id=guild_id)
@@ -110,7 +111,7 @@ class TournamentStaffMixin:
             tz_str = timezone.value if timezone else "EST"
             valid, start_dt, err = parse_event_datetime(date, time, tz_str)
             if not valid or not start_dt:
-                await interaction.response.send_message(f"❌ {err}", ephemeral=True)
+                await interaction.followup.send(f"❌ {err}")
                 return
             parsed_start_time = start_dt.isoformat()
             parsed_start_ts = int(start_dt.timestamp())
@@ -224,9 +225,9 @@ class TournamentStaffMixin:
                 except Exception as cat_exc:
                     logger.warning("Could not auto-sync category region permissions: %s", cat_exc)
 
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
         except ValueError as e:
-            await interaction.response.send_message(f"❌ {e}", ephemeral=True)
+            await interaction.followup.send(f"❌ {e}")
 
     @t_group.command(
         name="close",
