@@ -35,21 +35,33 @@ class ChannelStateSnapshot:
     checkin_channel_id: Optional[int] = None
     checkin_log_channel_id: Optional[int] = None
     subs_channel_id: Optional[int] = None
+    bracket_channel_id: Optional[int] = None
+    event_channel_id: Optional[int] = None
+    staff_channel_id: Optional[int] = None
+    guide_channel_id: Optional[int] = None
+
     admin_role_id: Optional[int] = None
     admin_role_name: Optional[str] = None
     participant_role_id: Optional[int] = None
     participant_role_name: Optional[str] = None
     event_role_id: Optional[int] = None
     event_role_name: Optional[str] = None
+
     registration_message_id: Optional[int] = None
     subs_message_id: Optional[int] = None
     checkin_message_id: Optional[int] = None
+    bracket_message_id: Optional[int] = None
+    event_message_id: Optional[int] = None
+    staff_message_id: Optional[int] = None
+    guide_message_id: Optional[int] = None
 
     # Clan Showcase channels & roles
     showcase_channel_id: Optional[int] = None
     staff_review_channel_id: Optional[int] = None
     clan_role_channel_id: Optional[int] = None
     clan_role_message_id: Optional[int] = None
+    clan_submit_channel_id: Optional[int] = None
+    clan_submit_message_id: Optional[int] = None
     clanless_role_id: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -68,6 +80,10 @@ class ChannelStateSnapshot:
             checkin_channel_id=t_data.get("checkin_channel_id") or data.get("checkin_channel_id"),
             checkin_log_channel_id=t_data.get("checkin_log_channel_id") or data.get("checkin_log_channel_id"),
             subs_channel_id=t_data.get("subs_channel_id") or data.get("subs_channel_id"),
+            bracket_channel_id=t_data.get("bracket_channel_id") or data.get("bracket_channel_id"),
+            event_channel_id=t_data.get("event_channel_id") or data.get("event_channel_id"),
+            staff_channel_id=t_data.get("staff_channel_id") or data.get("staff_channel_id"),
+            guide_channel_id=t_data.get("guide_channel_id") or data.get("guide_channel_id"),
             admin_role_id=t_data.get("admin_role_id") or data.get("admin_role_id"),
             admin_role_name=t_data.get("admin_role_name") or data.get("admin_role_name"),
             participant_role_id=t_data.get("participant_role_id") or data.get("participant_role_id"),
@@ -77,10 +93,16 @@ class ChannelStateSnapshot:
             registration_message_id=t_data.get("registration_message_id") or data.get("registration_message_id"),
             subs_message_id=t_data.get("subs_message_id") or data.get("subs_message_id"),
             checkin_message_id=t_data.get("checkin_message_id") or data.get("checkin_message_id"),
+            bracket_message_id=t_data.get("bracket_message_id") or data.get("bracket_message_id"),
+            event_message_id=t_data.get("event_message_id") or data.get("event_message_id"),
+            staff_message_id=t_data.get("staff_message_id") or data.get("staff_message_id"),
+            guide_message_id=t_data.get("guide_message_id") or data.get("guide_message_id"),
             showcase_channel_id=c_data.get("showcase_channel_id") or data.get("showcase_channel_id"),
             staff_review_channel_id=c_data.get("staff_review_channel_id") or data.get("staff_review_channel_id"),
             clan_role_channel_id=c_data.get("clan_role_channel_id") or data.get("clan_role_channel_id"),
             clan_role_message_id=c_data.get("clan_role_message_id") or data.get("clan_role_message_id"),
+            clan_submit_channel_id=c_data.get("clan_submit_channel_id") or data.get("clan_submit_channel_id"),
+            clan_submit_message_id=c_data.get("clan_submit_message_id") or data.get("clan_submit_message_id"),
             clanless_role_id=c_data.get("clanless_role_id") or data.get("clanless_role_id"),
         )
 
@@ -101,6 +123,11 @@ class StateSnapshotService:
         t_state = tournament_service.get_state(guild_id)
         showcase_ch, review_ch = clan_showcase_service.get_guild_channels(guild_id)
         role_panel_ch, role_panel_msg = clan_showcase_service.get_clan_role_panel_info(guild_id)
+        clan_sub_ch, clan_sub_msg = (
+            clan_showcase_service.get_clan_submit_panel_info(guild_id)
+            if hasattr(clan_showcase_service, "get_clan_submit_panel_info")
+            else (None, None)
+        )
         clanless_id = clan_showcase_service.get_clanless_role_id(guild_id)
 
         snapshot = ChannelStateSnapshot(
@@ -111,6 +138,10 @@ class StateSnapshotService:
             checkin_channel_id=t_state.checkin_channel_id,
             checkin_log_channel_id=getattr(t_state, "checkin_log_channel_id", None),
             subs_channel_id=t_state.subs_channel_id,
+            bracket_channel_id=getattr(t_state, "bracket_channel_id", None),
+            event_channel_id=getattr(t_state, "event_channel_id", None),
+            staff_channel_id=getattr(t_state, "staff_channel_id", None),
+            guide_channel_id=getattr(t_state, "guide_channel_id", None),
             admin_role_id=t_state.admin_role_id,
             admin_role_name=t_state.admin_role_name,
             participant_role_id=t_state.participant_role_id,
@@ -120,10 +151,16 @@ class StateSnapshotService:
             registration_message_id=t_state.registration_message_id,
             subs_message_id=t_state.subs_message_id,
             checkin_message_id=getattr(t_state, "checkin_message_id", None),
+            bracket_message_id=getattr(t_state, "bracket_message_id", None),
+            event_message_id=getattr(t_state, "event_message_id", None),
+            staff_message_id=getattr(t_state, "staff_message_id", None),
+            guide_message_id=getattr(t_state, "guide_message_id", None),
             showcase_channel_id=showcase_ch,
             staff_review_channel_id=review_ch,
             clan_role_channel_id=role_panel_ch,
             clan_role_message_id=role_panel_msg,
+            clan_submit_channel_id=clan_sub_ch,
+            clan_submit_message_id=clan_sub_msg,
             clanless_role_id=clanless_id,
         )
         return snapshot
@@ -148,6 +185,10 @@ class StateSnapshotService:
                 "checkin_channel_id": snapshot.checkin_channel_id,
                 "checkin_log_channel_id": snapshot.checkin_log_channel_id,
                 "subs_channel_id": snapshot.subs_channel_id,
+                "bracket_channel_id": snapshot.bracket_channel_id,
+                "event_channel_id": snapshot.event_channel_id,
+                "staff_channel_id": snapshot.staff_channel_id,
+                "guide_channel_id": snapshot.guide_channel_id,
                 "admin_role_id": snapshot.admin_role_id,
                 "admin_role_name": snapshot.admin_role_name,
                 "participant_role_id": snapshot.participant_role_id,
@@ -157,12 +198,18 @@ class StateSnapshotService:
                 "registration_message_id": snapshot.registration_message_id,
                 "subs_message_id": snapshot.subs_message_id,
                 "checkin_message_id": snapshot.checkin_message_id,
+                "bracket_message_id": snapshot.bracket_message_id,
+                "event_message_id": snapshot.event_message_id,
+                "staff_message_id": snapshot.staff_message_id,
+                "guide_message_id": snapshot.guide_message_id,
             },
             "clan_showcase": {
                 "showcase_channel_id": snapshot.showcase_channel_id,
                 "staff_review_channel_id": snapshot.staff_review_channel_id,
                 "clan_role_channel_id": snapshot.clan_role_channel_id,
                 "clan_role_message_id": snapshot.clan_role_message_id,
+                "clan_submit_channel_id": snapshot.clan_submit_channel_id,
+                "clan_submit_message_id": snapshot.clan_submit_message_id,
                 "clanless_role_id": snapshot.clanless_role_id,
             },
         }
@@ -275,6 +322,14 @@ class StateSnapshotService:
             t_state.checkin_log_channel_id = snapshot.checkin_log_channel_id
         if is_valid_channel(snapshot.subs_channel_id):
             t_state.subs_channel_id = snapshot.subs_channel_id
+        if is_valid_channel(getattr(snapshot, "bracket_channel_id", None)):
+            t_state.bracket_channel_id = snapshot.bracket_channel_id
+        if is_valid_channel(getattr(snapshot, "event_channel_id", None)):
+            t_state.event_channel_id = snapshot.event_channel_id
+        if is_valid_channel(getattr(snapshot, "staff_channel_id", None)):
+            t_state.staff_channel_id = snapshot.staff_channel_id
+        if is_valid_channel(getattr(snapshot, "guide_channel_id", None)):
+            t_state.guide_channel_id = snapshot.guide_channel_id
 
         if is_valid_role(snapshot.admin_role_id):
             t_state.admin_role_id = snapshot.admin_role_id
@@ -292,6 +347,14 @@ class StateSnapshotService:
             t_state.subs_message_id = snapshot.subs_message_id
         if getattr(snapshot, "checkin_message_id", None) is not None and is_valid_channel(snapshot.checkin_channel_id):
             t_state.checkin_message_id = snapshot.checkin_message_id
+        if getattr(snapshot, "bracket_message_id", None) is not None and is_valid_channel(getattr(snapshot, "bracket_channel_id", None)):
+            t_state.bracket_message_id = snapshot.bracket_message_id
+        if getattr(snapshot, "event_message_id", None) is not None and is_valid_channel(getattr(snapshot, "event_channel_id", None)):
+            t_state.event_message_id = snapshot.event_message_id
+        if getattr(snapshot, "staff_message_id", None) is not None and is_valid_channel(getattr(snapshot, "staff_channel_id", None)):
+            t_state.staff_message_id = snapshot.staff_message_id
+        if getattr(snapshot, "guide_message_id", None) is not None and is_valid_channel(getattr(snapshot, "guide_channel_id", None)):
+            t_state.guide_message_id = snapshot.guide_message_id
 
         tournament_service._persist(guild_id)
 
@@ -304,6 +367,14 @@ class StateSnapshotService:
         if is_valid_channel(snapshot.clan_role_channel_id) and snapshot.clan_role_message_id is not None:
             clan_showcase_service.set_clan_role_panel_info(
                 guild_id, snapshot.clan_role_channel_id, snapshot.clan_role_message_id
+            )
+        if (
+            is_valid_channel(getattr(snapshot, "clan_submit_channel_id", None))
+            and getattr(snapshot, "clan_submit_message_id", None) is not None
+            and hasattr(clan_showcase_service, "set_clan_submit_panel_info")
+        ):
+            clan_showcase_service.set_clan_submit_panel_info(
+                guild_id, snapshot.clan_submit_channel_id, snapshot.clan_submit_message_id
             )
         if is_valid_role(snapshot.clanless_role_id):
             clan_showcase_service.set_clanless_role_id(guild_id, snapshot.clanless_role_id)
@@ -338,11 +409,15 @@ class StateSnapshotService:
         showcase_ch, review_ch = clan_showcase_service.get_guild_channels(guild.id)
 
         patterns = {
-            "registration": re.compile(r"(?=.*(?:reg|registration|entry|bracket))(?!.*clan)", re.IGNORECASE),
+            "bracket": re.compile(r"bracket|tournament-bracket|live-bracket", re.IGNORECASE),
+            "registration": re.compile(r"(?=.*(?:reg|registration|entry|signup))(?!.*(?:clan|bracket))", re.IGNORECASE),
             "announcements": re.compile(r"announce|announcements", re.IGNORECASE),
             "checkin": re.compile(r"(?=.*(?:checkin|check-in))(?!.*log)", re.IGNORECASE),
             "checkin_logs": re.compile(r"checkin.*log|log.*checkin", re.IGNORECASE),
             "subs": re.compile(r"subs|substitute|bench", re.IGNORECASE),
+            "events": re.compile(r"event.*sched|sched.*event|event-calendar|tourney-sched", re.IGNORECASE),
+            "staff_ops": re.compile(r"staff-ops|staff-cmd|staff-panel|admin-panel", re.IGNORECASE),
+            "clan_submit": re.compile(r"clan.*submit|submit.*clan|clan.*application", re.IGNORECASE),
             "showcase": re.compile(r"clan.*reg|reg.*clan|clan.*showcase|showcase.*clan|clan-profile", re.IGNORECASE),
             "staff_review": re.compile(r"clan-review|staff-review|clan-approval|review", re.IGNORECASE),
             "clan_role": re.compile(r"clan-roles|claim.*clan|clan-directory|official.*clan", re.IGNORECASE),
@@ -351,7 +426,10 @@ class StateSnapshotService:
         for ch in getattr(guild, "text_channels", []):
             clean_name = ch.name.lower()
 
-            if t_state.registration_channel_id is None and patterns["registration"].search(clean_name):
+            if getattr(t_state, "bracket_channel_id", None) is None and patterns["bracket"].search(clean_name):
+                t_state.bracket_channel_id = ch.id
+                discovered["bracket"] = ch.id
+            elif t_state.registration_channel_id is None and patterns["registration"].search(clean_name):
                 t_state.registration_channel_id = ch.id
                 discovered["registration"] = ch.id
             elif t_state.announcement_channel_id is None and patterns["announcements"].search(clean_name):
@@ -366,6 +444,18 @@ class StateSnapshotService:
             elif t_state.subs_channel_id is None and patterns["subs"].search(clean_name):
                 t_state.subs_channel_id = ch.id
                 discovered["subs"] = ch.id
+            elif getattr(t_state, "event_channel_id", None) is None and patterns["events"].search(clean_name):
+                t_state.event_channel_id = ch.id
+                discovered["events"] = ch.id
+            elif getattr(t_state, "staff_channel_id", None) is None and patterns["staff_ops"].search(clean_name):
+                t_state.staff_channel_id = ch.id
+                discovered["staff_ops"] = ch.id
+
+            if hasattr(clan_showcase_service, "get_clan_submit_panel_info"):
+                submit_ch, _ = clan_showcase_service.get_clan_submit_panel_info(guild.id)
+                if submit_ch is None and patterns["clan_submit"].search(clean_name):
+                    clan_showcase_service.set_clan_submit_panel_info(guild.id, ch.id, 0)
+                    discovered["clan_submit"] = ch.id
 
             if showcase_ch is None and patterns["showcase"].search(clean_name):
                 showcase_ch = ch.id

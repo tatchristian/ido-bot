@@ -1623,33 +1623,112 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
             ephemeral=True,
         )
 
-    async def _refresh_clan_role_panel(self, guild: discord.Guild) -> None:
+    async def _refresh_clan_role_panel(self, guild: discord.Guild) -> bool:
         """
-        Edits the posted Clan Role Assignment Panel in real-time with updated clans and options.
+        Edits or reposts the Clan Role Assignment Panel in real-time with updated clans and options.
         """
         chan_id, msg_id = self.service.get_clan_role_panel_info(guild.id)
-        if not chan_id or not msg_id:
-            return
+        if not chan_id:
+            return False
 
         channel = guild.get_channel(chan_id)
         if not channel:
             try:
                 channel = await self.bot.fetch_channel(chan_id)
             except Exception:
-                return
+                return False
 
         if not isinstance(channel, discord.TextChannel):
-            return
+            return False
 
-        try:
-            message = await channel.fetch_message(msg_id)
-            clans = self.service.get_approved_clans(guild.id)
-            embed = build_clan_role_panel_embed(clans, guild.name)
-            view = ClanRoleAssignmentPanelView(self.service, clans=clans)
-            await message.edit(embed=embed, view=view)
-            logger.info("Successfully refreshed Clan Role Assignment Panel in guild %s.", guild.id)
-        except Exception as exc:
-            logger.warning("Could not refresh Clan Role Assignment Panel: %s", exc)
+        msg = None
+        if msg_id:
+            try:
+                msg = await channel.fetch_message(msg_id)
+                clans = self.service.get_approved_clans(guild.id)
+                embed = build_clan_role_panel_embed(clans, guild.name)
+                view = ClanRoleAssignmentPanelView(self.service, clans=clans)
+                await msg.edit(embed=embed, view=view)
+                logger.info("Successfully refreshed Clan Role Assignment Panel in guild %s.", guild.id)
+                return True
+            except Exception as exc:
+                logger.debug("Existing clan role panel message %s not editable: %s", msg_id, exc)
+                msg = None
+
+        if not msg:
+            perms = channel.permissions_for(guild.me)
+            if perms.send_messages and perms.embed_links:
+                clans = self.service.get_approved_clans(guild.id)
+                embed = build_clan_role_panel_embed(clans, guild.name)
+                view = ClanRoleAssignmentPanelView(self.service, clans=clans)
+                msg = await channel.send(embed=embed, view=view)
+                self.service.set_clan_role_panel_info(guild.id, channel.id, msg.id)
+                logger.info("Successfully reposted Clan Role Assignment Panel in guild %s (message %s).", guild.id, msg.id)
+                return True
+        return False
+
+    async def _refresh_clan_submit_panel(self, guild: discord.Guild) -> bool:
+        """
+        Edits or reposts the Clan Profile Submission Portal in the configured channel.
+        """
+        if not hasattr(self.service, "get_clan_submit_panel_info"):
+            return False
+        chan_id, msg_id = self.service.get_clan_submit_panel_info(guild.id)
+        if not chan_id:
+            return False
+
+        channel = guild.get_channel(chan_id)
+        if not channel:
+            try:
+                channel = await self.bot.fetch_channel(chan_id)
+            except Exception:
+                return False
+
+        if not isinstance(channel, discord.TextChannel):
+            return False
+
+        panel_embed = discord.Embed(
+            title="🏛️ Official Clan Profile Showcase Submissions",
+            description=(
+                f"Welcome to the official **{config.organization_name}** Clan Showcase submission system!\n\n"
+                "Are you a clan leader looking to represent your roster in our server's official showcase? "
+                "Choose your preferred method below to submit your clan's profile for staff review:\n\n"
+                "**How to Provide Your Clan Logo / GIF (Choose One):**\n"
+                "• **Choice 1 — Pick Photo/GIF from Device (Mobile & PC):**\n"
+                "  Type `/clan submit` and select **`image`** to choose directly from your phone's Camera Roll / Gallery or files!\n"
+                "• **Choice 2 — Paste Image Link in Form:**\n"
+                "  Click **📋 Submit Clan Profile** below to open the form and paste any direct image or GIF link.\n\n"
+                "**Form Guidelines & Tips:**\n"
+                "• **Clan Name & Info:** Enter your official clan name (e.g. `Cerberus Elite`), metadata (region, leaders), description, and motto.\n"
+                "• **Interactive Color & Theme:** You can choose any preset color or enter an exact custom #hex code right on your live preview card before confirming!\n"
+                "• **Safe Drafting:** Decisions aren't final until you click **Confirm & Send to Staff** on the draft preview!\n"
+                "• **Clan Role Creation:** Your official clan role is created automatically upon approval. Extra customizations (such as gradient colors, custom icons, or special edits) will be added by moderators if needed.\n"
+                "• All submissions are reviewed by staff before being published to the public showcase.\n\n"
+                "Click **📋 Submit Clan Profile** below to begin!"
+            ),
+            color=DEFAULT_CLAN_COLOR,
+        )
+        panel_embed.set_footer(
+            text=f"{config.organization_name} • Clan Registration & Showcase Portal"
+        )
+        view = ClanSubmissionPanelView(self.service)
+
+        msg = None
+        if msg_id:
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.edit(embed=panel_embed, view=view)
+                return True
+            except Exception:
+                msg = None
+
+        if not msg:
+            perms = channel.permissions_for(guild.me)
+            if perms.send_messages and perms.embed_links:
+                msg = await channel.send(embed=panel_embed, view=view)
+                self.service.set_clan_submit_panel_info(guild.id, channel.id, msg.id)
+                return True
+        return False
 
     # -------------------------------------------------------------------------
     # Command: /clan submit and !clan_submit
@@ -1783,7 +1862,9 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         )
 
         view = ClanSubmissionPanelView(self.service)
-        await target_chan.send(embed=panel_embed, view=view)
+        panel_msg = await target_chan.send(embed=panel_embed, view=view)
+        if hasattr(self.service, "set_clan_submit_panel_info"):
+            self.service.set_clan_submit_panel_info(interaction.guild.id, target_chan.id, panel_msg.id)
 
         await interaction.response.send_message(
             f"✅ Clan submission panel successfully posted in {target_chan.mention}!",
@@ -1834,7 +1915,9 @@ class ClanShowcaseCog(commands.Cog, name="ClanShowcase"):
         )
 
         view = ClanSubmissionPanelView(self.service)
-        await target_chan.send(embed=panel_embed, view=view)
+        panel_msg = await target_chan.send(embed=panel_embed, view=view)
+        if hasattr(self.service, "set_clan_submit_panel_info"):
+            self.service.set_clan_submit_panel_info(ctx.guild.id, target_chan.id, panel_msg.id)
         await ctx.send(f"✅ Clan submission panel posted in {target_chan.mention}!")
 
     # -------------------------------------------------------------------------

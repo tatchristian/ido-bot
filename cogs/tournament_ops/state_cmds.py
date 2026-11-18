@@ -215,6 +215,8 @@ class TournamentStateMixin:
                 f"• **Announcements:** {ch_fmt(t_info.get('announcement_channel_id'))}\n"
                 f"• **Check-In:** {ch_fmt(t_info.get('checkin_channel_id'))}\n"
                 f"• **Substitutes:** {ch_fmt(t_info.get('subs_channel_id'))}\n"
+                f"• **Live Bracket:** {ch_fmt(t_info.get('bracket_channel_id'))}\n"
+                f"• **Event Scheduler:** {ch_fmt(t_info.get('event_channel_id'))}\n"
                 f"• **Admin Role:** {role_fmt(t_info.get('admin_role_id'), t_info.get('admin_role_name'))}\n"
                 f"• **Participant Role:** {role_fmt(t_info.get('participant_role_id'), t_info.get('participant_role_name'))}"
             ),
@@ -226,6 +228,7 @@ class TournamentStateMixin:
                 f"• **Showcase Channel:** {ch_fmt(c_info.get('showcase_channel_id'))}\n"
                 f"• **Staff Review Channel:** {ch_fmt(c_info.get('staff_review_channel_id'))}\n"
                 f"• **Clan Roles Panel:** {ch_fmt(c_info.get('clan_role_channel_id'))}\n"
+                f"• **Clan Submit Portal:** {ch_fmt(c_info.get('clan_submit_channel_id'))}\n"
                 f"• **Clanless Role:** {role_fmt(c_info.get('clanless_role_id'))}"
             ),
             inline=False,
@@ -249,16 +252,141 @@ class TournamentStateMixin:
         snapshot_service.save_snapshot(ctx.guild.id, self.service, clan_service)
         await ctx.send("✅ Successfully saved channel & role configuration to `saved_state.json`!")
 
+    async def _restore_all_panels(self, guild: discord.Guild) -> list[str]:
+        """Restores and syncs all interactive bot panels across the server."""
+        reposted_notes: list[str] = []
+        state = self.service.get_state(guild.id)
+
+        # 1. Registration Panel
+        if state.registration_channel_id:
+            try:
+                reg_ch = guild.get_channel(state.registration_channel_id)
+                if reg_ch and isinstance(reg_ch, discord.TextChannel):
+                    await self._post_or_update_registration_panel(guild, reg_ch)
+                    reposted_notes.append("📝 Player Registration Hub synced")
+                else:
+                    await self._update_registration_panel(guild)
+                    reposted_notes.append("📝 Player Registration Hub synced")
+            except Exception as e:
+                reposted_notes.append(f"⚠️ Registration Panel error: {e}")
+
+        # 2. Substitutes Bench
+        if state.subs_channel_id:
+            try:
+                subs_ch = guild.get_channel(state.subs_channel_id)
+                if subs_ch and isinstance(subs_ch, discord.TextChannel):
+                    await self._post_or_update_subs_panel(guild, subs_ch)
+                    reposted_notes.append("🛡️ Standby Substitutes Bench synced")
+                else:
+                    await self._update_subs_panel(guild)
+                    reposted_notes.append("🛡️ Standby Substitutes Bench synced")
+            except Exception as e:
+                reposted_notes.append(f"⚠️ Substitutes Panel error: {e}")
+
+        # 3. Match-Day Check-In Hub
+        if state.checkin_channel_id:
+            try:
+                chk_ch = guild.get_channel(state.checkin_channel_id)
+                if chk_ch and isinstance(chk_ch, discord.TextChannel):
+                    await self._post_or_update_checkin_panel(guild, chk_ch)
+                    reposted_notes.append("✅ Match-Day Check-In Hub synced")
+                else:
+                    await self._update_checkin_panel(guild)
+                    reposted_notes.append("✅ Match-Day Check-In Hub synced")
+            except Exception as e:
+                reposted_notes.append(f"⚠️ Check-In Hub error: {e}")
+
+        # 4. Live Tournament Bracket Panel (with Challonge-style visual PNG attachment)
+        if getattr(state, "bracket_channel_id", None):
+            try:
+                brk_ch = guild.get_channel(state.bracket_channel_id)
+                if brk_ch and isinstance(brk_ch, discord.TextChannel):
+                    await self._post_or_update_bracket_panel(guild, brk_ch)
+                    reposted_notes.append("🏆 Live Tournament Bracket Panel synced (visual PNG attached)")
+                else:
+                    await self._update_bracket_panel(guild)
+                    reposted_notes.append("🏆 Live Tournament Bracket Panel synced (visual PNG attached)")
+            except Exception as e:
+                reposted_notes.append(f"⚠️ Live Bracket Panel error: {e}")
+
+        # 5. Clan Role Directory Panel
+        clan_cog = self.bot.get_cog("ClanShowcase") or self.bot.get_cog("ClanShowcaseCog")
+        if clan_cog and hasattr(clan_cog, "_refresh_clan_role_panel"):
+            clan_service = getattr(self.bot, "clan_showcase_service", None)
+            if clan_service:
+                r_ch, _ = clan_service.get_clan_role_panel_info(guild.id)
+                if r_ch:
+                    try:
+                        refreshed = await clan_cog._refresh_clan_role_panel(guild)
+                        if refreshed is not False:
+                            reposted_notes.append("🏛️ Clan Role Directory Panel synced")
+                    except Exception as e:
+                        reposted_notes.append(f"⚠️ Clan Roles Panel error: {e}")
+
+        # 6. Clan Profile Submission Portal
+        if clan_cog and hasattr(clan_cog, "_refresh_clan_submit_panel"):
+            clan_service = getattr(self.bot, "clan_showcase_service", None)
+            if clan_service and hasattr(clan_service, "get_clan_submit_panel_info"):
+                s_ch, _ = clan_service.get_clan_submit_panel_info(guild.id)
+                if s_ch:
+                    try:
+                        refreshed = await clan_cog._refresh_clan_submit_panel(guild)
+                        if refreshed is not False:
+                            reposted_notes.append("📋 Clan Profile Submission Portal synced")
+                    except Exception as e:
+                        reposted_notes.append(f"⚠️ Clan Submission Portal error: {e}")
+
+        # 7. Official Event Scheduler Panel
+        if getattr(state, "event_channel_id", None):
+            try:
+                ev_ch = guild.get_channel(state.event_channel_id)
+                if ev_ch and isinstance(ev_ch, discord.TextChannel):
+                    await self._post_or_update_event_panel(guild, ev_ch)
+                    reposted_notes.append("📅 Event Scheduler Panel synced")
+                else:
+                    await self._update_event_panel(guild)
+                    reposted_notes.append("📅 Event Scheduler Panel synced")
+            except Exception as e:
+                reposted_notes.append(f"⚠️ Event Scheduler error: {e}")
+
+        # 8. Staff Operations Center
+        if getattr(state, "staff_channel_id", None):
+            try:
+                stf_ch = guild.get_channel(state.staff_channel_id)
+                if stf_ch and isinstance(stf_ch, discord.TextChannel):
+                    await self._post_or_update_staff_panel(guild, stf_ch)
+                    reposted_notes.append("🛠️ Staff Operations Center synced")
+                else:
+                    await self._update_staff_panel(guild)
+                    reposted_notes.append("🛠️ Staff Operations Center synced")
+            except Exception as e:
+                reposted_notes.append(f"⚠️ Staff Operations Center error: {e}")
+
+        # 9. Staff Interactive Guide
+        if getattr(state, "guide_channel_id", None):
+            try:
+                gd_ch = guild.get_channel(state.guide_channel_id)
+                if gd_ch and isinstance(gd_ch, discord.TextChannel):
+                    await self._post_or_update_guide_panel(guild, gd_ch)
+                    reposted_notes.append("📖 Staff Interactive Guide synced")
+                else:
+                    await self._update_guide_panel(guild)
+                    reposted_notes.append("📖 Staff Interactive Guide synced")
+            except Exception as e:
+                reposted_notes.append(f"⚠️ Staff Guide error: {e}")
+
+        return reposted_notes
+
     @state_group.command(
         name="restore",
         description="[Admin] Restore channel, role, and panel configurations from saved_state.json.",
     )
-    @app_commands.describe(repost_panels="If True, re-posts/refreshes interactive panel embeds in set channels")
+    @app_commands.describe(repost_panels="If True, re-posts/refreshes interactive panel embeds in set channels (default: True)")
     @is_tournament_admin()
     async def state_restore_slash(
         self,
         interaction: discord.Interaction,
-        repost_panels: bool = False,
+        repost_panels: bool = True,
     ):
         guild_id = interaction.guild_id or 0
         snapshot_service = getattr(self.bot, "state_snapshot_service", None)
@@ -281,32 +409,10 @@ class TournamentStateMixin:
                 await interaction.response.send_message("❌ `saved_state.json` preset file was not found.", ephemeral=True)
                 return
 
-        # Optionally refresh or repost panels
+        # Refresh or repost all active panels across the bot
         reposted_notes: list[str] = []
         if repost_panels and interaction.guild:
-            guild = interaction.guild
-            # Refresh registration panel
-            if snapshot.registration_channel_id:
-                try:
-                    await self._update_registration_panel(guild)
-                    reposted_notes.append("📝 Registration Panel synced")
-                except Exception as e:
-                    reposted_notes.append(f"⚠️ Registration Panel error: {e}")
-            # Refresh subs panel
-            if snapshot.subs_channel_id:
-                try:
-                    await self._update_subs_panel(guild)
-                    reposted_notes.append("🛡️ Substitutes Panel synced")
-                except Exception as e:
-                    reposted_notes.append(f"⚠️ Substitutes Panel error: {e}")
-            # Refresh clan role panel
-            clan_cog = self.bot.get_cog("ClanShowcase") or self.bot.get_cog("ClanShowcaseCog")
-            if clan_cog and hasattr(clan_cog, "_refresh_clan_role_panel"):
-                try:
-                    await clan_cog._refresh_clan_role_panel(guild)
-                    reposted_notes.append("🏛️ Clan Roles Panel synced")
-                except Exception as e:
-                    reposted_notes.append(f"⚠️ Clan Roles Panel error: {e}")
+            reposted_notes = await self._restore_all_panels(interaction.guild)
 
         def ch_fmt(cid):
             return f"<#{cid}>" if cid else "*None*"
@@ -314,15 +420,18 @@ class TournamentStateMixin:
         embed = discord.Embed(
             title="🔄 Bot State Restored",
             description=(
-                f"Successfully applied channel and role bindings to **{interaction.guild.name if interaction.guild else 'Server'}**!\n\n"
+                f"Successfully applied channel, role, and panel bindings to **{interaction.guild.name if interaction.guild else 'Server'}**!\n\n"
                 f"• **Registration:** {ch_fmt(snapshot.registration_channel_id)}\n"
                 f"• **Announcements:** {ch_fmt(snapshot.announcement_channel_id)}\n"
                 f"• **Check-In:** {ch_fmt(snapshot.checkin_channel_id)}\n"
                 f"• **Substitutes:** {ch_fmt(snapshot.subs_channel_id)}\n"
+                f"• **Live Bracket:** {ch_fmt(snapshot.bracket_channel_id)}\n"
+                f"• **Event Scheduler:** {ch_fmt(snapshot.event_channel_id)}\n"
                 f"• **Clan Showcase:** {ch_fmt(snapshot.showcase_channel_id)}\n"
                 f"• **Staff Review:** {ch_fmt(snapshot.staff_review_channel_id)}\n"
                 f"• **Clan Roles Panel:** {ch_fmt(snapshot.clan_role_channel_id)}\n"
-                + (f"\n**Panel Status:**\n" + "\n".join(f"• {n}" for n in reposted_notes) if reposted_notes else "")
+                f"• **Clan Submit Portal:** {ch_fmt(snapshot.clan_submit_channel_id)}\n"
+                + (f"\n**Panels Restored & Synced:**\n" + "\n".join(f"• {n}" for n in reposted_notes) if reposted_notes else "")
             ),
             color=0x2ECC71,
         )
@@ -331,7 +440,7 @@ class TournamentStateMixin:
 
     @commands.command(name="state_restore")
     @is_tournament_admin_prefix()
-    async def state_restore_prefix(self, ctx: commands.Context, repost_panels: bool = False):
+    async def state_restore_prefix(self, ctx: commands.Context, repost_panels: bool = True):
         """Prefix fallback: !state_restore [repost_panels=True/False]"""
         if not ctx.guild:
             await ctx.send("❌ Command must be used in a server.")
@@ -342,15 +451,12 @@ class TournamentStateMixin:
             await ctx.send("❌ State snapshot service is unavailable.")
             return
         try:
-            snapshot = snapshot_service.restore_snapshot(ctx.guild.id, self.service, clan_service)
+            snapshot = snapshot_service.restore_snapshot(ctx.guild.id, self.service, clan_service, guild=ctx.guild)
             msg = f"🔄 Successfully restored channels for **{ctx.guild.name}**!"
             if repost_panels:
-                await self._update_registration_panel(ctx.guild)
-                await self._update_subs_panel(ctx.guild)
-                clan_cog = self.bot.get_cog("ClanShowcase") or self.bot.get_cog("ClanShowcaseCog")
-                if clan_cog and hasattr(clan_cog, "_refresh_clan_role_panel"):
-                    await clan_cog._refresh_clan_role_panel(ctx.guild)
-                msg += " (Panels refreshed)."
+                reposted_notes = await self._restore_all_panels(ctx.guild)
+                if reposted_notes:
+                    msg += "\n\n**Panels Restored:**\n" + "\n".join(f"• {n}" for n in reposted_notes)
             await ctx.send(msg)
         except Exception as e:
             await ctx.send(f"❌ Failed to restore state: {e}")
@@ -394,9 +500,12 @@ class TournamentStateMixin:
                 f"{line_diff('Announcements', current.announcement_channel_id, saved.announcement_channel_id if saved else None)}\n"
                 f"{line_diff('Check-In', current.checkin_channel_id, saved.checkin_channel_id if saved else None)}\n"
                 f"{line_diff('Substitutes', current.subs_channel_id, saved.subs_channel_id if saved else None)}\n"
+                f"{line_diff('Live Bracket', current.bracket_channel_id, saved.bracket_channel_id if saved else None)}\n"
+                f"{line_diff('Event Scheduler', current.event_channel_id, saved.event_channel_id if saved else None)}\n"
                 f"{line_diff('Clan Showcase', current.showcase_channel_id, saved.showcase_channel_id if saved else None)}\n"
                 f"{line_diff('Staff Review', current.staff_review_channel_id, saved.staff_review_channel_id if saved else None)}\n"
-                f"{line_diff('Clan Roles Panel', current.clan_role_channel_id, saved.clan_role_channel_id if saved else None)}\n\n"
+                f"{line_diff('Clan Roles Panel', current.clan_role_channel_id, saved.clan_role_channel_id if saved else None)}\n"
+                f"{line_diff('Clan Submit Portal', current.clan_submit_channel_id, saved.clan_submit_channel_id if saved else None)}\n\n"
                 "**Roles:**\n"
                 f"{line_diff('Admin Role', current.admin_role_id, saved.admin_role_id if saved else None, is_channel=False)}\n"
                 f"{line_diff('Participant Role', current.participant_role_id, saved.participant_role_id if saved else None, is_channel=False)}\n"

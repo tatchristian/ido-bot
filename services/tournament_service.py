@@ -115,6 +115,12 @@ class TournamentState:
     checkin_message_id: int | None = None
     bracket_channel_id: int | None = None
     bracket_message_id: int | None = None
+    event_channel_id: int | None = None
+    event_message_id: int | None = None
+    staff_channel_id: int | None = None
+    staff_message_id: int | None = None
+    guide_channel_id: int | None = None
+    guide_message_id: int | None = None
     bracket_data: dict[str, Any] | None = None
     participants: list[Participant] = field(default_factory=list)
     substitutes: list[Participant] = field(default_factory=list)
@@ -157,6 +163,12 @@ class TournamentState:
             checkin_message_id=int(data["checkin_message_id"]) if data.get("checkin_message_id") is not None else None,
             bracket_channel_id=int(data["bracket_channel_id"]) if data.get("bracket_channel_id") is not None else None,
             bracket_message_id=int(data["bracket_message_id"]) if data.get("bracket_message_id") is not None else None,
+            event_channel_id=int(data["event_channel_id"]) if data.get("event_channel_id") is not None else None,
+            event_message_id=int(data["event_message_id"]) if data.get("event_message_id") is not None else None,
+            staff_channel_id=int(data["staff_channel_id"]) if data.get("staff_channel_id") is not None else None,
+            staff_message_id=int(data["staff_message_id"]) if data.get("staff_message_id") is not None else None,
+            guide_channel_id=int(data["guide_channel_id"]) if data.get("guide_channel_id") is not None else None,
+            guide_message_id=int(data["guide_message_id"]) if data.get("guide_message_id") is not None else None,
             bracket_data=data.get("bracket_data"),
             participants=[
                 Participant.from_dict(p) for p in data.get("participants", [])
@@ -561,6 +573,12 @@ class TournamentService:
         state.checkin_message_id = None
         state.bracket_channel_id = None
         state.bracket_message_id = None
+        state.event_channel_id = None
+        state.event_message_id = None
+        state.staff_channel_id = None
+        state.staff_message_id = None
+        state.guide_channel_id = None
+        state.guide_message_id = None
         self._persist(guild_id, force_backup=True)
         return "📁 Tournament dedicated channels cleared."
 
@@ -842,6 +860,12 @@ class TournamentService:
         state.subs_message_id = None
         state.bracket_channel_id = None
         state.bracket_message_id = None
+        state.event_channel_id = None
+        state.event_message_id = None
+        state.staff_channel_id = None
+        state.staff_message_id = None
+        state.guide_channel_id = None
+        state.guide_message_id = None
         state.bracket_data = None
         state.tournament_id = uuid.uuid4().hex[:8]
         self._persist(guild_id)

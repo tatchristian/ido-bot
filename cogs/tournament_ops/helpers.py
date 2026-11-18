@@ -22,11 +22,14 @@ from utils.tournament_embeds import (
     build_checkin_receipt_embed,
     build_registration_closed_embed,
     build_registration_panel_embed,
+    build_staff_guide_embed,
+    build_staff_panel_embed,
     build_subs_closed_embed,
     build_subs_panel_embed,
     build_tournament_reminder_embed,
 )
 from utils.tournament_views import (
+    TournamentBracketPanelView,
     TournamentCheckinPanelView,
     TournamentClosedRegistrationView,
     TournamentClosedSubsView,
@@ -69,6 +72,9 @@ class TournamentHelpersMixin:
         checkin_panel_view = TournamentCheckinPanelView()
         self.bot.add_view(checkin_panel_view)
         logger.info("Registered persistent tournament check-in panel view.")
+        bracket_panel_view = TournamentBracketPanelView(self.service)
+        self.bot.add_view(bracket_panel_view)
+        logger.info("Registered persistent tournament bracket panel view.")
         if not self.tournament_reminder_task.is_running():
             self.tournament_reminder_task.start()
             logger.info("Started tournament match day & 30-minute reminder background task.")
@@ -666,6 +672,192 @@ class TournamentHelpersMixin:
             await msg.edit(embed=embed, view=view)
         except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
             logger.debug("Could not live-update check-in panel: %s", exc)
+
+    async def _post_or_update_bracket_panel(
+        self, guild: discord.Guild, channel: discord.TextChannel
+    ) -> discord.Message:
+        """
+        Posts or updates the live Tournament Bracket Panel with Challonge-style visual PNG.
+        Stores the message ID in the tournament state.
+        """
+        state = self.service.get_state(guild.id)
+        state.bracket_channel_id = channel.id
+        view = TournamentBracketPanelView(self.service, guild_id=guild.id, section="winners", round_num=1)
+        embed, file = view.get_render_payload()
+
+        msg = None
+        if getattr(state, "bracket_message_id", None):
+            try:
+                existing = await channel.fetch_message(state.bracket_message_id)
+                await existing.edit(embed=embed, attachments=[file], view=view)
+                msg = existing
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                msg = None
+
+        if not msg:
+            msg = await channel.send(embed=embed, file=file, view=view)
+            state.bracket_message_id = msg.id
+
+        view.message = msg
+        self.service._persist(guild.id)
+        return msg
+
+    async def _update_bracket_panel(self, guild: Optional[discord.Guild]) -> Optional[discord.Message]:
+        """Dynamically edits or refreshes the live bracket panel in the designated channel."""
+        if not guild:
+            return None
+        state = self.service.get_state(guild.id)
+        if not getattr(state, "bracket_channel_id", None):
+            return None
+        channel = guild.get_channel(state.bracket_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            try:
+                channel = await self.bot.fetch_channel(state.bracket_channel_id)
+            except Exception:
+                return None
+        if not isinstance(channel, discord.TextChannel):
+            return None
+
+        perms = channel.permissions_for(guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            return None
+
+        return await self._post_or_update_bracket_panel(guild, channel)
+
+    async def _post_or_update_event_panel(
+        self, guild: discord.Guild, channel: discord.TextChannel
+    ) -> discord.Message:
+        """Posts or updates the official Event Scheduler panel."""
+        state = self.service.get_state(guild.id)
+        state.event_channel_id = channel.id
+        panel_embed = discord.Embed(
+            title="📅 Official Tournament & Event Scheduler",
+            description=(
+                f"Welcome to the official **{config.organization_name}** Tournament Event Scheduler!\n\n"
+                "Staff and Tournament Admins can click the button below to schedule an official event.\n\n"
+                "**What happens when you schedule an event:**\n"
+                "• **📌 Top of Server Banner:** Discord automatically creates the official event at the very top of the server so members can click **Interested** and get reminder pings.\n"
+                "• **🌐 Website Sync:** If enabled, the event is automatically pushed to **https://unitedduelingamity.org** so it appears on the live public schedule!\n\n"
+                "Click **📅 Schedule Tournament Event** below to open the form!"
+            ),
+            color=config.embed_color,
+        )
+        panel_embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
+        view = TournamentEventPanelView()
+
+        msg = None
+        if getattr(state, "event_message_id", None):
+            try:
+                existing = await channel.fetch_message(state.event_message_id)
+                await existing.edit(embed=panel_embed, view=view)
+                msg = existing
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                msg = None
+
+        if not msg:
+            msg = await channel.send(embed=panel_embed, view=view)
+            state.event_message_id = msg.id
+
+        self.service._persist(guild.id)
+        return msg
+
+    async def _update_event_panel(self, guild: Optional[discord.Guild]) -> Optional[discord.Message]:
+        if not guild:
+            return None
+        state = self.service.get_state(guild.id)
+        if not getattr(state, "event_channel_id", None):
+            return None
+        channel = guild.get_channel(state.event_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            try:
+                channel = await self.bot.fetch_channel(state.event_channel_id)
+            except Exception:
+                return None
+        if not isinstance(channel, discord.TextChannel):
+            return None
+        return await self._post_or_update_event_panel(guild, channel)
+
+    async def _post_or_update_staff_panel(
+        self, guild: discord.Guild, channel: discord.TextChannel
+    ) -> discord.Message:
+        """Posts or updates the Staff Operations Center panel."""
+        state = self.service.get_state(guild.id)
+        state.staff_channel_id = channel.id
+        embed = build_staff_panel_embed()
+        view = TournamentStaffPanelView()
+
+        msg = None
+        if getattr(state, "staff_message_id", None):
+            try:
+                existing = await channel.fetch_message(state.staff_message_id)
+                await existing.edit(embed=embed, view=view)
+                msg = existing
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                msg = None
+
+        if not msg:
+            msg = await channel.send(embed=embed, view=view)
+            state.staff_message_id = msg.id
+
+        self.service._persist(guild.id)
+        return msg
+
+    async def _update_staff_panel(self, guild: Optional[discord.Guild]) -> Optional[discord.Message]:
+        if not guild:
+            return None
+        state = self.service.get_state(guild.id)
+        if not getattr(state, "staff_channel_id", None):
+            return None
+        channel = guild.get_channel(state.staff_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            try:
+                channel = await self.bot.fetch_channel(state.staff_channel_id)
+            except Exception:
+                return None
+        if not isinstance(channel, discord.TextChannel):
+            return None
+        return await self._post_or_update_staff_panel(guild, channel)
+
+    async def _post_or_update_guide_panel(
+        self, guild: discord.Guild, channel: discord.TextChannel
+    ) -> discord.Message:
+        """Posts or updates the Staff Operations Guide panel."""
+        state = self.service.get_state(guild.id)
+        state.guide_channel_id = channel.id
+        embed = build_staff_guide_embed(section="overview")
+        view = TournamentStaffGuideView(current_section="overview")
+
+        msg = None
+        if getattr(state, "guide_message_id", None):
+            try:
+                existing = await channel.fetch_message(state.guide_message_id)
+                await existing.edit(embed=embed, view=view)
+                msg = existing
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                msg = None
+
+        if not msg:
+            msg = await channel.send(embed=embed, view=view)
+            state.guide_message_id = msg.id
+
+        self.service._persist(guild.id)
+        return msg
+
+    async def _update_guide_panel(self, guild: Optional[discord.Guild]) -> Optional[discord.Message]:
+        if not guild:
+            return None
+        state = self.service.get_state(guild.id)
+        if not getattr(state, "guide_channel_id", None):
+            return None
+        channel = guild.get_channel(state.guide_channel_id)
+        if not channel or not isinstance(channel, discord.TextChannel):
+            try:
+                channel = await self.bot.fetch_channel(state.guide_channel_id)
+            except Exception:
+                return None
+        if not isinstance(channel, discord.TextChannel):
+            return None
+        return await self._post_or_update_guide_panel(guild, channel)
 
     async def _update_all_live_panels(
         self, guild: Optional[discord.Guild], delay: float = 0.5

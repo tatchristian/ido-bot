@@ -538,6 +538,18 @@ class ClanShowcaseService:
         gdata = self._guild_channels.get(guild_id, {})
         return gdata.get("clan_role_channel_id"), gdata.get("clan_role_message_id")
 
+    def set_clan_submit_panel_info(self, guild_id: int, channel_id: int, message_id: int) -> None:
+        """Stores the channel and message ID of the live Clan Profile Submission Portal."""
+        gdata = self._guild_channels.setdefault(guild_id, {})
+        gdata["clan_submit_channel_id"] = channel_id
+        gdata["clan_submit_message_id"] = message_id
+        self._persist()
+
+    def get_clan_submit_panel_info(self, guild_id: int) -> Tuple[Optional[int], Optional[int]]:
+        """Returns (clan_submit_channel_id, clan_submit_message_id) for the guild."""
+        gdata = self._guild_channels.get(guild_id, {})
+        return gdata.get("clan_submit_channel_id"), gdata.get("clan_submit_message_id")
+
     def set_clanless_role_id(self, guild_id: int, role_id: Optional[int]) -> None:
         """Configures the @Clanless role for a guild."""
         gdata = self._guild_channels.setdefault(guild_id, {})

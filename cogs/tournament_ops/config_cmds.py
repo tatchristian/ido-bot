@@ -167,7 +167,10 @@ class TournamentConfigMixin:
                 return
             embed = build_staff_panel_embed()
             view = TournamentStaffPanelView()
-            await target.send(embed=embed, view=view)
+            msg = await target.send(embed=embed, view=view)
+            state.staff_channel_id = target.id
+            state.staff_message_id = msg.id
+            self.service._persist(guild_id)
             await interaction.response.send_message(f"✅ Staff Operations Center posted to {target.mention}!", ephemeral=True)
 
         elif val == "guide":
@@ -177,7 +180,10 @@ class TournamentConfigMixin:
                 return
             embed = build_staff_guide_embed(section="overview")
             view = TournamentStaffGuideView(current_section="overview")
-            await target.send(embed=embed, view=view)
+            msg = await target.send(embed=embed, view=view)
+            state.guide_channel_id = target.id
+            state.guide_message_id = msg.id
+            self.service._persist(guild_id)
             await interaction.response.send_message(f"✅ Staff Operations Guide posted to {target.mention}!", ephemeral=True)
 
         elif val == "reg":
@@ -254,7 +260,10 @@ class TournamentConfigMixin:
             )
             panel_embed.set_footer(text=f"{config.organization_name} • Tournament Operations")
             view = TournamentEventPanelView()
-            await target.send(embed=panel_embed, view=view)
+            msg = await target.send(embed=panel_embed, view=view)
+            state.event_channel_id = target.id
+            state.event_message_id = msg.id
+            self.service._persist(guild_id)
             await interaction.response.send_message(f"✅ Tournament event scheduler panel posted in {target.mention}!", ephemeral=True)
 
         elif val == "clan_submit":
@@ -306,7 +315,11 @@ class TournamentConfigMixin:
         )
 
         view = TournamentEventPanelView()
-        await target_chan.send(embed=panel_embed, view=view)
+        msg = await target_chan.send(embed=panel_embed, view=view)
+        state = self.service.get_state(ctx.guild.id)
+        state.event_channel_id = target_chan.id
+        state.event_message_id = msg.id
+        self.service._persist(ctx.guild.id)
         await ctx.send(f"✅ Tournament event scheduler panel posted in {target_chan.mention}!")
 
     @commands.command(name="post_tournament_staff_panel", aliases=["post_staff_panel"])
@@ -329,7 +342,11 @@ class TournamentConfigMixin:
 
         embed = build_staff_panel_embed()
         view = TournamentStaffPanelView()
-        await target_channel.send(embed=embed, view=view)
+        msg = await target_channel.send(embed=embed, view=view)
+        state = self.service.get_state(ctx.guild.id)
+        state.staff_channel_id = target_channel.id
+        state.staff_message_id = msg.id
+        self.service._persist(ctx.guild.id)
         if target_channel != ctx.channel:
             await ctx.send(f"✅ Tournament Staff Operations Panel posted to {target_channel.mention}!")
 

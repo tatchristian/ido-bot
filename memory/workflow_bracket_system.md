@@ -99,6 +99,22 @@ The tournament bracket system equips DUKE with an automated esports bracket pipe
 
 ---
 
+## 🔄 Disaster Recovery & Panel Restoration (`services/state_snapshot_service.py`, `cogs/tournament_ops/state_cmds.py`)
+- `/state restore [repost_panels=True]` (and prefix `!state_restore [repost_panels=True]`) automatically restores all channel, role, and panel configurations across the entire bot.
+- When `repost_panels=True` (the default), `_restore_all_panels()` synchronizes all 9 interactive bot panels:
+  1. `Registration Hub`: edits or reposts `TournamentRegistrationPanelView`
+  2. `Substitutes Bench`: edits or reposts `TournamentSubsPanelView`
+  3. `Check-In Hub`: edits or reposts `TournamentCheckinPanelView`
+  4. `Live Bracket Panel`: edits or reposts `TournamentBracketPanelView` (rendering and attaching visual `bracket.png`)
+  5. `Event Scheduler`: edits or reposts `TournamentEventPanelView`
+  6. `Clan Roles Directory`: edits or reposts `ClanRoleAssignmentPanelView`
+  7. `Clan Submission Portal`: edits or reposts `ClanSubmissionPanelView`
+  8. `Staff Operations Center`: edits or reposts `TournamentStaffPanelView`
+  9. `Staff Interactive Guide`: edits or reposts `TournamentStaffGuideView`
+- All panel channel and message IDs are persisted to `saved_state.json` (`ChannelStateSnapshot`) and survive container redeployments and git pushes.
+
+---
+
 ## 🧹 Lifecycle & Wipes
 - Calling `/t clear` wipes:
   - Active participants and substitutes.

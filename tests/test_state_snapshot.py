@@ -41,12 +41,17 @@ def test_save_and_load_snapshot(test_env):
     t_state.announcement_channel_id = 102
     t_state.checkin_channel_id = 103
     t_state.subs_channel_id = 104
+    t_state.bracket_channel_id = 105
+    t_state.bracket_message_id = 405
+    t_state.event_channel_id = 106
+    t_state.event_message_id = 406
     t_state.admin_role_id = 201
     t_state.participant_role_id = 202
     t_service._persist(guild_id)
 
     c_service.set_guild_channels(guild_id, showcase_channel_id=301, staff_review_channel_id=302)
     c_service.set_clan_role_panel_info(guild_id, channel_id=303, message_id=401)
+    c_service.set_clan_submit_panel_info(guild_id, channel_id=304, message_id=402)
     c_service.set_clanless_role_id(guild_id, 203)
 
     # 2. Save snapshot
@@ -54,12 +59,17 @@ def test_save_and_load_snapshot(test_env):
     assert state_file.exists()
     assert data["guild_id"] == guild_id
     assert data["tournament"]["registration_channel_id"] == 101
+    assert data["tournament"]["bracket_channel_id"] == 105
+    assert data["tournament"]["bracket_message_id"] == 405
+    assert data["tournament"]["event_channel_id"] == 106
     assert data["clan_showcase"]["showcase_channel_id"] == 301
+    assert data["clan_showcase"]["clan_submit_channel_id"] == 304
 
     # 3. Clear existing states
     t_service.clear_channels(guild_id)
     cleared_t = t_service.get_state(guild_id)
     assert cleared_t.registration_channel_id is None
+    assert cleared_t.bracket_channel_id is None
 
     # Overwrite clan channels with dummy new IDs to simulate drift
     c_service.set_guild_channels(guild_id, showcase_channel_id=999, staff_review_channel_id=998)
@@ -72,6 +82,9 @@ def test_save_and_load_snapshot(test_env):
     assert restored_t.announcement_channel_id == 102
     assert restored_t.checkin_channel_id == 103
     assert restored_t.subs_channel_id == 104
+    assert restored_t.bracket_channel_id == 105
+    assert restored_t.bracket_message_id == 405
+    assert restored_t.event_channel_id == 106
     assert restored_t.admin_role_id == 201
 
     showcase_ch, review_ch = c_service.get_guild_channels(guild_id)
@@ -80,6 +93,9 @@ def test_save_and_load_snapshot(test_env):
     role_panel_ch, role_panel_msg = c_service.get_clan_role_panel_info(guild_id)
     assert role_panel_ch == 303
     assert role_panel_msg == 401
+    submit_ch, submit_msg = c_service.get_clan_submit_panel_info(guild_id)
+    assert submit_ch == 304
+    assert submit_msg == 402
     assert c_service.get_clanless_role_id(guild_id) == 203
 
 
@@ -117,6 +133,41 @@ def test_auto_discover_channels(test_env):
     assert t_state.announcement_channel_id == 552
     showcase_ch, _ = c_service.get_guild_channels(guild_id)
     assert showcase_ch == 553
+
+
+def test_auto_discover_bracket_and_all_panels(test_env):
+    t_service = test_env["t_service"]
+    c_service = test_env["c_service"]
+    snapshot_service = test_env["snapshot_service"]
+    guild_id = 77777
+
+    mock_guild = MagicMock()
+    mock_guild.id = guild_id
+
+    ch_bracket = MagicMock()
+    ch_bracket.id = 601
+    ch_bracket.name = "🏆・tournament-bracket"
+
+    ch_events = MagicMock()
+    ch_events.id = 602
+    ch_events.name = "📅・event-schedule"
+
+    ch_submit = MagicMock()
+    ch_submit.id = 603
+    ch_submit.name = "clan-submit"
+
+    mock_guild.text_channels = [ch_bracket, ch_events, ch_submit]
+
+    discovered = snapshot_service.auto_discover_channels(mock_guild, t_service, c_service)
+    assert discovered["bracket"] == 601
+    assert discovered["events"] == 602
+    assert discovered["clan_submit"] == 603
+
+    t_state = t_service.get_state(guild_id)
+    assert t_state.bracket_channel_id == 601
+    assert t_state.event_channel_id == 602
+    submit_ch, _ = c_service.get_clan_submit_panel_info(guild_id)
+    assert submit_ch == 603
 
 
 def test_restore_snapshot_missing_file_with_auto_discovery(test_env):
