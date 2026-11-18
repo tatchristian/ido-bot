@@ -78,12 +78,14 @@ The tournament bracket system equips DUKE with an automated esports bracket pipe
   - `/t bracket report <match_id> <winner> [score]`
   - `/t bracket undo <match_id>`
   - `/t bracket forfeit <match_id> <player>`
+  - `/t bracket test [mode] [count] [bracket_format]` — Automated diagnostic self-test: probes Supabase cloud DB (Insert/Select/Patch/Delete) and/or seeds 4, 8, or 16 mock duelists with live bracket panel.
   - `/post panel:Live Tournament Bracket Panel`
 - **Prefix Fallbacks:**
   - `!t_bracket [section] [round]`
   - `!t_report <match_id> <@winner> [score]`
   - `!t_undo <match_id>`
   - `!t_forfeit <match_id> <@player>`
+  - `!t_test [full|cloud|mock|cleanup] [count] [single|double]` — Prefix fallback for diagnostic probe and mock bracket generator.
 
 ---
 

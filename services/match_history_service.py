@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aiohttp
 
@@ -161,6 +162,107 @@ class MatchHistoryService:
         except Exception as exc:
             logger.warning("Failed to void match %s on Supabase: %s", match_id, exc)
         return False
+
+    async def test_supabase_connectivity(self) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Diagnostic probe to verify Supabase REST connectivity and RLS policy enforcement.
+        Tests:
+          1. INSERT (POST)   -> Verifies 'Allow service insert' / bot write access
+          2. SELECT (GET)    -> Verifies 'Allow public read' policy
+          3. UPDATE (PATCH)  -> Verifies 'Allow service update' / void access
+          4. DELETE          -> Cleans up the test probe record
+        Returns (success, message, metrics_dict).
+        """
+        if not self.has_supabase:
+            return False, "Supabase credentials (SUPABASE_URL or SUPABASE_KEY) are not configured.", {}
+
+        metrics: Dict[str, Any] = {}
+        test_id = f"TEST_{uuid.uuid4().hex[:8]}"
+        now_iso = datetime.now(timezone.utc).isoformat()
+        rec = MatchRecord(
+            match_id=test_id,
+            tournament_name="Diagnostic Probe",
+            guild_id=0,
+            winner_id=99901,
+            winner_ign="ProbeWinner",
+            loser_id=99902,
+            loser_ign="ProbeLoser",
+            score="2-0",
+            round_name="Diagnostic Round",
+            bracket_format="single",
+            match_type="test",
+            completed_at=now_iso,
+        )
+
+        headers = {
+            "apikey": self.supabase_key,
+            "Authorization": f"Bearer {self.supabase_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        }
+        base_url = f"{self.supabase_url}/rest/v1/tournament_matches"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # 1. Test INSERT
+                t0 = time.perf_counter()
+                async with session.post(
+                    base_url,
+                    headers=headers,
+                    json=rec.to_dict(),
+                    timeout=aiohttp.ClientTimeout(total=8.0),
+                ) as resp:
+                    metrics["insert_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+                    if resp.status not in (200, 201):
+                        err_text = await resp.text()
+                        return False, f"Insert probe failed (HTTP {resp.status}): {err_text}", metrics
+
+                # 2. Test SELECT
+                t1 = time.perf_counter()
+                get_url = f"{base_url}?match_id=eq.{test_id}&select=*"
+                async with session.get(
+                    get_url,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=8.0),
+                ) as resp:
+                    metrics["query_ms"] = round((time.perf_counter() - t1) * 1000, 1)
+                    if resp.status != 200:
+                        err_text = await resp.text()
+                        return False, f"Query probe failed (HTTP {resp.status}): {err_text}", metrics
+                    data = await resp.json()
+                    if not data or data[0].get("match_id") != test_id:
+                        return False, "Query probe returned empty or mismatched match record.", metrics
+
+                # 3. Test PATCH (void update)
+                t2 = time.perf_counter()
+                patch_url = f"{base_url}?match_id=eq.{test_id}"
+                patch_headers = dict(headers)
+                patch_headers["Prefer"] = "return=minimal"
+                async with session.patch(
+                    patch_url,
+                    headers=patch_headers,
+                    json={"is_void": True, "void_reason": "Automated self-test probe"},
+                    timeout=aiohttp.ClientTimeout(total=8.0),
+                ) as resp:
+                    metrics["patch_ms"] = round((time.perf_counter() - t2) * 1000, 1)
+                    if resp.status not in (200, 204):
+                        err_text = await resp.text()
+                        return False, f"Void patch probe failed (HTTP {resp.status}): {err_text}", metrics
+
+                # 4. Cleanup (DELETE)
+                t3 = time.perf_counter()
+                del_url = f"{base_url}?match_id=eq.{test_id}"
+                async with session.delete(
+                    del_url,
+                    headers=patch_headers,
+                    timeout=aiohttp.ClientTimeout(total=8.0),
+                ) as resp:
+                    metrics["delete_ms"] = round((time.perf_counter() - t3) * 1000, 1)
+
+            return True, "Supabase connection and RLS policies verified successfully.", metrics
+
+        except Exception as exc:
+            return False, f"Supabase network probe exception: {exc}", metrics
 
     def _load(self) -> None:
         data = self.storage.load(default_factory=lambda: {"matches": []})

@@ -44,8 +44,10 @@ from .constants import (
     ANNOUNCE_TARGET_CHOICES,
     BRACKET_FORMAT_CHOICES,
     BRACKET_SECTION_CHOICES,
+    BRACKET_TEST_MODE_CHOICES,
     EXPORT_FORMAT_CHOICES,
     EXPORT_TARGET_CHOICES,
+    MOCK_TEST_PLAYERS,
     REGION_CHOICES,
     REGION_FILTER_CHOICES,
     TIMEZONE_CHOICES,
@@ -1606,6 +1608,174 @@ class TournamentStaffMixin:
             f"🏳️ **Match `{match.match_id}` Recorded as Forfeit!**\n👑 **{match.winner_ign}** wins by forfeit."
         )
 
+    async def _run_bracket_diagnostic(
+        self,
+        guild_id: int,
+        channel: discord.abc.Messageable,
+        mode: str = "full",
+        count: int = 8,
+        bracket_format: str = "double",
+        respond_fn: Optional[Any] = None,
+    ):
+        mode_val = (mode or "full").lower().strip()
+        count_val = max(4, min(count or 8, 16))
+        fmt_val = "double" if (bracket_format or "").lower().strip() in ("double", "d") else "single"
+
+        # Cleanup mode
+        if mode_val in ("cleanup", "clean", "reset"):
+            state = self.service.get_state(guild_id)
+            mock_user_ids = {99000 + i for i in range(1, 17)}
+            state.participants = [p for p in state.participants if p.user_id not in mock_user_ids]
+            state.substitutes = [s for s in state.substitutes if s.user_id not in mock_user_ids]
+            if not state.participants:
+                state.bracket_data = None
+                state.bracket_channel_id = None
+                state.bracket_message_id = None
+            else:
+                self.service.rebuild_bracket(guild_id, force=True)
+            self.service._persist(guild_id)
+            msg = "🧹 **Test Data Cleaned Up!** Mock test duelists have been removed and the tournament state reset."
+            if respond_fn:
+                await respond_fn(msg)
+            return
+
+        m_history = getattr(self.bot, "match_history_service", None)
+        cloud_ok = False
+        cloud_summary = ""
+
+        if mode_val in ("cloud", "full"):
+            if not m_history:
+                cloud_summary = "⚠️ Match history service not loaded on bot instance."
+            else:
+                ok, c_msg, metrics = await m_history.test_supabase_connectivity()
+                cloud_ok = ok
+                if ok:
+                    cloud_summary = (
+                        "✅ **Supabase REST & RLS Verified!**\n"
+                        f"• **Insert (Bot Write Policy):** `{metrics.get('insert_ms', 0)}ms`\n"
+                        f"• **Select (Public Read Policy):** `{metrics.get('query_ms', 0)}ms`\n"
+                        f"• **Patch (Void Update Policy):** `{metrics.get('patch_ms', 0)}ms`\n"
+                        f"• **Delete (Cleanup):** `{metrics.get('delete_ms', 0)}ms`\n"
+                        "*Table `tournament_matches` is fully operational.*"
+                    )
+                else:
+                    cloud_summary = f"❌ **Supabase Diagnostic Failed:**\n{c_msg}"
+
+        test_embed = discord.Embed(
+            title="🧪 Tournament Bracket & Cloud Diagnostic",
+            color=0x2ECC71 if (mode_val == "mock" or cloud_ok) else (0xE67E22 if mode_val == "full" else 0xE74C3C),
+            timestamp=datetime.now(timezone.utc),
+        )
+
+        if mode_val in ("cloud", "full"):
+            test_embed.add_field(
+                name="☁️ Supabase Cloud Database & RLS",
+                value=cloud_summary,
+                inline=False,
+            )
+
+        if mode_val in ("mock", "full"):
+            state = self.service.get_state(guild_id)
+            chosen_players = MOCK_TEST_PLAYERS[:count_val]
+            state.participants = [
+                Participant(
+                    user_id=99000 + i,
+                    user_mention=f"@{ign}",
+                    ign=ign,
+                    weapon=weapon,
+                    region=region,
+                    checked_in=checked_in,
+                )
+                for i, (ign, weapon, region, checked_in) in enumerate(chosen_players, 1)
+            ]
+            state.max_slots = max(state.max_slots, count_val)
+            if not state.name or state.name == "Tournament":
+                state.name = "UDA Championship (Test)"
+
+            self.service.rebuild_bracket(guild_id, format=fmt_val, force=True)
+            bracket = self.service.get_bracket(guild_id)
+
+            checked_cnt = sum(1 for p in state.participants if p.checked_in)
+            roster_lines = [
+                f"`#{i:02d}` **{p.ign}** ({p.weapon}, {p.region}) {'[✅]' if p.checked_in else '[⏳]'}"
+                for i, p in enumerate(state.participants[:8], 1)
+            ]
+            if len(state.participants) > 8:
+                roster_lines.append(f"*... and {len(state.participants) - 8} more duelists*")
+
+            test_embed.add_field(
+                name=f"👥 Seeded Mock Roster ({count_val} Players • {fmt_val.title()} Elim)",
+                value="\n".join(roster_lines) + f"\n\n*Check-in: {checked_cnt}/{count_val} checked in.*",
+                inline=False,
+            )
+            test_embed.add_field(
+                name="🎮 How to Test the Bracket",
+                value=(
+                    "1. Use **◀️ Prev** and **Next ▶️** to browse rounds.\n"
+                    "2. Toggle **🏆 Winners**, **🛡️ Losers**, and **👑 Finals** (for Double Elim).\n"
+                    "3. Click **⚔️ Record Match** to select a ready match and submit a score.\n"
+                    "4. Click **🔀 Shuffle** or toggle **Format: Single/Double**.\n"
+                    "5. When finished testing, run `/t bracket test mode:cleanup` (or `!t_test cleanup`)."
+                ),
+                inline=False,
+            )
+
+        # Send report embed
+        if respond_fn:
+            await respond_fn(embed=test_embed)
+
+        # If mock mode, also post live bracket panel
+        if mode_val in ("mock", "full"):
+            state = self.service.get_state(guild_id)
+            bracket = self.service.get_bracket(guild_id)
+            b_embed = build_bracket_embed(bracket, state.name, "winners", 1)
+            panel_view = TournamentBracketPanelView(self.service, guild_id=guild_id, section="winners", round_num=1)
+            panel_msg = await channel.send(embed=b_embed, view=panel_view)
+            panel_view.message = panel_msg
+            state.bracket_channel_id = channel.id
+            state.bracket_message_id = panel_msg.id
+            self.service._persist(guild_id)
+
+    @bracket_group.command(
+        name="test",
+        description="[Admin] Diagnostic self-test: probes Supabase cloud DB and/or seeds mock duelists.",
+    )
+    @app_commands.describe(
+        mode="Test mode: 'full' (Cloud probe + Mock bracket), 'cloud' (DB probe only), 'mock' (Seed players), 'cleanup'",
+        count="Number of mock players to seed: 4, 8, or 16 (default: 8)",
+        bracket_format="Bracket format: 'single' or 'double' (default: double)",
+    )
+    @app_commands.choices(
+        mode=BRACKET_TEST_MODE_CHOICES,
+        bracket_format=BRACKET_FORMAT_CHOICES,
+    )
+    @is_tournament_admin()
+    async def bracket_test_cmd(
+        self,
+        interaction: discord.Interaction,
+        mode: Optional[app_commands.Choice[str]] = None,
+        count: Optional[int] = 8,
+        bracket_format: Optional[app_commands.Choice[str]] = None,
+    ):
+        await interaction.response.defer()
+        guild_id = interaction.guild_id or 0
+        channel = interaction.channel
+        mode_val = mode.value if mode else "full"
+        fmt_val = bracket_format.value if bracket_format else "double"
+        count_val = count or 8
+
+        async def _respond(*args, **kwargs):
+            return await interaction.followup.send(*args, **kwargs)
+
+        await self._run_bracket_diagnostic(
+            guild_id=guild_id,
+            channel=channel,
+            mode=mode_val,
+            count=count_val,
+            bracket_format=fmt_val,
+            respond_fn=_respond,
+        )
+
     # ---------------------------------------------------------
     # Prefix Fallbacks
     # ---------------------------------------------------------
@@ -1731,5 +1901,36 @@ class TournamentStaffMixin:
             return
         await ctx.send(
             f"🏳️ **Match `{match.match_id}` Recorded as Forfeit!**\n👑 **{match.winner_ign}** wins by forfeit."
+        )
+
+    @commands.command(name="t_test", aliases=["test_bracket", "test_tournament", "t_bracket_test"])
+    async def t_test_prefix(
+        self,
+        ctx: commands.Context,
+        mode: Optional[str] = "full",
+        count: Optional[int] = 8,
+        bracket_format: Optional[str] = "double",
+    ):
+        """Prefix command fallback (!t_test [full|cloud|mock|cleanup] [count] [single|double])."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Tournament Admin permissions to run diagnostics.")
+            return
+
+        guild_id = ctx.guild.id
+
+        async def _respond(*args, **kwargs):
+            return await ctx.send(*args, **kwargs)
+
+        await self._run_bracket_diagnostic(
+            guild_id=guild_id,
+            channel=ctx.channel,
+            mode=mode or "full",
+            count=count or 8,
+            bracket_format=bracket_format or "double",
+            respond_fn=_respond,
         )
 

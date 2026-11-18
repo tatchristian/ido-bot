@@ -171,3 +171,57 @@ async def test_supabase_sync_helpers(tmp_path: Path):
         pulled = await service.sync_from_supabase()
         assert pulled == 1
         assert any(m.match_id == "M-CLOUD-1" for m in service.get_matches())
+
+
+@pytest.mark.asyncio
+async def test_supabase_connectivity_no_creds(tmp_path: Path):
+    storage = StorageManager(tmp_path / "test_matches.json")
+    service = MatchHistoryService(storage=storage, supabase_url="", supabase_key="")
+    ok, msg, metrics = await service.test_supabase_connectivity()
+    assert ok is False
+    assert "not configured" in msg
+
+
+@pytest.mark.asyncio
+async def test_supabase_connectivity_mock_probe(tmp_path: Path):
+    from unittest.mock import patch
+
+    storage = StorageManager(tmp_path / "test_matches.json")
+    service = MatchHistoryService(
+        storage=storage,
+        supabase_url="https://mock.supabase.co",
+        supabase_key="mock-key",
+    )
+
+    class MockProbeResponse:
+        def __init__(self, status=200, data=None):
+            self.status = status
+            self._data = data
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            pass
+
+        async def json(self):
+            return self._data or []
+
+        async def text(self):
+            return ""
+
+    with patch("aiohttp.ClientSession.post", return_value=MockProbeResponse(201)), \
+         patch("aiohttp.ClientSession.get", return_value=MockProbeResponse(200, [{"match_id": "TEST_probe"}])), \
+         patch("aiohttp.ClientSession.patch", return_value=MockProbeResponse(204)), \
+         patch("aiohttp.ClientSession.delete", return_value=MockProbeResponse(204)), \
+         patch("uuid.uuid4") as mock_uuid:
+        mock_uuid.return_value.hex = "probe12345678"
+        expected_id = f"TEST_{'probe12345678'[:8]}"
+        with patch("aiohttp.ClientSession.get", return_value=MockProbeResponse(200, [{"match_id": expected_id}])):
+            ok, msg, metrics = await service.test_supabase_connectivity()
+        assert ok is True
+        assert "verified successfully" in msg
+        assert "insert_ms" in metrics
+        assert "query_ms" in metrics
+        assert "patch_ms" in metrics
+        assert "delete_ms" in metrics

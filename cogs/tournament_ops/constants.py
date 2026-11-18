@@ -94,3 +94,29 @@ BRACKET_FORMAT_CHOICES = [
     app_commands.Choice(name="Single Elimination", value="single"),
     app_commands.Choice(name="Double Elimination", value="double"),
 ]
+
+BRACKET_TEST_MODE_CHOICES = [
+    app_commands.Choice(name="🧪 Full Self-Test (Cloud Probe + Seed Mock Bracket)", value="full"),
+    app_commands.Choice(name="☁️ Cloud DB Probe Only (Test Supabase & RLS)", value="cloud"),
+    app_commands.Choice(name="👥 Seed Mock Duelists Only", value="mock"),
+    app_commands.Choice(name="🧹 Clean Up Mock Data & Reset", value="cleanup"),
+]
+
+MOCK_TEST_PLAYERS = [
+    ("Shadow", "Katana", "NA", True),
+    ("Blaze", "Claymore", "EU", True),
+    ("Viper", "Dagger", "ASIA", True),
+    ("Frost", "Bow", "NA", False),
+    ("Titan", "Warhammer", "GLOBAL", True),
+    ("Phoenix", "Kusarigama", "OCE", True),
+    ("Specter", "Gauntlets", "EU", False),
+    ("Rogue", "Rapier", "NA", True),
+    ("Storm", "Katana", "GLOBAL", False),
+    ("Apex", "Claymore", "NA", True),
+    ("Echo", "Bow", "EU", True),
+    ("Cinder", "Dagger", "ASIA", False),
+    ("Ronin", "Katana", "ASIA", True),
+    ("Havoc", "Warhammer", "NA", False),
+    ("Mirage", "Gauntlets", "EU", True),
+    ("Zephyr", "Rapier", "OCE", True),
+]
