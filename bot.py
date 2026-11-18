@@ -20,6 +20,7 @@ from aiohttp import web
 from config import config
 from services.api_server import create_api_app
 from services.clan_showcase_service import ClanShowcaseService
+from services.match_history_service import MatchHistoryService
 from services.past_results_service import PastResultsService
 from services.state_snapshot_service import StateSnapshotService
 from services.tournament_service import TournamentService
@@ -69,12 +70,15 @@ class UDATournamentBot(commands.Bot):
         self.tournament_service = TournamentService(self.storage)
         self.clan_showcase_service = ClanShowcaseService(data_dir=config.data_dir)
         self.past_results_service = PastResultsService(data_dir=config.data_dir)
+        self.match_history_service = MatchHistoryService(data_dir=config.data_dir)
         self.state_snapshot_service = StateSnapshotService()
 
     async def setup_hook(self) -> None:
         """Invoked before the bot establishes its gateway connection."""
         logger.info("Initializing bot services and loading extensions...")
         await start_api_server(self)
+        if self.match_history_service.has_supabase:
+            asyncio.create_task(self.match_history_service.sync_from_supabase())
         await self.load_extension("cogs.tournaments")
         await self.load_extension("cogs.clan_showcase")
 

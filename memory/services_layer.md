@@ -40,8 +40,10 @@
 ---
 
 ## 🌐 Other Specialized Services
+- **`BracketEngine` (`services/bracket_engine.py`):** Single and Double Elimination tree generator, power-of-2 sizing, standard seeding distribution, automatic byes, dynamic `READY` state evaluation for out-of-order match play, downstream undo protection, and Double Elimination Grand Finals Reset rule (`GF-RESET`).
+- **`MatchHistoryService` (`services/match_history_service.py`):** Cumulative match ledger with Supabase cloud database sync (`aiohttp` over HTTPS REST) + local atomic JSON fallback (`data/match_history.json`). Records winners, losers, clans, scores, streaks, and non-destructive void audit flags.
 - **`WebsiteSyncService` (`services/website_sync_service.py`):** `L341` (REST sync to `unitedduelingamity.org`)
-- **`APIServer` (`services/api_server.py`):** Public REST API for `unitedduelingamity.org` (`/tournaments`, `/past-results`, `/leaderboard`, `/players`, `/health`) reading directly from `TournamentService._states` with CORS support.
+- **`APIServer` (`services/api_server.py`):** Public REST API for `unitedduelingamity.org` and Herald bot (`/tournaments`, `/past-results`, `/leaderboard`, `/players`, `/matches`, `/matches/stats`, `/health`) reading directly from services with CORS support.
 - **`StateSnapshotService` (`services/state_snapshot_service.py`):** Saves, restores, and regex auto-discovers server channels, roles, and panels across deployments (`saved_state.json`), integrating directly with `bot.py` using `guild=guild` context.
 - **`ServerBuilder` (`services/server_builder.py`):** Auto-creates categories and dueling arenas; `UndoTournamentSectionView.undo_callback` invokes `tournament_service.clear_channels(guild_id)` upon section deletion.
 - **`StorageManager` (`utils/storage.py`):** Atomic writes with 60s backup rotation throttling (`min_backup_interval`), `force_backup`, and non-blocking `save_async()`.

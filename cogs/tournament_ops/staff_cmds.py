@@ -24,12 +24,15 @@ from services.server_builder import (
     delete_tournament_section,
 )
 from utils.tournament_embeds import (
+    build_bracket_embed,
     build_roster_embed,
     build_staff_guide_embed,
     build_status_embed,
     build_tournament_reminder_embed,
 )
 from utils.tournament_views import (
+    TournamentBracketPanelView,
+    TournamentMatchReportSelectView,
     TournamentStaffGuideView,
     check_is_tournament_admin,
     is_server_admin,
@@ -39,6 +42,8 @@ from utils.tournament_views import (
 
 from .constants import (
     ANNOUNCE_TARGET_CHOICES,
+    BRACKET_FORMAT_CHOICES,
+    BRACKET_SECTION_CHOICES,
     EXPORT_FORMAT_CHOICES,
     EXPORT_TARGET_CHOICES,
     REGION_CHOICES,
@@ -54,6 +59,11 @@ class TournamentStaffMixin:
     """Tournament staff and bracket administration commands."""
 
     t_group = app_commands.Group(name="t", description="Tournament staff and bracket management")
+    bracket_group = app_commands.Group(
+        name="bracket",
+        parent=t_group,
+        description="Interactive tournament bracket and match reporting",
+    )
 
     @t_group.command(
         name="open",
@@ -1413,4 +1423,313 @@ class TournamentStaffMixin:
         await target_channel.send(embed=embed, view=view)
         if target_channel != ctx.channel:
             await ctx.send(f"📖 Tournament Staff Operations Guide posted to {target_channel.mention}!")
+
+    # ---------------------------------------------------------
+    # Bracket Management & Live Match Reporting
+    # ---------------------------------------------------------
+
+    @bracket_group.command(
+        name="view",
+        description="[Admin/Duelist] View and interact with the live tournament bracket.",
+    )
+    @app_commands.describe(
+        section="Bracket division to view (Winners, Losers, Finals)",
+        round_number="Round number to inspect (defaults to 1)",
+    )
+    @app_commands.choices(section=BRACKET_SECTION_CHOICES)
+    async def bracket_view_cmd(
+        self,
+        interaction: discord.Interaction,
+        section: Optional[app_commands.Choice[str]] = None,
+        round_number: Optional[int] = 1,
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild.id
+        state = self.service.get_state(guild_id)
+        bracket = self.service.get_bracket(guild_id)
+
+        sec_val = section.value if section else "winners"
+        r_num = max(1, round_number or 1)
+
+        embed = build_bracket_embed(bracket, state.name, sec_val, r_num)
+        view = TournamentBracketPanelView(self.service, guild_id=guild_id, section=sec_val, round_num=r_num)
+        await interaction.response.send_message(embed=embed, view=view)
+        try:
+            view.message = await interaction.original_response()
+            state.bracket_channel_id = interaction.channel_id
+            state.bracket_message_id = view.message.id
+            self.service._persist(guild_id)
+        except Exception:
+            pass
+
+    @bracket_group.command(
+        name="lock",
+        description="[Admin] Lock the tournament bracket into LIVE mode.",
+    )
+    @is_tournament_admin()
+    async def bracket_lock_cmd(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        msg = self.service.lock_bracket(guild_id)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @bracket_group.command(
+        name="unlock",
+        description="[Admin] Unlock the tournament bracket back to DRAFT mode.",
+    )
+    @is_tournament_admin()
+    async def bracket_unlock_cmd(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        msg = self.service.unlock_bracket(guild_id)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @bracket_group.command(
+        name="format",
+        description="[Admin] Switch bracket between Single and Double Elimination.",
+    )
+    @app_commands.describe(bracket_format="Tournament elimination structure")
+    @app_commands.choices(bracket_format=BRACKET_FORMAT_CHOICES)
+    @is_tournament_admin()
+    async def bracket_format_cmd(
+        self,
+        interaction: discord.Interaction,
+        bracket_format: app_commands.Choice[str],
+    ):
+        guild_id = interaction.guild_id or 0
+        msg = self.service.set_bracket_format(bracket_format.value, guild_id)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @bracket_group.command(
+        name="shuffle",
+        description="[Admin] Randomly shuffle contestant bracket seeds.",
+    )
+    @is_tournament_admin()
+    async def bracket_shuffle_cmd(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id or 0
+        msg = self.service.shuffle_bracket_seeds(guild_id)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+    @bracket_group.command(
+        name="report",
+        description="[Admin] Record the winner and score of a tournament match.",
+    )
+    @app_commands.describe(
+        match_id="Match ID code (e.g. WB-R1-M1, LB-R1-M1, GF)",
+        winner="The winning duelist (select member)",
+        score="Optional score line (e.g. 2-0, 2-1)",
+    )
+    @is_tournament_admin()
+    async def bracket_report_cmd(
+        self,
+        interaction: discord.Interaction,
+        match_id: str,
+        winner: discord.Member,
+        score: Optional[str] = None,
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Command must be used in a server.", ephemeral=True)
+            return
+
+        guild_id = interaction.guild.id
+        m_history = getattr(self.bot, "match_history_service", None)
+        c_showcase = getattr(self.bot, "clan_showcase_service", None)
+
+        ok, msg, match = self.service.report_bracket_match(
+            match_id=match_id.upper().strip(),
+            winner_id=winner.id,
+            score=score,
+            recorded_by=interaction.user.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=guild_id,
+        )
+        if not ok or not match:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+
+        score_disp = f" (`{score}`)" if score else ""
+        await interaction.response.send_message(
+            f"✅ **Match `{match.match_id}` Recorded!**\n👑 **{match.winner_ign}** ({winner.mention}) advances!{score_disp}"
+        )
+
+    @bracket_group.command(
+        name="undo",
+        description="[Admin] Revert a completed match back to ready/unplayed.",
+    )
+    @app_commands.describe(match_id="Match ID code to undo (e.g. WB-R1-M1)")
+    @is_tournament_admin()
+    async def bracket_undo_cmd(self, interaction: discord.Interaction, match_id: str):
+        guild_id = interaction.guild_id or 0
+        m_history = getattr(self.bot, "match_history_service", None)
+        ok, msg = self.service.undo_bracket_match(
+            match_id=match_id.upper().strip(),
+            match_history_service=m_history,
+            guild_id=guild_id,
+        )
+        if not ok:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+        await interaction.response.send_message(f"↩️ {msg}", ephemeral=True)
+
+    @bracket_group.command(
+        name="forfeit",
+        description="[Admin] Forfeit a player in a tournament match.",
+    )
+    @app_commands.describe(
+        match_id="Match ID code (e.g. WB-R1-M1)",
+        player="The duelist forfeiting the match",
+    )
+    @is_tournament_admin()
+    async def bracket_forfeit_cmd(
+        self,
+        interaction: discord.Interaction,
+        match_id: str,
+        player: discord.Member,
+    ):
+        guild_id = interaction.guild_id or 0
+        m_history = getattr(self.bot, "match_history_service", None)
+        c_showcase = getattr(self.bot, "clan_showcase_service", None)
+        ok, msg, match = self.service.forfeit_bracket_match(
+            match_id=match_id.upper().strip(),
+            forfeiting_user_id=player.id,
+            recorded_by=interaction.user.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=guild_id,
+        )
+        if not ok or not match:
+            await interaction.response.send_message(f"❌ {msg}", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"🏳️ **Match `{match.match_id}` Recorded as Forfeit!**\n👑 **{match.winner_ign}** wins by forfeit."
+        )
+
+    # ---------------------------------------------------------
+    # Prefix Fallbacks
+    # ---------------------------------------------------------
+
+    @commands.command(name="t_bracket", aliases=["bracket", "tournament_bracket"])
+    async def t_bracket_prefix(
+        self,
+        ctx: commands.Context,
+        section: Optional[str] = "winners",
+        round_number: Optional[int] = 1,
+    ):
+        """Prefix command fallback (!t_bracket [section] [round])."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        guild_id = ctx.guild.id
+        state = self.service.get_state(guild_id)
+        bracket = self.service.get_bracket(guild_id)
+
+        sec_val = (section or "winners").lower()
+        r_num = max(1, round_number or 1)
+
+        embed = build_bracket_embed(bracket, state.name, sec_val, r_num)
+        view = TournamentBracketPanelView(self.service, guild_id=guild_id, section=sec_val, round_num=r_num)
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
+        state.bracket_channel_id = ctx.channel.id
+        state.bracket_message_id = msg.id
+        self.service._persist(guild_id)
+
+    @commands.command(name="t_report", aliases=["report_match"])
+    async def t_report_prefix(
+        self,
+        ctx: commands.Context,
+        match_id: str,
+        winner: discord.Member,
+        score: Optional[str] = None,
+    ):
+        """Prefix command fallback (!t_report <match_id> <@winner> [score])."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Tournament Admin permissions to report matches.")
+            return
+
+        guild_id = ctx.guild.id
+        m_history = getattr(self.bot, "match_history_service", None)
+        c_showcase = getattr(self.bot, "clan_showcase_service", None)
+
+        ok, msg, match = self.service.report_bracket_match(
+            match_id=match_id.upper().strip(),
+            winner_id=winner.id,
+            score=score,
+            recorded_by=ctx.author.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=guild_id,
+        )
+        if not ok or not match:
+            await ctx.send(f"❌ {msg}")
+            return
+
+        score_disp = f" (`{score}`)" if score else ""
+        await ctx.send(
+            f"✅ **Match `{match.match_id}` Recorded!**\n👑 **{match.winner_ign}** ({winner.mention}) advances!{score_disp}"
+        )
+
+    @commands.command(name="t_undo", aliases=["undo_match"])
+    async def t_undo_prefix(self, ctx: commands.Context, match_id: str):
+        """Prefix command fallback (!t_undo <match_id>)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Tournament Admin permissions to undo matches.")
+            return
+
+        guild_id = ctx.guild.id
+        m_history = getattr(self.bot, "match_history_service", None)
+        ok, msg = self.service.undo_bracket_match(
+            match_id=match_id.upper().strip(),
+            match_history_service=m_history,
+            guild_id=guild_id,
+        )
+        if not ok:
+            await ctx.send(f"❌ {msg}")
+            return
+        await ctx.send(f"↩️ {msg}")
+
+    @commands.command(name="t_forfeit", aliases=["forfeit_match"])
+    async def t_forfeit_prefix(
+        self,
+        ctx: commands.Context,
+        match_id: str,
+        player: discord.Member,
+    ):
+        """Prefix command fallback (!t_forfeit <match_id> <@player>)."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Tournament Admin permissions to record forfeits.")
+            return
+
+        guild_id = ctx.guild.id
+        m_history = getattr(self.bot, "match_history_service", None)
+        c_showcase = getattr(self.bot, "clan_showcase_service", None)
+        ok, msg, match = self.service.forfeit_bracket_match(
+            match_id=match_id.upper().strip(),
+            forfeiting_user_id=player.id,
+            recorded_by=ctx.author.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=guild_id,
+        )
+        if not ok or not match:
+            await ctx.send(f"❌ {msg}")
+            return
+        await ctx.send(
+            f"🏳️ **Match `{match.match_id}` Recorded as Forfeit!**\n👑 **{match.winner_ign}** wins by forfeit."
+        )
 

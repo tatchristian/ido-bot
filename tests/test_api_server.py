@@ -245,3 +245,46 @@ class TestApiServer(AioHTTPTestCase):
         assert resp_alias.status == 200
         data_alias = await resp_alias.json()
         assert data_alias == data
+
+    async def test_matches_endpoints_and_stats(self):
+        from services.match_history_service import MatchHistoryService
+        storage = MagicMock()
+        storage.load.return_value = {"matches": []}
+        match_svc = MatchHistoryService(storage=storage)
+        match_svc.record_match(
+            winner_id=1,
+            winner_ign="DaFlowSta_Og",
+            loser_id=2,
+            loser_ign="Spider",
+            winner_clan="KAZE",
+            loser_clan="Yume",
+            score="2 - 1",
+            tournament_name="Asia Tournament",
+        )
+        self.bot.match_history_service = match_svc
+
+        # 1. Test /matches
+        resp = await self.client.get("/matches")
+        assert resp.status == 200
+        assert resp.headers.get("Access-Control-Allow-Origin") == "*"
+        data = await resp.json()
+        assert len(data) == 1
+        assert data[0]["winner_ign"] == "DaFlowSta_Og"
+        assert data[0]["winner_clan"] == "KAZE"
+        assert data[0]["score"] == "2 - 1"
+
+        # 2. Test /api/matches alias
+        resp_alias = await self.client.get("/api/matches")
+        assert resp_alias.status == 200
+        data_alias = await resp_alias.json()
+        assert data_alias == data
+
+        # 3. Test /matches/stats
+        stats_resp = await self.client.get("/matches/stats")
+        assert stats_resp.status == 200
+        stats = await stats_resp.json()
+        assert len(stats) >= 2
+        top = stats[0]
+        assert top["ign"] == "DaFlowSta_Og"
+        assert top["wins"] == 1
+        assert top["streak"] == 1

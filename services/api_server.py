@@ -220,6 +220,47 @@ def create_api_app(bot: Any) -> web.Application:
         players.sort(key=lambda x: int(x.get("score", 0)), reverse=True)
         return web.json_response(players, headers=CORS_HEADERS)
 
+    async def matches_handler(request: web.Request) -> web.Response:
+        """
+        Returns completed match records for Herald or website consumption.
+        Supports query parameters: ?since=...&player=...&clan=...&tournament=...&limit=...
+        """
+        match_service = getattr(bot, "match_history_service", None)
+        if not match_service:
+            return web.json_response([], headers=CORS_HEADERS)
+
+        params = request.query
+        since = params.get("since")
+        clan = params.get("clan")
+        tourney = params.get("tournament")
+        limit_str = params.get("limit", "100")
+        try:
+            limit = min(int(limit_str), 500)
+        except ValueError:
+            limit = 100
+
+        player_id = None
+        player_param = params.get("player")
+        if player_param and player_param.strip().isdigit():
+            player_id = int(player_param.strip())
+
+        matches = match_service.get_matches(
+            tournament_name=tourney,
+            player_id=player_id,
+            clan=clan,
+            since=since,
+            limit=limit,
+        )
+        return web.json_response([m.to_dict() for m in matches], headers=CORS_HEADERS)
+
+    async def match_stats_handler(request: web.Request) -> web.Response:
+        """Returns aggregated duelist win records and streaks for leaderboards."""
+        match_service = getattr(bot, "match_history_service", None)
+        if not match_service:
+            return web.json_response([], headers=CORS_HEADERS)
+        stats = match_service.get_player_stats()
+        return web.json_response(stats, headers=CORS_HEADERS)
+
     # Register Routes
     app.router.add_get("/", health_handler)
     app.router.add_get("/health", health_handler)
@@ -229,6 +270,10 @@ def create_api_app(bot: Any) -> web.Application:
     app.router.add_get("/leaderboard", leaderboard_handler)
     app.router.add_get("/clans", leaderboard_handler)
     app.router.add_get("/players", players_handler)
+    app.router.add_get("/matches", matches_handler)
+    app.router.add_get("/api/matches", matches_handler)
+    app.router.add_get("/matches/stats", match_stats_handler)
+    app.router.add_get("/api/matches/stats", match_stats_handler)
 
     # CORS Preflight OPTIONS routes
     app.router.add_route("OPTIONS", "/{tail:.*}", preflight_handler)

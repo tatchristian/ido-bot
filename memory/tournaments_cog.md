@@ -8,7 +8,7 @@
 - `cogs/tournament_ops/helpers.py` (804 lines): Lifecycle hooks (`cog_load`, `cog_unload`), background reminder loop (`tournament_reminder_task`), participant role management, channel permissions & region locking, debounced live panel synchronization (`_update_all_live_panels` with 0.5s trailing edge to avoid HTTP 429), autocomplete resolvers.
 - `cogs/tournament_ops/player_cmds.py` (365 lines): 1-word player slash commands (`/help`, `/register`, `/unregister`, `/sub`, `/sub-unregister`, `/edit-entry`, `/checkin`, `/sub-checkin`, `/status`, `/roster`), using immediate `defer()` to eliminate Discord 3-second timeout errors.
 - `cogs/tournament_ops/config_cmds.py` (373 lines): Server configuration (`/config`, `/set-channel`, `/post` panels, prefix fallbacks).
-- `cogs/tournament_ops/staff_cmds.py` (1,415 lines): Staff bracket management (`t_group = app_commands.Group(name="t", ...)` with 24 subcommands and prefix fallbacks).
+- `cogs/tournament_ops/staff_cmds.py` (1,415 lines): Staff bracket management (`t_group = app_commands.Group(name="t", ...)` with 24 subcommands, nested `bracket_group` with 8 subcommands: `view`, `lock`, `unlock`, `format`, `shuffle`, `report`, `undo`, `forfeit`, and prefix fallbacks).
 - `cogs/tournament_ops/state_cmds.py` (397 lines): State snapshot and disaster recovery (`state_group = app_commands.Group(name="state", ...)` with 5 subcommands and prefix fallbacks).
 - `cogs/tournament_ops/event_cmds.py` (420 lines): Discord event scheduling and website sync (`event_group = app_commands.Group(name="event", ...)` with 5 subcommands: `create`, `cancel`, `complete`, `clear-upcoming`, `remove-past-result`).
 - `utils/tournament_views.py` (persistent views, selects, modals, admin checks).
@@ -48,6 +48,15 @@
   - `TournamentClosedSubsView` -> Disabled indicator and roster inspection
 
 - **Match-Day Check-In Hub View:** `TournamentCheckinPanelView` (persistent, timeout=None)
+
+- **Interactive Tournament Bracket Panel View:** `TournamentBracketPanelView` (persistent, timeout=None)
+  - `btn_prev` / `btn_next` -> Round pagination
+  - `btn_winners` / `btn_losers` / `btn_finals` -> Switch bracket view divisions
+  - `btn_record` -> Opens `TournamentMatchReportSelectView` dropdown of `READY` matches
+  - `btn_shuffle` -> Randomizes contestant seeds (draft mode only)
+  - `btn_toggle_format` -> Toggles between Single and Double Elimination (draft mode only)
+  - `btn_lock` -> Locks into live mode or unlocks back to draft
+  - `btn_refresh` -> Refreshes live bracket embed in place
   - `btn_checkin_hub_action`: 1-click check-in for main duelists or standby subs. Updates panels and dispatches receipt to `#checkin-logs`.
   - `btn_checkin_hub_cancel`: Retracts an active check-in during the window, resetting status to unconfirmed.
   - `btn_checkin_hub_status`: Ephemeral check showing tier, verified IGN, weapon/region, and sub queue spot.

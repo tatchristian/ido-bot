@@ -78,7 +78,19 @@ PANEL_CHOICES = [
     app_commands.Choice(name="Player Registration Hub", value="reg"),
     app_commands.Choice(name="Standby Substitutes Bench", value="subs"),
     app_commands.Choice(name="Match-Day Check-In Hub", value="checkin"),
+    app_commands.Choice(name="Live Tournament Bracket Panel", value="bracket"),
     app_commands.Choice(name="Event Scheduler Panel", value="event_scheduler"),
     app_commands.Choice(name="Clan Profile Submission Portal", value="clan_submit"),
     app_commands.Choice(name="Clan Role Directory Panel", value="clan_roles"),
+]
+
+BRACKET_SECTION_CHOICES = [
+    app_commands.Choice(name="🏆 Winners Bracket", value="winners"),
+    app_commands.Choice(name="🛡️ Losers Bracket", value="losers"),
+    app_commands.Choice(name="👑 Grand Finals", value="finals"),
+]
+
+BRACKET_FORMAT_CHOICES = [
+    app_commands.Choice(name="Single Elimination", value="single"),
+    app_commands.Choice(name="Double Elimination", value="double"),
 ]

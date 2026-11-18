@@ -13,11 +13,13 @@ from discord.ext import commands
 
 from config import config
 from utils.tournament_embeds import (
+    build_bracket_embed,
     build_config_embed,
     build_staff_guide_embed,
     build_staff_panel_embed,
 )
 from utils.tournament_views import (
+    TournamentBracketPanelView,
     TournamentEventPanelView,
     TournamentStaffGuideView,
     TournamentStaffPanelView,
@@ -213,6 +215,25 @@ class TournamentConfigMixin:
                 return
             await self._post_or_update_checkin_panel(interaction.guild, target)
             await interaction.response.send_message(f"✅ Tournament Check-In Hub posted to {target.mention}!", ephemeral=True)
+
+        elif val == "bracket":
+            target = channel or (interaction.guild.get_channel(state.bracket_channel_id) if state.bracket_channel_id else None) or interaction.channel
+            if not isinstance(target, discord.TextChannel):
+                await interaction.response.send_message("❌ Target must be a valid text channel.", ephemeral=True)
+                return
+            perms = target.permissions_for(interaction.guild.me)
+            if not perms.send_messages or not perms.embed_links:
+                await interaction.response.send_message(f"❌ Missing Send Messages or Embed Links permission in {target.mention}.", ephemeral=True)
+                return
+            bracket = self.service.get_bracket(guild_id)
+            embed = build_bracket_embed(bracket, state.name, section="winners", round_num=1)
+            view = TournamentBracketPanelView(self.service, guild_id=guild_id, section="winners", round_num=1)
+            msg = await target.send(embed=embed, view=view)
+            view.message = msg
+            state.bracket_channel_id = target.id
+            state.bracket_message_id = msg.id
+            self.service._persist(guild_id)
+            await interaction.response.send_message(f"✅ Live Tournament Bracket Panel posted to {target.mention}!", ephemeral=True)
 
         elif val == "event_scheduler":
             target = channel or interaction.channel

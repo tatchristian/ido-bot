@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from utils.storage import StorageManager
+from services.bracket_engine import BracketEngine, BracketMatch, TournamentBracket
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,9 @@ class TournamentState:
     registration_message_id: int | None = None
     subs_message_id: int | None = None
     checkin_message_id: int | None = None
+    bracket_channel_id: int | None = None
+    bracket_message_id: int | None = None
+    bracket_data: dict[str, Any] | None = None
     participants: list[Participant] = field(default_factory=list)
     substitutes: list[Participant] = field(default_factory=list)
     created_at: str = field(
@@ -147,6 +151,9 @@ class TournamentState:
             registration_message_id=int(data["registration_message_id"]) if data.get("registration_message_id") is not None else None,
             subs_message_id=int(data["subs_message_id"]) if data.get("subs_message_id") is not None else None,
             checkin_message_id=int(data["checkin_message_id"]) if data.get("checkin_message_id") is not None else None,
+            bracket_channel_id=int(data["bracket_channel_id"]) if data.get("bracket_channel_id") is not None else None,
+            bracket_message_id=int(data["bracket_message_id"]) if data.get("bracket_message_id") is not None else None,
+            bracket_data=data.get("bracket_data"),
             participants=[
                 Participant.from_dict(p) for p in data.get("participants", [])
             ],
@@ -190,6 +197,9 @@ class TournamentState:
             "registration_message_id": self.registration_message_id,
             "subs_message_id": self.subs_message_id,
             "checkin_message_id": self.checkin_message_id,
+            "bracket_channel_id": self.bracket_channel_id,
+            "bracket_message_id": self.bracket_message_id,
+            "bracket_data": self.bracket_data,
             "participants": [p.to_dict() for p in self.participants],
             "substitutes": [s.to_dict() for s in self.substitutes],
             "created_at": self.created_at,
@@ -545,8 +555,218 @@ class TournamentService:
         state.registration_message_id = None
         state.subs_message_id = None
         state.checkin_message_id = None
+        state.bracket_channel_id = None
+        state.bracket_message_id = None
         self._persist(guild_id, force_backup=True)
         return "📁 Tournament dedicated channels cleared."
+
+    # ---------------------------------------------------------
+    # Bracket Management & Match Reporting
+    # ---------------------------------------------------------
+    def get_bracket(self, guild_id: int = 0) -> TournamentBracket:
+        state = self.get_state(guild_id)
+        if state.bracket_data:
+            return TournamentBracket.from_dict(state.bracket_data)
+        participants_data = [
+            {"user_id": p.user_id, "ign": p.ign, "checked_in": p.checked_in}
+            for p in state.participants
+        ]
+        bracket = BracketEngine.build_bracket(participants_data, format="single")
+        state.bracket_data = bracket.to_dict()
+        self._persist(guild_id)
+        return bracket
+
+    def rebuild_bracket(
+        self,
+        guild_id: int = 0,
+        format: Optional[str] = None,
+        seed_mode: Optional[str] = None,
+        force: bool = False,
+    ) -> TournamentBracket:
+        state = self.get_state(guild_id)
+        current_b = self.get_bracket(guild_id)
+        if current_b.is_locked and not force:
+            return current_b
+
+        fmt = format or current_b.format
+        s_mode = seed_mode or current_b.seed_mode
+        participants_data = [
+            {"user_id": p.user_id, "ign": p.ign, "checked_in": p.checked_in}
+            for p in state.participants
+        ]
+        new_b = BracketEngine.build_bracket(
+            participants=participants_data,
+            format=fmt,
+            seed_mode=s_mode,
+        )
+        new_b.channel_id = state.bracket_channel_id
+        new_b.message_id = state.bracket_message_id
+        state.bracket_data = new_b.to_dict()
+        self._persist(guild_id)
+        return new_b
+
+    def set_bracket_format(self, format_name: str, guild_id: int = 0) -> str:
+        norm = format_name.lower().strip()
+        if norm not in ("single", "double"):
+            raise ValueError("Format must be either 'single' or 'double'.")
+        state = self.get_state(guild_id)
+        b = self.get_bracket(guild_id)
+        if b.is_locked:
+            return "⚠️ Cannot change format while the bracket is locked in progress."
+        self.rebuild_bracket(guild_id=guild_id, format=norm, force=True)
+        return f"🔄 Bracket format updated to **{norm.title()} Elimination**."
+
+    def shuffle_bracket_seeds(self, guild_id: int = 0) -> str:
+        b = self.get_bracket(guild_id)
+        if b.is_locked:
+            return "⚠️ Cannot shuffle seeds while the bracket is locked in progress."
+        self.rebuild_bracket(guild_id=guild_id, seed_mode="random", force=True)
+        return "🔀 Bracket seeds randomly shuffled!"
+
+    def reset_bracket_seeds(self, guild_id: int = 0) -> str:
+        b = self.get_bracket(guild_id)
+        if b.is_locked:
+            return "⚠️ Cannot reset seeds while the bracket is locked in progress."
+        self.rebuild_bracket(guild_id=guild_id, seed_mode="registration", force=True)
+        return "📋 Bracket seeds restored to chronological registration order."
+
+    def lock_bracket(self, guild_id: int = 0) -> str:
+        state = self.get_state(guild_id)
+        b = self.get_bracket(guild_id)
+        b.is_locked = True
+        state.bracket_data = b.to_dict()
+        self._persist(guild_id, force_backup=True)
+        return "🔒 **Tournament bracket locked!** Match play is officially live."
+
+    def unlock_bracket(self, guild_id: int = 0) -> str:
+        state = self.get_state(guild_id)
+        b = self.get_bracket(guild_id)
+        b.is_locked = False
+        state.bracket_data = b.to_dict()
+        self._persist(guild_id)
+        return "🔓 Tournament bracket unlocked back to draft mode."
+
+    def report_bracket_match(
+        self,
+        match_id: str,
+        winner_id: int,
+        score: Optional[str] = None,
+        recorded_by: Optional[int] = None,
+        match_history_service: Optional[Any] = None,
+        clan_showcase_service: Optional[Any] = None,
+        guild_id: int = 0,
+    ) -> Tuple[bool, str, Optional[BracketMatch]]:
+        state = self.get_state(guild_id)
+        bracket = self.get_bracket(guild_id)
+        ok, msg, match = BracketEngine.report_match(bracket, match_id, winner_id, score=score)
+        if ok and match:
+            state.bracket_data = bracket.to_dict()
+            self._persist(guild_id)
+
+            if match_history_service and match.winner_id and match.loser_id:
+                w_clan = None
+                l_clan = None
+                if clan_showcase_service:
+                    try:
+                        w_clan = clan_showcase_service.get_user_clan_name(guild_id, match.winner_id)
+                        l_clan = clan_showcase_service.get_user_clan_name(guild_id, match.loser_id)
+                    except Exception:
+                        pass
+
+                match_history_service.record_match(
+                    winner_id=match.winner_id,
+                    winner_ign=match.winner_ign or "Unknown",
+                    loser_id=match.loser_id,
+                    loser_ign=match.loser_ign or "Unknown",
+                    tournament_name=state.name,
+                    guild_id=guild_id,
+                    winner_clan=w_clan,
+                    loser_clan=l_clan,
+                    score=score,
+                    round_name=f"{match.section.title()} Round {match.round_number}",
+                    bracket_format=bracket.format,
+                    recorded_by=recorded_by,
+                    match_id=f"{guild_id}_{match.match_id}",
+                )
+
+        return ok, msg, match
+
+    def undo_bracket_match(
+        self,
+        match_id: str,
+        match_history_service: Optional[Any] = None,
+        guild_id: int = 0,
+    ) -> Tuple[bool, str]:
+        state = self.get_state(guild_id)
+        bracket = self.get_bracket(guild_id)
+        ok, msg = BracketEngine.undo_match(bracket, match_id)
+        if ok:
+            state.bracket_data = bracket.to_dict()
+            self._persist(guild_id)
+            if match_history_service:
+                match_history_service.void_match(f"{guild_id}_{match_id}", reason="Match undone by staff")
+        return ok, msg
+
+    def forfeit_bracket_match(
+        self,
+        match_id: str,
+        forfeiting_user_id: int,
+        recorded_by: Optional[int] = None,
+        match_history_service: Optional[Any] = None,
+        clan_showcase_service: Optional[Any] = None,
+        guild_id: int = 0,
+    ) -> Tuple[bool, str, Optional[BracketMatch]]:
+        bracket = self.get_bracket(guild_id)
+        if match_id not in bracket.matches:
+            return False, f"Match `{match_id}` not found.", None
+        m = bracket.matches[match_id]
+        if forfeiting_user_id == m.player1_id:
+            winner_id = m.player2_id
+        elif forfeiting_user_id == m.player2_id:
+            winner_id = m.player1_id
+        else:
+            return False, f"User <@{forfeiting_user_id}> is not in match `{match_id}`.", None
+
+        if not winner_id:
+            return False, "Opponent is not yet determined in this match.", None
+
+        return self.report_bracket_match(
+            match_id=match_id,
+            winner_id=winner_id,
+            score="Forfeit",
+            recorded_by=recorded_by,
+            match_history_service=match_history_service,
+            clan_showcase_service=clan_showcase_service,
+            guild_id=guild_id,
+        )
+
+    def swap_bracket_player(
+        self,
+        old_user_id: int,
+        new_participant: Participant,
+        guild_id: int = 0,
+    ) -> Tuple[bool, str]:
+        bracket = self.get_bracket(guild_id)
+        found = False
+        for m in bracket.matches.values():
+            if m.player1_id == old_user_id and m.state in ("ready", "pending"):
+                m.player1_id = new_participant.user_id
+                m.player1_ign = new_participant.ign
+                m.player1_checked_in = new_participant.checked_in
+                found = True
+            elif m.player2_id == old_user_id and m.state in ("ready", "pending"):
+                m.player2_id = new_participant.user_id
+                m.player2_ign = new_participant.ign
+                m.player2_checked_in = new_participant.checked_in
+                found = True
+
+        if not found:
+            return False, f"User <@{old_user_id}> was not found in any unplayed match slots."
+
+        state = self.get_state(guild_id)
+        state.bracket_data = bracket.to_dict()
+        self._persist(guild_id)
+        return True, f"🔄 Swapped <@{old_user_id}> with **{new_participant.ign}** in the bracket."
 
     def set_tournament_time(
         self,
@@ -682,6 +902,8 @@ class TournamentService:
             )
         else:
             state.participants.append(participant)
+            if state.bracket_data and not state.bracket_data.get("is_locked", False):
+                self.rebuild_bracket(guild_id, force=True)
             slots_now = len(state.participants)
             self._persist(guild_id)
             return (
@@ -741,6 +963,13 @@ class TournamentService:
             region=region.strip().upper(),
         )
         state.participants.append(participant)
+        if state.bracket_data:
+            try:
+                b = TournamentBracket.from_dict(state.bracket_data)
+                if not b.is_locked:
+                    self.rebuild_bracket(guild_id)
+            except Exception as b_exc:
+                logger.warning("Could not auto-rebuild draft bracket on register: %s", b_exc)
         self._persist(guild_id)
 
         return True, "Successfully registered for the main bracket!", participant
@@ -756,6 +985,13 @@ class TournamentService:
             return False, "You are not currently registered in the main bracket."
 
         removed = state.participants.pop(idx)
+        if state.bracket_data:
+            try:
+                b = TournamentBracket.from_dict(state.bracket_data)
+                if not b.is_locked:
+                    self.rebuild_bracket(guild_id)
+            except Exception as b_exc:
+                logger.warning("Could not auto-rebuild draft bracket on unregister: %s", b_exc)
         self._persist(guild_id)
         return True, f"Withdrew **{removed.ign}** ({removed.user_mention}) from the main bracket."
 
@@ -909,6 +1145,14 @@ class TournamentService:
             replaced_player = state.participants[rep_idx]
             state.participants[rep_idx] = sub_to_promote
             state.substitutes.pop(sub_idx)
+
+            if state.bracket_data:
+                if state.bracket_data.get("is_locked", False):
+                    # In live locked bracket, swap in place
+                    self.swap_bracket_player(replaced_player.user_id, sub_to_promote, guild_id=guild_id)
+                else:
+                    self.rebuild_bracket(guild_id, force=True)
+
             self._persist(guild_id)
 
             return (
@@ -928,6 +1172,8 @@ class TournamentService:
 
         state.substitutes.pop(sub_idx)
         state.participants.append(sub_to_promote)
+        if state.bracket_data and not state.bracket_data.get("is_locked", False):
+            self.rebuild_bracket(guild_id, force=True)
         self._persist(guild_id)
 
         return (

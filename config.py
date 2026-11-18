@@ -57,10 +57,16 @@ class Config:
     primary_emerald: int = 0x10B981  # Official UDA Emerald Gemstone
     website_api_url: str = os.getenv("WEBSITE_API_URL", "https://unitedduelingamity.org/api/sync")
     website_api_key: str = os.getenv("WEBSITE_API_KEY", "")
+    supabase_url: str = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_key: str = os.getenv("SUPABASE_KEY", "")
 
     @property
     def tournament_file(self) -> Path:
         return self.data_dir / "tournament.json"
+
+    @property
+    def match_history_file(self) -> Path:
+        return self.data_dir / "match_history.json"
 
     @property
     def clan_submissions_file(self) -> Path:

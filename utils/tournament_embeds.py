@@ -11,6 +11,7 @@ from typing import Any, Optional
 import discord
 
 from config import config
+from services.bracket_engine import BracketMatch, TournamentBracket
 from services.tournament_service import (
     DEFAULT_WEAPONS,
     STANDARD_REGIONS,
@@ -1156,6 +1157,144 @@ def build_checkin_receipt_embed(
     return embed
 
 
+def build_bracket_embed(
+    bracket: TournamentBracket,
+    tournament_name: str = "Tournament",
+    section: str = "winners",
+    round_num: int = 1,
+) -> discord.Embed:
+    """
+    Renders the visual bracket view for the specified bracket section and round.
+    Shows soft check-in indicators ([✅] vs [⏳]), match statuses, scores, and champion banner.
+    """
+    org = config.organization_name or "United Dueling Amity"
+    format_label = "Double Elimination" if bracket.format == "double" else "Single Elimination"
+    lock_status = "🔒 **LIVE BRACKET** (Locked)" if bracket.is_locked else "📝 **DRAFT BRACKET** (Auto-updates with roster)"
+    seed_status = "🔀 Random Shuffled" if bracket.seed_mode == "random" else "📋 Registration Order"
+
+    # Color selection
+    if bracket.champion_ign:
+        color = COLOR_GOLD
+    elif bracket.is_locked:
+        color = COLOR_EMERALD
+    else:
+        color = COLOR_BLUE
+
+    # Normalize section
+    section = section.lower()
+    if bracket.format != "double" and section != "winners":
+        section = "winners"
+
+    section_titles = {
+        "winners": "🏆 Winners Bracket",
+        "losers": "🛡️ Losers Bracket",
+        "finals": "👑 Grand Finals",
+    }
+    sec_title = section_titles.get(section, "🏆 Winners Bracket")
+
+    # Filter matches
+    if section == "finals":
+        matches = [m for m in bracket.matches.values() if m.section == "finals"]
+        round_header = "Grand Finals"
+    else:
+        matches = [m for m in bracket.matches.values() if m.section == section and m.round_number == round_num]
+        round_header = f"Round {round_num}"
+
+    embed = discord.Embed(
+        title=f"🏆 {tournament_name} — {sec_title}",
+        color=color,
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    desc_lines = [
+        f"**Format:** `{format_label}` • **Seeding:** `{seed_status}`",
+        f"**Status:** {lock_status}",
+    ]
+    if bracket.champion_ign:
+        desc_lines.append(f"\n🎉 👑 **TOURNAMENT CHAMPION:** **{bracket.champion_ign}** 👑 🎉\n")
+    else:
+        desc_lines.append(f"**Viewing:** `{sec_title}` — `{round_header}`\n")
+
+    embed.description = "\n".join(desc_lines)
+
+    if not matches:
+        embed.add_field(
+            name=round_header,
+            value="*No matches scheduled for this round yet.*",
+            inline=False,
+        )
+    else:
+        match_blocks = []
+        for m in sorted(matches, key=lambda x: x.match_number):
+            if m.state == "bye":
+                badge = "⏭️ `BYE`"
+            elif m.state == "completed":
+                badge = "✅ `FINAL`"
+            elif m.state == "ready":
+                badge = "⚔️ `READY`"
+            else:
+                badge = "⏳ `WAITING`"
+
+            # Player 1 formatting
+            p1_badge = "[✅]" if m.player1_checked_in else "[⏳]"
+            p1_clan = f"[{m.player1_clan}] " if m.player1_clan else ""
+            if m.player1_id:
+                p1_line = f"{p1_badge} **{p1_clan}{m.player1_ign}**"
+            else:
+                p1_line = f"`{p1_clan}{m.player1_ign}`"
+
+            # Player 2 formatting
+            p2_badge = "[✅]" if m.player2_checked_in else "[⏳]"
+            p2_clan = f"[{m.player2_clan}] " if m.player2_clan else ""
+            if m.player2_id:
+                p2_line = f"{p2_badge} **{p2_clan}{m.player2_ign}**"
+            else:
+                p2_line = f"`{p2_clan}{m.player2_ign}`"
+
+            # Outcome line
+            if m.state == "completed":
+                score_str = f" `{m.score}`" if m.score else ""
+                outcome = f"👑 **Winner:** **{m.winner_ign}**{score_str}"
+            elif m.state == "ready":
+                outcome = "🟢 *Match is ready to play!*"
+            elif m.state == "bye":
+                outcome = f"⏭️ *Auto-advanced: {m.winner_ign}*"
+            else:
+                outcome = "⚪ *Awaiting prior match results*"
+
+            match_blocks.append(
+                f"**`{m.match_id}`** {badge}\n"
+                f"  ├ {p1_line}\n"
+                f"  └ {p2_line}\n"
+                f"  ↳ {outcome}"
+            )
+
+        # Discord field limit is 1024 characters; chunk matches into fields if needed
+        current_chunk = []
+        current_len = 0
+        field_num = 1
+        for block in match_blocks:
+            if current_len + len(block) > 900:
+                embed.add_field(
+                    name=f"{round_header} (Part {field_num})",
+                    value="\n\n".join(current_chunk),
+                    inline=False,
+                )
+                current_chunk = [block]
+                current_len = len(block)
+                field_num += 1
+            else:
+                current_chunk.append(block)
+                current_len += len(block) + 2
+
+        if current_chunk:
+            field_name = round_header if field_num == 1 else f"{round_header} (Part {field_num})"
+            embed.add_field(name=field_name, value="\n\n".join(current_chunk), inline=False)
+
+    embed.set_footer(text=f"{org} • DUKE Tournament Bracket Engine")
+    return embed
+
+
 __all__ = [
     "COLOR_EMERALD",
     "COLOR_CRIMSON",
@@ -1181,4 +1320,5 @@ __all__ = [
     "build_subs_closed_embed",
     "build_checkin_panel_embed",
     "build_checkin_receipt_embed",
+    "build_bracket_embed",
 ]

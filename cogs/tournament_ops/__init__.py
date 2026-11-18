@@ -5,6 +5,8 @@ Contains modular mixins and constants for the TournamentCog system.
 
 from .constants import (
     ANNOUNCE_TARGET_CHOICES,
+    BRACKET_FORMAT_CHOICES,
+    BRACKET_SECTION_CHOICES,
     EXPORT_FORMAT_CHOICES,
     EXPORT_TARGET_CHOICES,
     HELP_SECTION_CHOICES,
@@ -23,6 +25,8 @@ from .event_cmds import TournamentEventMixin
 
 __all__ = [
     "ANNOUNCE_TARGET_CHOICES",
+    "BRACKET_FORMAT_CHOICES",
+    "BRACKET_SECTION_CHOICES",
     "EXPORT_FORMAT_CHOICES",
     "EXPORT_TARGET_CHOICES",
     "HELP_SECTION_CHOICES",

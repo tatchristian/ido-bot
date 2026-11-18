@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from services.tournament_service import TournamentService, STANDARD_REGIONS
+from services.tournament_service import TournamentService, STANDARD_REGIONS, Participant
 from utils.storage import StorageManager
 
 
@@ -789,6 +789,71 @@ def test_cancel_event_and_state_flag(service: TournamentService):
         guild_id=0,
     )
     assert service.get_state(0).event_canceled is False
+
+
+def test_bracket_operations_in_tournament_service(service: TournamentService):
+    service.open_tournament(name="Bracket Cup", slots=4)
+    service.register_participant(10, "<@10>", "Alice", "Katana", "NA")
+    service.register_participant(20, "<@20>", "Bob", "Katana", "NA")
+    service.register_participant(30, "<@30>", "Charlie", "Katana", "NA")
+    service.register_participant(40, "<@40>", "Diana", "Katana", "NA")
+
+    # 1. Get bracket
+    bracket = service.get_bracket()
+    assert bracket.format == "single"
+    assert bracket.is_locked is False
+    assert len(bracket.matches) == 3
+
+    # 2. Toggle format to double elimination
+    msg_de = service.set_bracket_format("double")
+    assert "Double Elimination" in msg_de
+    assert service.get_bracket().format == "double"
+
+    # 3. Seed shuffle and reset
+    msg_shuffle = service.shuffle_bracket_seeds()
+    assert "shuffled" in msg_shuffle.lower()
+    assert service.get_bracket().seed_mode == "random"
+
+    msg_reset = service.reset_bracket_seeds()
+    assert "registration" in msg_reset.lower()
+    assert service.get_bracket().seed_mode == "registration"
+
+    # 4. Lock bracket
+    msg_lock = service.lock_bracket()
+    assert "locked" in msg_lock.lower()
+    locked = service.get_bracket()
+    assert locked.is_locked is True
+
+    # 5. Report match
+    # Find match with Alice (10) vs Diana (40) (Seeds 1 vs 4)
+    m1 = next(m for m in locked.matches.values() if m.player1_id == 10)
+    assert m1.state == "ready"
+    ok_rep, msg_rep, updated_m = service.report_bracket_match(m1.match_id, winner_id=10, score="2-0", recorded_by=999)
+    assert ok_rep is True
+    assert updated_m.state == "completed"
+    assert updated_m.winner_id == 10
+
+    # 6. Undo match
+    res_undo, msg_undo = service.undo_bracket_match(m1.match_id)
+    assert res_undo is True
+    assert service.get_bracket().matches[m1.match_id].state == "ready"
+
+    # 7. Forfeit match
+    ok_forfeit, msg_forfeit, forfeited_m = service.forfeit_bracket_match(m1.match_id, forfeiting_user_id=40, recorded_by=999)
+    assert ok_forfeit is True
+    assert service.get_bracket().matches[m1.match_id].winner_id == 10
+
+    # 8. Swap player in an unplayed match (Bob -> Eve)
+    eve = Participant(user_id=50, user_mention="<@50>", ign="Eve", weapon="Katana", region="NA")
+    ok_swap, msg_swap = service.swap_bracket_player(old_user_id=20, new_participant=eve)
+    assert ok_swap is True
+    # Find match where Eve was slotted
+    eve_m = next(m for m in service.get_bracket().matches.values() if m.player1_id == 50 or m.player2_id == 50)
+    if eve_m.player1_id == 50:
+        assert eve_m.player1_ign == "Eve"
+    else:
+        assert eve_m.player2_ign == "Eve"
+
 
 
 

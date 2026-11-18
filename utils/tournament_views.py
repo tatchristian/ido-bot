@@ -27,6 +27,7 @@ from services.website_sync_service import (
     parse_event_datetime,
 )
 from utils.tournament_embeds import (
+    build_bracket_embed,
     build_help_embed,
     build_roster_embed,
     build_staff_guide_embed,
@@ -1967,6 +1968,452 @@ class TournamentCheckinPanelView(discord.ui.View):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+class TournamentMatchReportModal(discord.ui.Modal, title="Record Match Score"):
+    score_input = discord.ui.TextInput(
+        label="Final Score (optional)",
+        placeholder="e.g. 2-0, 2-1, 3-2",
+        required=False,
+        max_length=20,
+    )
+
+    def __init__(
+        self,
+        service: TournamentService,
+        guild_id: int,
+        match_id: str,
+        winner_id: int,
+        winner_ign: str,
+        loser_id: int,
+        loser_ign: str,
+        parent_view: Optional[Any] = None,
+    ):
+        super().__init__()
+        self.service = service
+        self.guild_id = guild_id
+        self.match_id = match_id
+        self.winner_id = winner_id
+        self.winner_ign = winner_ign
+        self.loser_id = loser_id
+        self.loser_ign = loser_ign
+        self.parent_view = parent_view
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        score_val = self.score_input.value.strip() if self.score_input.value else None
+        m_history = getattr(interaction.client, "match_history_service", None)
+        c_showcase = getattr(interaction.client, "clan_showcase_service", None)
+
+        ok, msg, match = self.service.report_bracket_match(
+            match_id=self.match_id,
+            winner_id=self.winner_id,
+            score=score_val,
+            recorded_by=interaction.user.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=self.guild_id,
+        )
+        if not ok:
+            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
+            return
+
+        if self.parent_view and hasattr(self.parent_view, "message") and self.parent_view.message:
+            try:
+                bracket = self.service.get_bracket(self.guild_id)
+                state = self.service.get_state(self.guild_id)
+                self.parent_view._sync_buttons()
+                new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
+                await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
+            except Exception as e:
+                logger.warning("Failed to refresh bracket view after modal report: %s", e)
+
+        score_disp = f" (`{score_val}`)" if score_val else ""
+        await interaction.followup.send(
+            f"✅ **Match `{self.match_id}` Recorded!**\n👑 **{self.winner_ign}** defeated **{self.loser_ign}**{score_disp}.",
+            ephemeral=True,
+        )
+
+
+class TournamentMatchActionView(discord.ui.View):
+    def __init__(
+        self,
+        service: TournamentService,
+        guild_id: int,
+        match: Any,
+        parent_view: Optional[Any] = None,
+    ):
+        super().__init__(timeout=180)
+        self.service = service
+        self.guild_id = guild_id
+        self.match = match
+        self.parent_view = parent_view
+
+        # Winner Player 1 button
+        btn_w1 = discord.ui.Button(
+            label=f"🏆 {match.player1_ign} Won",
+            style=discord.ButtonStyle.success,
+            custom_id="btn_match_w1",
+            row=0,
+        )
+        btn_w1.callback = self._on_w1_click
+        self.add_item(btn_w1)
+
+        # Winner Player 2 button
+        btn_w2 = discord.ui.Button(
+            label=f"🏆 {match.player2_ign} Won",
+            style=discord.ButtonStyle.success,
+            custom_id="btn_match_w2",
+            row=0,
+        )
+        btn_w2.callback = self._on_w2_click
+        self.add_item(btn_w2)
+
+        # Forfeit Player 1 button
+        btn_f1 = discord.ui.Button(
+            label=f"🏳️ Forfeit {match.player1_ign}",
+            style=discord.ButtonStyle.secondary,
+            custom_id="btn_match_f1",
+            row=1,
+        )
+        btn_f1.callback = self._on_f1_click
+        self.add_item(btn_f1)
+
+        # Forfeit Player 2 button
+        btn_f2 = discord.ui.Button(
+            label=f"🏳️ Forfeit {match.player2_ign}",
+            style=discord.ButtonStyle.secondary,
+            custom_id="btn_match_f2",
+            row=1,
+        )
+        btn_f2.callback = self._on_f2_click
+        self.add_item(btn_f2)
+
+    async def _on_w1_click(self, interaction: discord.Interaction):
+        modal = TournamentMatchReportModal(
+            service=self.service,
+            guild_id=self.guild_id,
+            match_id=self.match.match_id,
+            winner_id=self.match.player1_id,
+            winner_ign=self.match.player1_ign,
+            loser_id=self.match.player2_id,
+            loser_ign=self.match.player2_ign,
+            parent_view=self.parent_view,
+        )
+        await interaction.response.send_modal(modal)
+
+    async def _on_w2_click(self, interaction: discord.Interaction):
+        modal = TournamentMatchReportModal(
+            service=self.service,
+            guild_id=self.guild_id,
+            match_id=self.match.match_id,
+            winner_id=self.match.player2_id,
+            winner_ign=self.match.player2_ign,
+            loser_id=self.match.player1_id,
+            loser_ign=self.match.player1_ign,
+            parent_view=self.parent_view,
+        )
+        await interaction.response.send_modal(modal)
+
+    async def _on_f1_click(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        m_history = getattr(interaction.client, "match_history_service", None)
+        c_showcase = getattr(interaction.client, "clan_showcase_service", None)
+        ok, msg, m = self.service.forfeit_bracket_match(
+            match_id=self.match.match_id,
+            forfeiting_user_id=self.match.player1_id,
+            recorded_by=interaction.user.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=self.guild_id,
+        )
+        if not ok:
+            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
+            return
+
+        if self.parent_view and hasattr(self.parent_view, "message") and self.parent_view.message:
+            try:
+                bracket = self.service.get_bracket(self.guild_id)
+                state = self.service.get_state(self.guild_id)
+                self.parent_view._sync_buttons()
+                new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
+                await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
+            except Exception as e:
+                logger.warning("Failed to refresh bracket view after forfeit: %s", e)
+
+        await interaction.followup.send(
+            f"🏳️ **Match `{self.match.match_id}` Recorded as Forfeit!**\n👑 **{self.match.player2_ign}** wins by forfeit.",
+            ephemeral=True,
+        )
+
+    async def _on_f2_click(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        m_history = getattr(interaction.client, "match_history_service", None)
+        c_showcase = getattr(interaction.client, "clan_showcase_service", None)
+        ok, msg, m = self.service.forfeit_bracket_match(
+            match_id=self.match.match_id,
+            forfeiting_user_id=self.match.player2_id,
+            recorded_by=interaction.user.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=self.guild_id,
+        )
+        if not ok:
+            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
+            return
+
+        if self.parent_view and hasattr(self.parent_view, "message") and self.parent_view.message:
+            try:
+                bracket = self.service.get_bracket(self.guild_id)
+                state = self.service.get_state(self.guild_id)
+                self.parent_view._sync_buttons()
+                new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
+                await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
+            except Exception as e:
+                logger.warning("Failed to refresh bracket view after forfeit: %s", e)
+
+        await interaction.followup.send(
+            f"🏳️ **Match `{self.match.match_id}` Recorded as Forfeit!**\n👑 **{self.match.player1_ign}** wins by forfeit.",
+            ephemeral=True,
+        )
+
+
+class TournamentMatchReportSelect(discord.ui.Select):
+    def __init__(self, service: TournamentService, guild_id: int):
+        self.service = service
+        self.guild_id = guild_id
+        bracket = service.get_bracket(guild_id)
+        ready_matches = [m for m in bracket.matches.values() if m.state == "ready"]
+
+        options = []
+        if not ready_matches:
+            options.append(discord.SelectOption(label="No matches ready to play", value="none", default=True))
+        else:
+            for m in ready_matches[:25]:
+                options.append(
+                    discord.SelectOption(
+                        label=f"{m.match_id}: {m.player1_ign} vs {m.player2_ign}",
+                        value=m.match_id,
+                        description=f"{m.section.title()} Round {m.round_number}",
+                        emoji="⚔️",
+                    )
+                )
+
+        super().__init__(
+            placeholder="Select a READY match to report...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_match_id = self.values[0]
+        if selected_match_id == "none":
+            await interaction.response.send_message("⚠️ There are currently no matches ready to be played.", ephemeral=True)
+            return
+
+        bracket = self.service.get_bracket(self.guild_id)
+        m = bracket.matches.get(selected_match_id)
+        if not m:
+            await interaction.response.send_message(f"❌ Match `{selected_match_id}` not found.", ephemeral=True)
+            return
+
+        action_view = TournamentMatchActionView(
+            service=self.service,
+            guild_id=self.guild_id,
+            match=m,
+            parent_view=getattr(self.view, "parent_view", None),
+        )
+        embed = discord.Embed(
+            title=f"⚔️ Report Match: {m.match_id}",
+            description=(
+                f"**Section:** `{m.section.title()}` | **Round:** `{m.round_number}`\n\n"
+                f"• **Player 1:** **{m.player1_ign}** (<@{m.player1_id}>)\n"
+                f"• **Player 2:** **{m.player2_ign}** (<@{m.player2_id}>)\n\n"
+                "*Select the winner below or record a forfeit.*"
+            ),
+            color=0x3498DB,
+        )
+        await interaction.response.send_message(embed=embed, view=action_view, ephemeral=True)
+
+
+class TournamentMatchReportSelectView(discord.ui.View):
+    def __init__(self, service: TournamentService, guild_id: int, parent_view: Optional[Any] = None):
+        super().__init__(timeout=180)
+        self.service = service
+        self.guild_id = guild_id
+        self.parent_view = parent_view
+        self.add_item(TournamentMatchReportSelect(service, guild_id))
+
+
+class TournamentBracketPanelView(discord.ui.View):
+    """
+    Interactive control panel for viewing, navigating, and managing the tournament bracket.
+    Supports round pagination, section switching, seed shuffling, format toggling, and match recording.
+    """
+    def __init__(
+        self,
+        service: TournamentService,
+        guild_id: int = 0,
+        section: str = "winners",
+        round_num: int = 1,
+    ):
+        super().__init__(timeout=None)
+        self.service = service
+        self.guild_id = guild_id
+        self.section = section
+        self.round_num = round_num
+        self.message: Optional[discord.Message] = None
+        self._sync_buttons()
+
+    def _get_max_rounds(self, bracket) -> int:
+        if self.section == "losers":
+            return max(1, bracket.total_rounds_lb)
+        elif self.section == "finals":
+            return 1
+        return max(1, bracket.total_rounds_wb)
+
+    def _sync_buttons(self):
+        bracket = self.service.get_bracket(self.guild_id)
+        max_r = self._get_max_rounds(bracket)
+        self.round_num = max(1, min(self.round_num, max_r))
+
+        self.btn_prev.disabled = (self.round_num <= 1)
+        self.btn_next.disabled = (self.round_num >= max_r)
+
+        # Double elim sections
+        is_double = (bracket.format == "double")
+        self.btn_losers.disabled = not is_double
+        self.btn_finals.disabled = not is_double
+
+        # Locked state
+        if bracket.is_locked:
+            self.btn_lock.label = "🔓 Unlock Bracket"
+            self.btn_lock.style = discord.ButtonStyle.secondary
+            self.btn_shuffle.disabled = True
+            self.btn_toggle_format.disabled = True
+        else:
+            self.btn_lock.label = "🔒 Lock Bracket"
+            self.btn_lock.style = discord.ButtonStyle.success
+            self.btn_shuffle.disabled = False
+            self.btn_toggle_format.disabled = False
+
+        fmt_name = "Double" if bracket.format == "single" else "Single"
+        self.btn_toggle_format.label = f"Format: {fmt_name}"
+
+    @discord.ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="bracket_prev", row=0)
+    async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bracket = self.service.get_bracket(self.guild_id)
+        self.round_num = max(1, self.round_num - 1)
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary, custom_id="bracket_next", row=0)
+    async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bracket = self.service.get_bracket(self.guild_id)
+        max_r = self._get_max_rounds(bracket)
+        self.round_num = min(max_r, self.round_num + 1)
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="🏆 Winners", style=discord.ButtonStyle.primary, custom_id="bracket_winners", row=0)
+    async def btn_winners(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.section = "winners"
+        self.round_num = 1
+        bracket = self.service.get_bracket(self.guild_id)
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="🛡️ Losers", style=discord.ButtonStyle.primary, custom_id="bracket_losers", row=0)
+    async def btn_losers(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bracket = self.service.get_bracket(self.guild_id)
+        if bracket.format != "double":
+            await interaction.response.send_message("ℹ️ Losers bracket is only active in Double Elimination format.", ephemeral=True)
+            return
+        self.section = "losers"
+        self.round_num = 1
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="👑 Finals", style=discord.ButtonStyle.primary, custom_id="bracket_finals", row=0)
+    async def btn_finals(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bracket = self.service.get_bracket(self.guild_id)
+        if bracket.format != "double":
+            await interaction.response.send_message("ℹ️ Grand Finals view is only active in Double Elimination format.", ephemeral=True)
+            return
+        self.section = "finals"
+        self.round_num = 1
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⚔️ Record Match", style=discord.ButtonStyle.success, custom_id="bracket_record", row=1)
+    async def btn_record(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message("🛡️ Tournament staff permissions required to record matches.", ephemeral=True)
+            return
+        view = TournamentMatchReportSelectView(self.service, self.guild_id, parent_view=self)
+        await interaction.response.send_message("Select a match ready to play:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="🔀 Shuffle", style=discord.ButtonStyle.secondary, custom_id="bracket_shuffle", row=1)
+    async def btn_shuffle(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message("🛡️ Tournament staff permissions required to shuffle seeds.", ephemeral=True)
+            return
+        msg = self.service.shuffle_bracket_seeds(self.guild_id)
+        bracket = self.service.get_bracket(self.guild_id)
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Format: Double", style=discord.ButtonStyle.secondary, custom_id="bracket_format", row=1)
+    async def btn_toggle_format(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message("🛡️ Tournament staff permissions required to change format.", ephemeral=True)
+            return
+        bracket = self.service.get_bracket(self.guild_id)
+        new_fmt = "double" if bracket.format == "single" else "single"
+        msg = self.service.set_bracket_format(new_fmt, self.guild_id)
+        bracket = self.service.get_bracket(self.guild_id)
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="🔒 Lock", style=discord.ButtonStyle.success, custom_id="bracket_lock", row=1)
+    async def btn_lock(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not check_is_tournament_admin(interaction.user, interaction.guild, interaction.client):
+            await interaction.response.send_message("🛡️ Tournament staff permissions required to lock/unlock bracket.", ephemeral=True)
+            return
+        bracket = self.service.get_bracket(self.guild_id)
+        if bracket.is_locked:
+            self.service.unlock_bracket(self.guild_id)
+        else:
+            self.service.lock_bracket(self.guild_id)
+        bracket = self.service.get_bracket(self.guild_id)
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary, custom_id="bracket_refresh", row=1)
+    async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
+        bracket = self.service.get_bracket(self.guild_id)
+        self._sync_buttons()
+        state = self.service.get_state(self.guild_id)
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
 __all__ = [
     "check_is_tournament_admin",
     "is_tournament_admin",
@@ -1991,4 +2438,9 @@ __all__ = [
     "TournamentSubsPanelView",
     "TournamentClosedSubsView",
     "TournamentCheckinPanelView",
+    "TournamentMatchReportModal",
+    "TournamentMatchActionView",
+    "TournamentMatchReportSelect",
+    "TournamentMatchReportSelectView",
+    "TournamentBracketPanelView",
 ]
