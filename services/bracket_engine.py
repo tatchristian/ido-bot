@@ -319,17 +319,20 @@ class BracketEngine:
                         m.winner_id = m.player2_id
                         m.winner_ign = m.player2_ign
                         cls._advance_winner(bracket, m)
+                        cls._drop_bye_loser(bracket, m)
                         changed = True
                     elif m.player2_ign == "BYE" and m.player1_ign != "BYE" and m.player1_id is not None:
                         m.state = "bye"
                         m.winner_id = m.player1_id
                         m.winner_ign = m.player1_ign
                         cls._advance_winner(bracket, m)
+                        cls._drop_bye_loser(bracket, m)
                         changed = True
                     elif m.player1_ign == "BYE" and m.player2_ign == "BYE":
                         m.state = "bye"
                         m.winner_ign = "BYE"
                         cls._advance_winner(bracket, m)
+                        cls._drop_bye_loser(bracket, m)
                         changed = True
 
                 # Evaluate READY state: both players present, non-BYE, not yet completed
@@ -382,6 +385,19 @@ class BracketEngine:
             target.player2_ign = match.loser_ign or "TBD"
             target.player2_clan = loser_clan
             target.player2_checked_in = loser_checked
+
+    @classmethod
+    def _drop_bye_loser(cls, bracket: TournamentBracket, match: BracketMatch) -> None:
+        """In Double Elimination, routes a BYE into the Losers Bracket when a match has no loser."""
+        if not match.loser_match_id or match.loser_match_id not in bracket.matches:
+            return
+        target = bracket.matches[match.loser_match_id]
+        if match.loser_match_slot == 1:
+            target.player1_id = None
+            target.player1_ign = "BYE"
+        else:
+            target.player2_id = None
+            target.player2_ign = "BYE"
 
     @classmethod
     def report_match(

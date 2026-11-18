@@ -20,8 +20,8 @@ The tournament bracket system equips DUKE with an automated esports bracket pipe
 
 ## 🌳 Bracket Engine (`services/bracket_engine.py`)
 - **Seeding:** Standard tournament pairing (`[1, 4, 2, 3]` for 4 players; `[1, 8, 4, 5, 2, 7, 3, 6]` for 8) so Seed 1 and Seed 2 meet only in the Finals.
-- **Power of 2:** Automatically rounds up to nearest power of 2 (2, 4, 8, 16, 32, 64) and fills remaining slots with `BYE`.
-- **Automatic Byes:** Byes are automatically resolved during `evaluate_ready_states()`, advancing seeded contestants immediately.
+- **Power of 2 & Odd Rosters:** Automatically rounds up to nearest power of 2 (2, 4, 8, 16, 32, 64) and fills remaining slots with `BYE`. Supports arbitrary odd or even contestant counts (e.g. 3, 5, 7, 9, 11).
+- **Automatic Byes:** Byes are automatically resolved during `evaluate_ready_states()`, advancing seeded contestants immediately. In Double Elimination, unplayed BYE matches propagate a `BYE` into the corresponding Losers Bracket slot via `_drop_bye_loser()`, auto-advancing losers and preventing bracket stall.
 - **Double Elimination Routing:**
   - Losers of `WB-R1` drop to `LB-R1`.
   - Losers of `WB-R{r}` (`r >= 2`) drop to `LB-R{2*(r-1)}` in slot 1.

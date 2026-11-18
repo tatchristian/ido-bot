@@ -1618,7 +1618,7 @@ class TournamentStaffMixin:
         respond_fn: Optional[Any] = None,
     ):
         mode_val = (mode or "full").lower().strip()
-        count_val = max(4, min(count or 8, 16))
+        count_val = max(2, min(count or 8, 16))
         fmt_val = "double" if (bracket_format or "").lower().strip() in ("double", "d") else "single"
 
         # Cleanup mode
@@ -1742,7 +1742,7 @@ class TournamentStaffMixin:
     )
     @app_commands.describe(
         mode="Test mode: 'full' (Cloud probe + Mock bracket), 'cloud' (DB probe only), 'mock' (Seed players), 'cleanup'",
-        count="Number of mock players to seed: 4, 8, or 16 (default: 8)",
+        count="Number of mock players to seed: 2 to 16 (supports odd & even numbers, default: 8)",
         bracket_format="Bracket format: 'single' or 'double' (default: double)",
     )
     @app_commands.choices(

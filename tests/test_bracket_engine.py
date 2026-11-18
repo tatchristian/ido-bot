@@ -252,3 +252,42 @@ def test_tournament_bracket_panel_view_button_sync(tmp_path):
     assert view.btn_shuffle.disabled is True  # Locked bracket cannot shuffle
     assert view.btn_toggle_format.disabled is True
 
+
+def test_double_elimination_odd_roster_byes():
+    # 3 players in double elimination:
+    participants = [
+        {"user_id": 1, "ign": "P1"},
+        {"user_id": 2, "ign": "P2"},
+        {"user_id": 3, "ign": "P3"},
+    ]
+    bracket = BracketEngine.build_bracket(participants, format="double")
+    assert bracket.bracket_size == 4
+    assert bracket.matches["WB-R1-M1"].state == "bye"
+    assert bracket.matches["WB-R1-M2"].state == "ready"
+
+    # Play WB-R1-M2: P2 beats P3
+    BracketEngine.report_match(bracket, "WB-R1-M2", winner_id=2)
+    # P3 drops into LB-R1-M1 slot 2; since slot 1 was a BYE, LB-R1-M1 auto-resolves as bye!
+    assert bracket.matches["LB-R1-M1"].state == "bye"
+    # P3 automatically advances to Losers Finals (LB-R2-M1)!
+    assert bracket.matches["LB-R2-M1"].player2_id == 3
+
+    # Play WB-R2-M1 (Winners Finals): P1 beats P2
+    BracketEngine.report_match(bracket, "WB-R2-M1", winner_id=1)
+    # P1 advances to Grand Finals (GF) slot 1!
+    assert bracket.matches["GF"].player1_id == 1
+    # P2 drops to Losers Finals slot 1 to face P3!
+    assert bracket.matches["LB-R2-M1"].state == "ready"
+    assert bracket.matches["LB-R2-M1"].player1_id == 2
+    assert bracket.matches["LB-R2-M1"].player2_id == 3
+
+    # Play Losers Finals: P2 beats P3
+    BracketEngine.report_match(bracket, "LB-R2-M1", winner_id=2)
+    assert bracket.matches["GF"].state == "ready"
+    assert bracket.matches["GF"].player2_id == 2
+
+    # Play Grand Finals: P1 beats P2
+    BracketEngine.report_match(bracket, "GF", winner_id=1)
+    assert bracket.champion_id == 1
+    assert bracket.runner_up_id == 2
+
