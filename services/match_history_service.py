@@ -76,8 +76,13 @@ class MatchHistoryService:
             max_backups=20,
             min_backup_interval=60.0,
         )
-        self.supabase_url = (supabase_url or config.supabase_url or "").rstrip("/")
-        self.supabase_key = supabase_key or config.supabase_key or ""
+        raw_url = (supabase_url or config.supabase_url or "").strip().rstrip("/")
+        if raw_url.endswith("/rest/v1"):
+            raw_url = raw_url[:-8].rstrip("/")
+        elif raw_url.endswith("/rest"):
+            raw_url = raw_url[:-5].rstrip("/")
+        self.supabase_url = raw_url
+        self.supabase_key = (supabase_key or config.supabase_key or "").strip()
         self._matches: List[MatchRecord] = []
         self._load()
 
@@ -114,7 +119,8 @@ class MatchHistoryService:
                         logger.info("Synced %d new matches from Supabase cloud.", count)
                         return count
                     else:
-                        logger.warning("Supabase pull returned HTTP %s", resp.status)
+                        text = await resp.text()
+                        logger.warning("Supabase pull returned HTTP %s from %s: %s", resp.status, url, text)
         except Exception as exc:
             logger.warning("Failed to sync from Supabase: %s", exc)
         return 0

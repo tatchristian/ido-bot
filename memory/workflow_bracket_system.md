@@ -69,16 +69,16 @@ The tournament bracket system equips DUKE with an automated esports bracket pipe
 ---
 
 ## ⌨️ Commands (`cogs/tournament_ops/staff_cmds.py`)
-- **Slash Commands:**
-  - `/t bracket view [section] [round]`
-  - `/t bracket lock`
-  - `/t bracket unlock`
-  - `/t bracket format <single|double>`
-  - `/t bracket shuffle`
-  - `/t bracket report <match_id> <winner> [score]`
-  - `/t bracket undo <match_id>`
-  - `/t bracket forfeit <match_id> <player>`
-  - `/t bracket test [mode] [count] [bracket_format]` — Automated diagnostic self-test: probes Supabase cloud DB (Insert/Select/Patch/Delete) and/or seeds 4, 8, or 16 mock duelists with live bracket panel.
+- **Slash Commands (`/bracket` Group):**
+  - `/bracket view [section] [round]`
+  - `/bracket lock`
+  - `/bracket unlock`
+  - `/bracket format <single|double>`
+  - `/bracket shuffle`
+  - `/bracket report <match_id> <winner> [score]`
+  - `/bracket undo <match_id>`
+  - `/bracket forfeit <match_id> <player>`
+  - `/bracket test [mode] [count] [bracket_format]` — Automated diagnostic self-test: probes Supabase cloud DB (Insert/Select/Patch/Delete) and/or seeds 2 to 16 mock duelists with live bracket panel.
   - `/post panel:Live Tournament Bracket Panel`
 - **Prefix Fallbacks:**
   - `!t_bracket [section] [round]`

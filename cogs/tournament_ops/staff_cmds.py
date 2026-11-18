@@ -60,10 +60,9 @@ logger = logging.getLogger(__name__)
 class TournamentStaffMixin:
     """Tournament staff and bracket administration commands."""
 
-    t_group = app_commands.Group(name="t", description="Tournament staff and bracket management")
+    t_group = app_commands.Group(name="t", description="Tournament staff operations")
     bracket_group = app_commands.Group(
         name="bracket",
-        parent=t_group,
         description="Interactive tournament bracket and match reporting",
     )
 
