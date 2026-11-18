@@ -261,6 +261,27 @@ def create_api_app(bot: Any) -> web.Application:
         stats = match_service.get_player_stats()
         return web.json_response(stats, headers=CORS_HEADERS)
 
+    async def bracket_image_handler(request: web.Request) -> web.Response:
+        """Returns the visual tournament bracket tree rendered as a PNG image."""
+        from utils.bracket_renderer import BracketImageRenderer
+        t_service = getattr(bot, "tournament_service", None)
+        if not t_service:
+            return web.Response(status=404, text="Tournament service not available.", headers=CORS_HEADERS)
+
+        section = request.query.get("section", "winners")
+        guild_id = 0
+        if "guild_id" in request.query and request.query["guild_id"].isdigit():
+            guild_id = int(request.query["guild_id"])
+        elif hasattr(t_service, "_guild_states") and t_service._guild_states:
+            guild_id = next(iter(t_service._guild_states.keys()))
+
+        bracket = t_service.get_bracket(guild_id)
+        state = t_service.get_state(guild_id)
+        buf = BracketImageRenderer.render(bracket, state.name, section)
+        headers = dict(CORS_HEADERS)
+        headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return web.Response(body=buf.getvalue(), content_type="image/png", headers=headers)
+
     # Register Routes
     app.router.add_get("/", health_handler)
     app.router.add_get("/health", health_handler)
@@ -274,6 +295,8 @@ def create_api_app(bot: Any) -> web.Application:
     app.router.add_get("/api/matches", matches_handler)
     app.router.add_get("/matches/stats", match_stats_handler)
     app.router.add_get("/api/matches/stats", match_stats_handler)
+    app.router.add_get("/bracket/image", bracket_image_handler)
+    app.router.add_get("/api/bracket/image", bracket_image_handler)
 
     # CORS Preflight OPTIONS routes
     app.router.add_route("OPTIONS", "/{tail:.*}", preflight_handler)

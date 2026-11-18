@@ -33,6 +33,7 @@ from utils.tournament_embeds import (
     build_staff_guide_embed,
     build_status_embed,
 )
+from utils.bracket_renderer import BracketImageRenderer
 
 logger = logging.getLogger(__name__)
 
@@ -2018,11 +2019,15 @@ class TournamentMatchReportModal(discord.ui.Modal, title="Record Match Score"):
 
         if self.parent_view and hasattr(self.parent_view, "message") and self.parent_view.message:
             try:
-                bracket = self.service.get_bracket(self.guild_id)
-                state = self.service.get_state(self.guild_id)
-                self.parent_view._sync_buttons()
-                new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
-                await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
+                if hasattr(self.parent_view, "get_render_payload"):
+                    embed, file = self.parent_view.get_render_payload()
+                    await self.parent_view.message.edit(embed=embed, attachments=[file], view=self.parent_view)
+                else:
+                    bracket = self.service.get_bracket(self.guild_id)
+                    state = self.service.get_state(self.guild_id)
+                    self.parent_view._sync_buttons()
+                    new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
+                    await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
             except Exception as e:
                 logger.warning("Failed to refresh bracket view after modal report: %s", e)
 
@@ -2131,11 +2136,15 @@ class TournamentMatchActionView(discord.ui.View):
 
         if self.parent_view and hasattr(self.parent_view, "message") and self.parent_view.message:
             try:
-                bracket = self.service.get_bracket(self.guild_id)
-                state = self.service.get_state(self.guild_id)
-                self.parent_view._sync_buttons()
-                new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
-                await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
+                if hasattr(self.parent_view, "get_render_payload"):
+                    embed, file = self.parent_view.get_render_payload()
+                    await self.parent_view.message.edit(embed=embed, attachments=[file], view=self.parent_view)
+                else:
+                    bracket = self.service.get_bracket(self.guild_id)
+                    state = self.service.get_state(self.guild_id)
+                    self.parent_view._sync_buttons()
+                    new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
+                    await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
             except Exception as e:
                 logger.warning("Failed to refresh bracket view after forfeit: %s", e)
 
@@ -2162,11 +2171,15 @@ class TournamentMatchActionView(discord.ui.View):
 
         if self.parent_view and hasattr(self.parent_view, "message") and self.parent_view.message:
             try:
-                bracket = self.service.get_bracket(self.guild_id)
-                state = self.service.get_state(self.guild_id)
-                self.parent_view._sync_buttons()
-                new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
-                await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
+                if hasattr(self.parent_view, "get_render_payload"):
+                    embed, file = self.parent_view.get_render_payload()
+                    await self.parent_view.message.edit(embed=embed, attachments=[file], view=self.parent_view)
+                else:
+                    bracket = self.service.get_bracket(self.guild_id)
+                    state = self.service.get_state(self.guild_id)
+                    self.parent_view._sync_buttons()
+                    new_embed = build_bracket_embed(bracket, state.name, self.parent_view.section, self.parent_view.round_num)
+                    await self.parent_view.message.edit(embed=new_embed, view=self.parent_view)
             except Exception as e:
                 logger.warning("Failed to refresh bracket view after forfeit: %s", e)
 
@@ -2300,28 +2313,33 @@ class TournamentBracketPanelView(discord.ui.View):
         fmt_name = "Double" if bracket.format == "single" else "Single"
         self.btn_toggle_format.label = f"Format: {fmt_name}"
 
+    def get_render_payload(self) -> tuple[discord.Embed, discord.File]:
+        """Builds both the status embed and the dynamic visual bracket tree PNG image."""
+        bracket = self.service.get_bracket(self.guild_id)
+        state = self.service.get_state(self.guild_id)
+        self._sync_buttons()
+        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
+        buf = BracketImageRenderer.render(bracket, state.name, self.section)
+        file = discord.File(buf, filename="bracket.png")
+        embed.set_image(url="attachment://bracket.png")
+        return embed, file
+
     @discord.ui.button(label="◀️ Prev", style=discord.ButtonStyle.secondary, custom_id="bracket_prev", row=0)
     async def btn_prev(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.message:
             self.message = interaction.message
-        bracket = self.service.get_bracket(self.guild_id)
         self.round_num = max(1, self.round_num - 1)
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary, custom_id="bracket_next", row=0)
     async def btn_next(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.message:
             self.message = interaction.message
-        bracket = self.service.get_bracket(self.guild_id)
-        max_r = self._get_max_rounds(bracket)
+        max_r = self._get_max_rounds(self.service.get_bracket(self.guild_id))
         self.round_num = min(max_r, self.round_num + 1)
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="🏆 Winners", style=discord.ButtonStyle.primary, custom_id="bracket_winners", row=0)
     async def btn_winners(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2329,11 +2347,8 @@ class TournamentBracketPanelView(discord.ui.View):
             self.message = interaction.message
         self.section = "winners"
         self.round_num = 1
-        bracket = self.service.get_bracket(self.guild_id)
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="🛡️ Losers", style=discord.ButtonStyle.primary, custom_id="bracket_losers", row=0)
     async def btn_losers(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2345,10 +2360,8 @@ class TournamentBracketPanelView(discord.ui.View):
             return
         self.section = "losers"
         self.round_num = 1
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="👑 Finals", style=discord.ButtonStyle.primary, custom_id="bracket_finals", row=0)
     async def btn_finals(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2360,10 +2373,8 @@ class TournamentBracketPanelView(discord.ui.View):
             return
         self.section = "finals"
         self.round_num = 1
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="⚔️ Record Match", style=discord.ButtonStyle.success, custom_id="bracket_record", row=1)
     async def btn_record(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2382,12 +2393,9 @@ class TournamentBracketPanelView(discord.ui.View):
             return
         if interaction.message:
             self.message = interaction.message
-        msg = self.service.shuffle_bracket_seeds(self.guild_id)
-        bracket = self.service.get_bracket(self.guild_id)
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        self.service.shuffle_bracket_seeds(self.guild_id)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="Format: Double", style=discord.ButtonStyle.secondary, custom_id="bracket_format", row=1)
     async def btn_toggle_format(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2398,12 +2406,9 @@ class TournamentBracketPanelView(discord.ui.View):
             self.message = interaction.message
         bracket = self.service.get_bracket(self.guild_id)
         new_fmt = "double" if bracket.format == "single" else "single"
-        msg = self.service.set_bracket_format(new_fmt, self.guild_id)
-        bracket = self.service.get_bracket(self.guild_id)
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        self.service.set_bracket_format(new_fmt, self.guild_id)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="🔒 Lock", style=discord.ButtonStyle.success, custom_id="bracket_lock", row=1)
     async def btn_lock(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2417,21 +2422,15 @@ class TournamentBracketPanelView(discord.ui.View):
             self.service.unlock_bracket(self.guild_id)
         else:
             self.service.lock_bracket(self.guild_id)
-        bracket = self.service.get_bracket(self.guild_id)
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
     @discord.ui.button(label="🔄 Refresh", style=discord.ButtonStyle.secondary, custom_id="bracket_refresh", row=1)
     async def btn_refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.message:
             self.message = interaction.message
-        bracket = self.service.get_bracket(self.guild_id)
-        self._sync_buttons()
-        state = self.service.get_state(self.guild_id)
-        embed = build_bracket_embed(bracket, state.name, self.section, self.round_num)
-        await interaction.response.edit_message(embed=embed, view=self)
+        embed, file = self.get_render_payload()
+        await interaction.response.edit_message(embed=embed, attachments=[file], view=self)
 
 
 __all__ = [

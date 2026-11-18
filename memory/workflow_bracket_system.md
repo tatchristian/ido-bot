@@ -48,6 +48,16 @@ The tournament bracket system equips DUKE with an automated esports bracket pipe
   - Returns array of match records with CORS headers enabled (`Access-Control-Allow-Origin: *`).
 - **`GET /matches/stats` (or `/api/matches/stats`):**
   - Returns aggregated leaderboard stats (wins, losses, current win streaks) consumed by Herald bot.
+- **`GET /bracket/image` (or `/api/bracket/image`):**
+  - Query parameters: `?section=winners|losers|finals&guild_id=...`
+  - Returns dynamically generated high-resolution PNG bracket diagram.
+
+---
+
+## 🎨 Visual Bracket Image Renderer (`utils/bracket_renderer.py`)
+- **Challonge-Style Graphical Trees:** Generates visual PNG graphics with dark theme, seed numbers, participant IGNs, orange score badges, and crisp elbow connectors.
+- **Auto-Attachment:** `TournamentBracketPanelView.get_render_payload()` attaches `bracket.png` directly into the Discord embed via `embed.set_image(url="attachment://bracket.png")`.
+- **Live Re-Rendering:** Re-renders in <5ms whenever rounds are paged, matches are reported, formats are toggled, or seeds are shuffled.
 
 ---
 

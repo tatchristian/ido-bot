@@ -226,9 +226,9 @@ class TournamentConfigMixin:
                 await interaction.response.send_message(f"❌ Missing Send Messages or Embed Links permission in {target.mention}.", ephemeral=True)
                 return
             bracket = self.service.get_bracket(guild_id)
-            embed = build_bracket_embed(bracket, state.name, section="winners", round_num=1)
             view = TournamentBracketPanelView(self.service, guild_id=guild_id, section="winners", round_num=1)
-            msg = await target.send(embed=embed, view=view)
+            embed, file = view.get_render_payload()
+            msg = await target.send(embed=embed, file=file, view=view)
             view.message = msg
             state.bracket_channel_id = target.id
             state.bracket_message_id = msg.id

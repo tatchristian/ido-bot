@@ -40,10 +40,12 @@ class BracketMatch:
     player1_ign: str = "TBD"            # IGN, "BYE", or "TBD"
     player1_clan: Optional[str] = None
     player1_checked_in: bool = False
+    player1_seed: Optional[int] = None
     player2_id: Optional[int] = None
     player2_ign: str = "TBD"
     player2_clan: Optional[str] = None
     player2_checked_in: bool = False
+    player2_seed: Optional[int] = None
     score: Optional[str] = None
     winner_id: Optional[int] = None
     winner_ign: Optional[str] = None
@@ -203,10 +205,12 @@ class BracketEngine:
                 player1_ign=p1.get("ign", "BYE") if p1 else "BYE",
                 player1_clan=p1.get("clan") if p1 else None,
                 player1_checked_in=p1.get("checked_in", False) if p1 else False,
+                player1_seed=s1 if p1 else None,
                 player2_id=p2.get("user_id") if p2 else None,
                 player2_ign=p2.get("ign", "BYE") if p2 else "BYE",
                 player2_clan=p2.get("clan") if p2 else None,
                 player2_checked_in=p2.get("checked_in", False) if p2 else False,
+                player2_seed=s2 if p2 else None,
                 next_match_id=next_id,
                 next_match_slot=next_slot,
             )
@@ -356,16 +360,19 @@ class BracketEngine:
             return
 
         target = bracket.matches[match.next_match_id]
+        winner_seed = match.player1_seed if match.winner_id == match.player1_id else match.player2_seed
         if match.next_match_slot == 1:
             target.player1_id = match.winner_id
             target.player1_ign = match.winner_ign or "TBD"
             target.player1_clan = match.player1_clan if match.winner_id == match.player1_id else match.player2_clan
             target.player1_checked_in = match.player1_checked_in if match.winner_id == match.player1_id else match.player2_checked_in
+            target.player1_seed = winner_seed
         else:
             target.player2_id = match.winner_id
             target.player2_ign = match.winner_ign or "TBD"
             target.player2_clan = match.player1_clan if match.winner_id == match.player1_id else match.player2_clan
             target.player2_checked_in = match.player1_checked_in if match.winner_id == match.player1_id else match.player2_checked_in
+            target.player2_seed = winner_seed
 
     @classmethod
     def _drop_loser(cls, bracket: TournamentBracket, match: BracketMatch) -> None:
@@ -375,16 +382,19 @@ class BracketEngine:
         target = bracket.matches[match.loser_match_id]
         loser_clan = match.player1_clan if match.loser_id == match.player1_id else match.player2_clan
         loser_checked = match.player1_checked_in if match.loser_id == match.player1_id else match.player2_checked_in
+        loser_seed = match.player1_seed if match.loser_id == match.player1_id else match.player2_seed
         if match.loser_match_slot == 1:
             target.player1_id = match.loser_id
             target.player1_ign = match.loser_ign or "TBD"
             target.player1_clan = loser_clan
             target.player1_checked_in = loser_checked
+            target.player1_seed = loser_seed
         else:
             target.player2_id = match.loser_id
             target.player2_ign = match.loser_ign or "TBD"
             target.player2_clan = loser_clan
             target.player2_checked_in = loser_checked
+            target.player2_seed = loser_seed
 
     @classmethod
     def _drop_bye_loser(cls, bracket: TournamentBracket, match: BracketMatch) -> None:
@@ -487,11 +497,13 @@ class BracketEngine:
                 downstream.player1_ign = "TBD"
                 downstream.player1_clan = None
                 downstream.player1_checked_in = False
+                downstream.player1_seed = None
             else:
                 downstream.player2_id = None
                 downstream.player2_ign = "TBD"
                 downstream.player2_clan = None
                 downstream.player2_checked_in = False
+                downstream.player2_seed = None
             downstream.state = "pending"
 
         # Check if downstream loser match is already played
@@ -506,11 +518,13 @@ class BracketEngine:
                 downstream_l.player1_ign = "TBD"
                 downstream_l.player1_clan = None
                 downstream_l.player1_checked_in = False
+                downstream_l.player1_seed = None
             else:
                 downstream_l.player2_id = None
                 downstream_l.player2_ign = "TBD"
                 downstream_l.player2_clan = None
                 downstream_l.player2_checked_in = False
+                downstream_l.player2_seed = None
             downstream_l.state = "pending"
 
         # If this was GF and triggered GF-RESET, clean up GF-RESET

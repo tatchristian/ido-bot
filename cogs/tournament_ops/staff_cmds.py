@@ -30,6 +30,7 @@ from utils.tournament_embeds import (
     build_status_embed,
     build_tournament_reminder_embed,
 )
+from utils.bracket_renderer import BracketImageRenderer
 from utils.tournament_views import (
     TournamentBracketPanelView,
     TournamentMatchReportSelectView,
@@ -1455,9 +1456,9 @@ class TournamentStaffMixin:
         sec_val = section.value if section else "winners"
         r_num = max(1, round_number or 1)
 
-        embed = build_bracket_embed(bracket, state.name, sec_val, r_num)
         view = TournamentBracketPanelView(self.service, guild_id=guild_id, section=sec_val, round_num=r_num)
-        await interaction.response.send_message(embed=embed, view=view)
+        embed, file = view.get_render_payload()
+        await interaction.response.send_message(embed=embed, file=file, view=view)
         try:
             view.message = await interaction.original_response()
             state.bracket_channel_id = interaction.channel_id
@@ -1465,6 +1466,29 @@ class TournamentStaffMixin:
             self.service._persist(guild_id)
         except Exception:
             pass
+
+    @bracket_group.command(
+        name="image",
+        description="Render and upload a visual tournament bracket diagram (PNG).",
+    )
+    @app_commands.describe(section="Bracket division: winners, losers, or finals")
+    @app_commands.choices(section=BRACKET_SECTION_CHOICES)
+    async def bracket_image_cmd(
+        self,
+        interaction: discord.Interaction,
+        section: Optional[app_commands.Choice[str]] = None,
+    ):
+        await interaction.response.defer()
+        guild_id = interaction.guild_id or 0
+        state = self.service.get_state(guild_id)
+        bracket = self.service.get_bracket(guild_id)
+        sec_val = section.value if section else "winners"
+        buf = BracketImageRenderer.render(bracket, state.name, sec_val)
+        file = discord.File(buf, filename="bracket.png")
+        await interaction.followup.send(
+            content=f"📊 **Visual Tournament Bracket — {sec_val.title()} Division**",
+            file=file,
+        )
 
     @bracket_group.command(
         name="lock",
@@ -1726,10 +1750,9 @@ class TournamentStaffMixin:
         # If mock mode, also post live bracket panel
         if mode_val in ("mock", "full"):
             state = self.service.get_state(guild_id)
-            bracket = self.service.get_bracket(guild_id)
-            b_embed = build_bracket_embed(bracket, state.name, "winners", 1)
             panel_view = TournamentBracketPanelView(self.service, guild_id=guild_id, section="winners", round_num=1)
-            panel_msg = await channel.send(embed=b_embed, view=panel_view)
+            b_embed, b_file = panel_view.get_render_payload()
+            panel_msg = await channel.send(embed=b_embed, file=b_file, view=panel_view)
             panel_view.message = panel_msg
             state.bracket_channel_id = channel.id
             state.bracket_message_id = panel_msg.id
@@ -1798,13 +1821,27 @@ class TournamentStaffMixin:
         sec_val = (section or "winners").lower()
         r_num = max(1, round_number or 1)
 
-        embed = build_bracket_embed(bracket, state.name, sec_val, r_num)
         view = TournamentBracketPanelView(self.service, guild_id=guild_id, section=sec_val, round_num=r_num)
-        msg = await ctx.send(embed=embed, view=view)
+        embed, file = view.get_render_payload()
+        msg = await ctx.send(embed=embed, file=file, view=view)
         view.message = msg
         state.bracket_channel_id = ctx.channel.id
         state.bracket_message_id = msg.id
         self.service._persist(guild_id)
+
+    @commands.command(name="bracket_image", aliases=["t_bracket_image", "bracket_img"])
+    async def bracket_image_prefix(self, ctx: commands.Context, section: Optional[str] = "winners"):
+        """Prefix command fallback (!bracket_image [winners|losers|finals])."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+        guild_id = ctx.guild.id
+        state = self.service.get_state(guild_id)
+        bracket = self.service.get_bracket(guild_id)
+        sec_val = (section or "winners").lower()
+        buf = BracketImageRenderer.render(bracket, state.name, sec_val)
+        file = discord.File(buf, filename="bracket.png")
+        await ctx.send(content=f"📊 **Visual Tournament Bracket — {sec_val.title()} Division**", file=file)
 
     @commands.command(name="t_report", aliases=["report_match"])
     async def t_report_prefix(

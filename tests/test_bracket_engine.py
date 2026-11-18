@@ -291,3 +291,31 @@ def test_double_elimination_odd_roster_byes():
     assert bracket.champion_id == 1
     assert bracket.runner_up_id == 2
 
+
+def test_bracket_image_renderer():
+    from utils.bracket_renderer import BracketImageRenderer
+
+    participants = [
+        {"user_id": 1, "ign": "Spider", "clan": "KAZE"},
+        {"user_id": 2, "ign": "Blaze", "clan": "BLUE"},
+        {"user_id": 3, "ign": "Viper", "clan": "YUME"},
+        {"user_id": 4, "ign": "Frost", "clan": None},
+    ]
+    bracket = BracketEngine.build_bracket(participants, format="double")
+    BracketEngine.report_match(bracket, "WB-R1-M1", 1, score="2-0")
+
+    # Winners rendering
+    buf_w = BracketImageRenderer.render(bracket, "UDA Cup", "winners")
+    assert buf_w is not None
+    assert len(buf_w.getvalue()) > 5000
+
+    # Losers rendering
+    buf_l = BracketImageRenderer.render(bracket, "UDA Cup", "losers")
+    assert buf_l is not None
+    assert len(buf_l.getvalue()) > 5000
+
+    # Finals rendering
+    buf_f = BracketImageRenderer.render(bracket, "UDA Cup", "finals")
+    assert buf_f is not None
+    assert len(buf_f.getvalue()) > 3000
+
