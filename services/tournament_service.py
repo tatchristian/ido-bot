@@ -677,8 +677,9 @@ class TournamentService:
     def report_bracket_match(
         self,
         match_id: str,
-        winner_id: int,
+        winner_id: Optional[int] = None,
         score: Optional[str] = None,
+        winner_ign: Optional[str] = None,
         recorded_by: Optional[int] = None,
         match_history_service: Optional[Any] = None,
         clan_showcase_service: Optional[Any] = None,
@@ -686,7 +687,9 @@ class TournamentService:
     ) -> Tuple[bool, str, Optional[BracketMatch]]:
         state = self.get_state(guild_id)
         bracket = self.get_bracket(guild_id)
-        ok, msg, match = BracketEngine.report_match(bracket, match_id, winner_id, score=score)
+        ok, msg, match = BracketEngine.report_match(
+            bracket, match_id, winner_id=winner_id, score=score, winner_ign=winner_ign
+        )
         if ok and match:
             state.bracket_data = bracket.to_dict()
             self._persist(guild_id)
@@ -772,31 +775,124 @@ class TournamentService:
 
     def swap_bracket_player(
         self,
-        old_user_id: int,
-        new_participant: Participant,
+        target_player: str | int | None = None,
+        new_participant: Optional[Participant] = None,
         guild_id: int = 0,
+        old_user_id: Optional[int] = None,
     ) -> Tuple[bool, str]:
-        bracket = self.get_bracket(guild_id)
-        found = False
-        for m in bracket.matches.values():
-            if m.player1_id == old_user_id and m.state in ("ready", "pending"):
-                m.player1_id = new_participant.user_id
-                m.player1_ign = new_participant.ign
-                m.player1_checked_in = new_participant.checked_in
-                found = True
-            elif m.player2_id == old_user_id and m.state in ("ready", "pending"):
-                m.player2_id = new_participant.user_id
-                m.player2_ign = new_participant.ign
-                m.player2_checked_in = new_participant.checked_in
-                found = True
+        """
+        Replaces a no-show or absent player in the active tournament bracket and roster
+        with a substitute or new player. Supports lookup by user ID, mention, or IGN.
+        Supports old_user_id kwarg for backwards compatibility.
+        """
+        if new_participant is None:
+            return False, "No replacement participant provided."
 
-        if not found:
-            return False, f"User <@{old_user_id}> was not found in any unplayed match slots."
+        target = target_player if target_player is not None else old_user_id
+        if target is None:
+            return False, "No target player specified to substitute."
 
         state = self.get_state(guild_id)
+        bracket = self.get_bracket(guild_id)
+
+        target_str = str(target).strip().lstrip("<@!").rstrip(">")
+        target_id = int(target_str) if target_str.isdigit() else None
+        target_ign_lower = target_str.lower()
+
+        old_participant = None
+        for i, p in enumerate(state.participants):
+            if (target_id and p.user_id == target_id) or p.ign.lower() == target_ign_lower:
+                old_participant = p
+                state.participants[i] = new_participant
+                break
+
+        old_ign = old_participant.ign if old_participant else str(target)
+        old_uid = old_participant.user_id if old_participant else target_id
+
+        found = False
+        for m in bracket.matches.values():
+            if m.state in ("ready", "pending"):
+                if (old_uid and m.player1_id == old_uid) or (m.player1_ign and m.player1_ign.lower() == target_ign_lower):
+                    m.player1_id = new_participant.user_id
+                    m.player1_ign = new_participant.ign
+                    m.player1_clan = getattr(new_participant, "clan", None)
+                    m.player1_checked_in = new_participant.checked_in
+                    found = True
+                if (old_uid and m.player2_id == old_uid) or (m.player2_ign and m.player2_ign.lower() == target_ign_lower):
+                    m.player2_id = new_participant.user_id
+                    m.player2_ign = new_participant.ign
+                    m.player2_clan = getattr(new_participant, "clan", None)
+                    m.player2_checked_in = new_participant.checked_in
+                    found = True
+
+        if not found and not old_participant:
+            return False, f"Duelist **{target_player}** was not found in any unplayed bracket matches or active roster."
+
+        BracketEngine.evaluate_ready_states(bracket)
         state.bracket_data = bracket.to_dict()
         self._persist(guild_id)
-        return True, f"🔄 Swapped <@{old_user_id}> with **{new_participant.ign}** in the bracket."
+        return True, f"🔄 Successfully substituted **{old_ign}** with **{new_participant.ign}** in the bracket!"
+
+    def override_bracket_match(
+        self,
+        match_id: str,
+        winner_identifier: str | int,
+        score: Optional[str] = None,
+        recorded_by: Optional[int] = None,
+        match_history_service: Optional[Any] = None,
+        clan_showcase_service: Optional[Any] = None,
+        guild_id: int = 0,
+    ) -> Tuple[bool, str, Optional[BracketMatch]]:
+        """
+        Changes or overrides the winner of a match, even if previously completed.
+        Re-routes the new winner downstream and updates the cloud match ledger.
+        """
+        state = self.get_state(guild_id)
+        bracket = self.get_bracket(guild_id)
+
+        if match_id not in bracket.matches:
+            return False, f"Match `{match_id}` was not found in the bracket.", None
+
+        match = bracket.matches[match_id]
+        w_str = str(winner_identifier).strip().lstrip("<@!").rstrip(">")
+        w_id = int(w_str) if w_str.isdigit() else None
+        w_lower = w_str.lower()
+
+        p1_match = (w_id and match.player1_id == w_id) or (match.player1_ign and match.player1_ign.lower() == w_lower)
+        p2_match = (w_id and match.player2_id == w_id) or (match.player2_ign and match.player2_ign.lower() == w_lower)
+
+        if not p1_match and not p2_match:
+            return False, f"**{winner_identifier}** is neither `{match.player1_ign}` nor `{match.player2_ign}` in match `{match_id}`.", match
+
+        new_winner_id = match.player1_id if p1_match else match.player2_id
+
+        # If already completed with the same winner and same score, nothing to change
+        if match.state == "completed" and match.winner_id == new_winner_id and match.score == score:
+            return True, f"Match `{match_id}` already recorded with winner **{match.winner_ign}**.", match
+
+        # If completed, undo it first to cleanly clear downstream slots
+        if match.state == "completed":
+            ok, undo_msg = BracketEngine.undo_match(bracket, match_id)
+            if not ok:
+                return False, f"Cannot override match `{match_id}`: {undo_msg}", match
+            state.bracket_data = bracket.to_dict()
+            self._persist(guild_id)
+            if match_history_service:
+                hist_match_id = self.get_match_history_id(guild_id, match_id)
+                match_history_service.void_match(hist_match_id, reason="Result overridden by staff")
+
+        # Now report the match with the new winner
+        new_winner_ign = match.player1_ign if p1_match else match.player2_ign
+        return self.report_bracket_match(
+            match_id=match_id,
+            winner_id=new_winner_id,
+            winner_ign=new_winner_ign,
+            score=score,
+            recorded_by=recorded_by,
+            match_history_service=match_history_service,
+            clan_showcase_service=clan_showcase_service,
+            guild_id=guild_id,
+        )
 
     def set_tournament_time(
         self,

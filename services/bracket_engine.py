@@ -414,12 +414,14 @@ class BracketEngine:
         cls,
         bracket: TournamentBracket,
         match_id: str,
-        winner_id: int,
+        winner_id: Optional[int] = None,
         score: Optional[str] = None,
+        winner_ign: Optional[str] = None,
     ) -> Tuple[bool, str, Optional[BracketMatch]]:
         """
         Records match result. Winner advances to next match.
         Supports out-of-order execution as long as the match is in 'ready' state.
+        Accepts winner by user ID or IGN.
         """
         if match_id not in bracket.matches:
             return False, f"Match `{match_id}` not found in bracket.", None
@@ -431,21 +433,34 @@ class BracketEngine:
             return False, f"Match `{match_id}` is not ready to be played.", match
 
         # Verify winner is in match
-        if winner_id == match.player1_id:
-            winner_ign = match.player1_ign
-            loser_id = match.player2_id
-            loser_ign = match.player2_ign
-        elif winner_id == match.player2_id:
-            winner_ign = match.player2_ign
-            loser_id = match.player1_id
-            loser_ign = match.player1_ign
+        if winner_id is not None and match.player1_id is not None and winner_id == match.player1_id:
+            resolved_winner_id = match.player1_id
+            resolved_winner_ign = match.player1_ign
+            resolved_loser_id = match.player2_id
+            resolved_loser_ign = match.player2_ign
+        elif winner_id is not None and match.player2_id is not None and winner_id == match.player2_id:
+            resolved_winner_id = match.player2_id
+            resolved_winner_ign = match.player2_ign
+            resolved_loser_id = match.player1_id
+            resolved_loser_ign = match.player1_ign
+        elif winner_ign and match.player1_ign and winner_ign.strip().lower() == match.player1_ign.strip().lower():
+            resolved_winner_id = match.player1_id
+            resolved_winner_ign = match.player1_ign
+            resolved_loser_id = match.player2_id
+            resolved_loser_ign = match.player2_ign
+        elif winner_ign and match.player2_ign and winner_ign.strip().lower() == match.player2_ign.strip().lower():
+            resolved_winner_id = match.player2_id
+            resolved_winner_ign = match.player2_ign
+            resolved_loser_id = match.player1_id
+            resolved_loser_ign = match.player1_ign
         else:
-            return False, f"User <@{winner_id}> is not a participant in match `{match_id}`.", match
+            ident = winner_ign or (f"<@{winner_id}>" if winner_id else "Selected player")
+            return False, f"{ident} is not a participant in match `{match_id}`.", match
 
-        match.winner_id = winner_id
-        match.winner_ign = winner_ign
-        match.loser_id = loser_id
-        match.loser_ign = loser_ign
+        match.winner_id = resolved_winner_id
+        match.winner_ign = resolved_winner_ign
+        match.loser_id = resolved_loser_id
+        match.loser_ign = resolved_loser_ign
         match.score = score
         match.state = "completed"
 

@@ -874,6 +874,45 @@ def test_bracket_operations_in_tournament_service(service: TournamentService):
     assert id1 != id2  # Match IDs for Tournament 2 will NEVER collide with Tournament 1!
 
 
+def test_bracket_override_and_sub_by_ign(service: TournamentService):
+    service.open_tournament(name="Override Cup", slots=4)
+    service.register_participant(100, "<@100>", "Alpha", "Katana", "NA")
+    service.register_participant(200, "<@200>", "Beta", "Katana", "NA")
+    service.register_participant(300, "<@300>", "Gamma", "Katana", "NA")
+    service.register_participant(400, "<@400>", "Delta", "Katana", "NA")
+
+    bracket = service.get_bracket()
+    m1 = next(m for m in bracket.matches.values() if m.player1_id == 100)
+
+    # 1. Substitute by IGN before match is played
+    sub_player = Participant(user_id=500, user_mention="<@500>", ign="AlphaSub", weapon="Claymore", region="EU")
+    ok_sub, msg_sub = service.swap_bracket_player(target_player="Alpha", new_participant=sub_player)
+    assert ok_sub is True
+    assert "AlphaSub" in msg_sub
+    m1_updated = service.get_bracket().matches[m1.match_id]
+    assert m1_updated.player1_id == 500
+    assert m1_updated.player1_ign == "AlphaSub"
+
+    # 2. Report match: AlphaSub wins
+    ok_rep, msg_rep, m_res = service.report_bracket_match(m1.match_id, winner_id=500, score="2-0")
+    assert ok_rep is True
+    assert m_res.state == "completed"
+    assert m_res.winner_ign == "AlphaSub"
+
+    # 3. Override result: switch winner to opponent (by IGN)
+    opponent_ign = m1_updated.player2_ign
+    ok_ov, msg_ov, m_ov = service.override_bracket_match(
+        match_id=m1.match_id,
+        winner_identifier=opponent_ign,
+        score="2-1",
+    )
+    assert ok_ov is True
+    assert m_ov.winner_ign == opponent_ign
+    assert m_ov.score == "2-1"
+    assert m_ov.state == "completed"
+
+
+
 
 
 

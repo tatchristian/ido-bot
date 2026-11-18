@@ -63,18 +63,20 @@ The tournament bracket system equips DUKE with an automated esports bracket pipe
 
 ## 🎛️ Interactive Discord UI (`utils/tournament_views.py`, `utils/tournament_embeds.py`)
 - **Bracket Panel View:** `TournamentBracketPanelView`
-  - `◀️ Prev` / `Next ▶️`: Page through tournament rounds.
-  - `🏆 Winners` / `🛡️ Losers` / `👑 Finals`: Switch division views in Double Elimination.
-  - `⚔️ Record Match`: Opens `TournamentMatchReportSelectView` listing all currently `READY` matches.
+  - `◀️ R{n-1}` / `R{n+1} ▶️`: Dynamic round pagination buttons displaying exact target round numbers (disables at `◀️ Start` and `End ▶️`).
+  - `🏆 Winners` / `🛡️ Losers` / `👑 Finals`: Switch division views. In Single Elimination, clicking Losers or Finals presents `SwitchToDoubleElimView` with a 1-click `🔀 Switch to Double Elimination` button that seamlessly toggles format and opens the Losers division.
+  - `⚔️ Record / Edit`: Opens `TournamentMatchReportSelectView` listing both `READY` matches (⚔️) and `COMPLETED` matches (✏️) for winner switches or score corrections.
+  - `👥 Sub Player`: Interactive substitution dropdown (`TournamentBracketSubSelectView`) allowing staff to select an absent/no-show duelist and enter replacement IGN/Discord user to instantly swap them in active bracket slots and roster.
   - `🔀 Shuffle`: Randomizes seeds (draft mode only).
-  - `Format: Single/Double`: One-click toggle between elimination types (draft mode only).
+  - `Format: 1️⃣ Single` / `Format: 2️⃣ Double`: Displays current active format; clicking toggles format seamlessly (draft mode only).
   - `🔒 Lock Bracket` / `🔓 Unlock Bracket`: Toggles between draft mode (auto-updating with registrations) and live tournament mode.
   - `🔄 Refresh`: Redraws the bracket embed in-place.
-- **Match Reporting View:** `TournamentMatchReportSelectView`
-  - Dropdown of all `READY` matches.
-  - On match selection, opens buttons: `🏆 Player 1 Won`, `🏆 Player 2 Won`, `🏳️ Forfeit Player 1`, `🏳️ Forfeit Player 2`.
+- **Match Reporting & Override View:** `TournamentMatchActionView` & `TournamentMatchReportModal`
+  - Dropdown of all `READY` (⚔️) and `COMPLETED` (✏️) matches.
+  - For `READY` matches: buttons for `🏆 Player 1 Won`, `🏆 Player 2 Won`, `🏳️ Forfeit Player 1`, `🏳️ Forfeit Player 2`.
+  - For `COMPLETED` matches: buttons for `👑 Current Winner: {ign}` (disabled), `🔄 Switch Winner to {opponent}` (overrides winner downstream and re-records in Supabase), `✏️ Edit Score` (updates match score), `↩️ Undo / Reopen Match`.
   - Winner buttons launch `TournamentMatchReportModal` to input optional score (e.g. `2-0`, `2-1`).
-  - Automatically updates the public bracket panel embed upon submission.
+  - Automatically updates the public bracket panel embed and visual tree image upon submission.
 
 ---
 
@@ -86,6 +88,8 @@ The tournament bracket system equips DUKE with an automated esports bracket pipe
   - `/bracket format <single|double>`
   - `/bracket shuffle`
   - `/bracket report <match_id> <winner> [score]`
+  - `/bracket override <match_id> <winner> [score]` — Override or change the winner of a match, reverting downstream slots, advancing new winner, and voiding old ledger in Supabase.
+  - `/bracket sub <target> <replacement_ign> [member] [weapon] [region]` — Substitute a no-show player in unplayed match slots and active roster.
   - `/bracket undo <match_id>`
   - `/bracket forfeit <match_id> <player>`
   - `/bracket test [mode] [count] [bracket_format]` — Automated diagnostic self-test: probes Supabase cloud DB (Insert/Select/Patch/Delete) and/or seeds 2 to 16 mock duelists with live bracket panel.
@@ -93,9 +97,20 @@ The tournament bracket system equips DUKE with an automated esports bracket pipe
 - **Prefix Fallbacks:**
   - `!t_bracket [section] [round]`
   - `!t_report <match_id> <@winner> [score]`
+  - `!t_override <match_id> <winner_ign_or_id> [score]`
+  - `!t_sub <target_ign_or_id> <new_ign> [@member] [weapon]`
   - `!t_undo <match_id>`
   - `!t_forfeit <match_id> <@player>`
   - `!t_test [full|cloud|mock|cleanup] [count] [single|double]` — Prefix fallback for diagnostic probe and mock bracket generator.
+
+---
+
+## ☁️ Supabase Cloud Database Privileges
+If the Supabase connectivity probe fails with HTTP 401 / PostgreSQL error `42501` (`permission denied for table tournament_matches`), execute the following query in the Supabase SQL Editor:
+```sql
+GRANT ALL ON TABLE tournament_matches TO anon, authenticated, service_role;
+```
+This grants table-level access so that Supabase Row Level Security (RLS) policies can evaluate incoming REST requests.
 
 ---
 

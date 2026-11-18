@@ -1631,6 +1631,119 @@ class TournamentStaffMixin:
             f"🏳️ **Match `{match.match_id}` Recorded as Forfeit!**\n👑 **{match.winner_ign}** wins by forfeit."
         )
 
+    @bracket_group.command(
+        name="sub",
+        description="[Admin] Substitute a no-show or absent player in the active tournament bracket.",
+    )
+    @app_commands.describe(
+        target="The duelist to replace (IGN, @mention, or user ID)",
+        replacement_ign="In-game name (IGN) of the replacement player",
+        member="Discord member account of the replacement player (optional)",
+        weapon="Weapon/loadout for the replacement player (optional)",
+        region="Server/region for the replacement player (optional, default: GLOBAL)",
+    )
+    @is_tournament_admin()
+    async def bracket_sub_cmd(
+        self,
+        interaction: discord.Interaction,
+        target: str,
+        replacement_ign: str,
+        member: Optional[discord.Member] = None,
+        weapon: Optional[str] = "Unknown",
+        region: Optional[str] = "GLOBAL",
+    ):
+        await interaction.response.defer()
+        guild_id = interaction.guild_id or 0
+        rep_id = member.id if member else (98000 + random.randint(100, 999))
+        rep_mention = member.mention if member else f"@{replacement_ign}"
+
+        new_p = Participant(
+            user_id=rep_id,
+            user_mention=rep_mention,
+            ign=replacement_ign.strip(),
+            weapon=(weapon or "Unknown").strip(),
+            region=(region or "GLOBAL").strip(),
+            checked_in=True,
+        )
+
+        ok, msg = self.service.swap_bracket_player(
+            target_player=target.strip(),
+            new_participant=new_p,
+            guild_id=guild_id,
+        )
+        if not ok:
+            await interaction.followup.send(f"❌ {msg}")
+            return
+
+        # Refresh live bracket panel if one exists
+        state = self.service.get_state(guild_id)
+        if state.bracket_channel_id and state.bracket_message_id:
+            try:
+                ch = self.bot.get_channel(state.bracket_channel_id)
+                if ch:
+                    b_msg = await ch.fetch_message(state.bracket_message_id)
+                    p_view = TournamentBracketPanelView(self.service, guild_id=guild_id, section="winners", round_num=1)
+                    p_view.message = b_msg
+                    b_embed, b_file = p_view.get_render_payload()
+                    await b_msg.edit(embed=b_embed, attachments=[b_file], view=p_view)
+            except Exception as e:
+                logger.warning("Failed to refresh live bracket panel after /bracket sub: %s", e)
+
+        await interaction.followup.send(f"✅ {msg}")
+
+    @bracket_group.command(
+        name="override",
+        description="[Admin] Override or change the winner of a match, rerouting them downstream.",
+    )
+    @app_commands.describe(
+        match_id="Match ID code to override (e.g. WB-R1-M1)",
+        winner="Winner of the match (IGN, @mention, or user ID)",
+        score="Final match score (e.g. 2-0, 2-1, optional)",
+    )
+    @is_tournament_admin()
+    async def bracket_override_cmd(
+        self,
+        interaction: discord.Interaction,
+        match_id: str,
+        winner: str,
+        score: Optional[str] = None,
+    ):
+        await interaction.response.defer()
+        guild_id = interaction.guild_id or 0
+        m_history = getattr(self.bot, "match_history_service", None)
+        c_showcase = getattr(self.bot, "clan_showcase_service", None)
+
+        ok, msg, match = self.service.override_bracket_match(
+            match_id=match_id.upper().strip(),
+            winner_identifier=winner.strip(),
+            score=score.strip() if score else None,
+            recorded_by=interaction.user.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=guild_id,
+        )
+        if not ok or not match:
+            await interaction.followup.send(f"❌ {msg}")
+            return
+
+        state = self.service.get_state(guild_id)
+        if state.bracket_channel_id and state.bracket_message_id:
+            try:
+                ch = self.bot.get_channel(state.bracket_channel_id)
+                if ch:
+                    b_msg = await ch.fetch_message(state.bracket_message_id)
+                    p_view = TournamentBracketPanelView(self.service, guild_id=guild_id, section=match.section, round_num=match.round_number)
+                    p_view.message = b_msg
+                    b_embed, b_file = p_view.get_render_payload()
+                    await b_msg.edit(embed=b_embed, attachments=[b_file], view=p_view)
+            except Exception as e:
+                logger.warning("Failed to refresh live bracket panel after /bracket override: %s", e)
+
+        score_disp = f" (`{score}`)" if score else ""
+        await interaction.followup.send(
+            f"✅ **Match `{match.match_id}` Overridden & Updated!**\n👑 **{match.winner_ign}** defeated **{match.loser_ign}**{score_disp}."
+        )
+
     async def _run_bracket_diagnostic(
         self,
         guild_id: int,
@@ -1968,5 +2081,112 @@ class TournamentStaffMixin:
             count=count or 8,
             bracket_format=bracket_format or "double",
             respond_fn=_respond,
+        )
+
+    @commands.command(name="t_sub", aliases=["bracket_sub", "sub_player"])
+    async def t_sub_prefix(
+        self,
+        ctx: commands.Context,
+        target: str,
+        replacement_ign: str,
+        member: Optional[discord.Member] = None,
+        weapon: Optional[str] = "Unknown",
+    ):
+        """Prefix command fallback (!t_sub <target_ign_or_id> <new_ign> [@member] [weapon])."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Tournament Admin permissions to sub players.")
+            return
+
+        guild_id = ctx.guild.id
+        rep_id = member.id if member else (98000 + random.randint(100, 999))
+        rep_mention = member.mention if member else f"@{replacement_ign}"
+
+        new_p = Participant(
+            user_id=rep_id,
+            user_mention=rep_mention,
+            ign=replacement_ign.strip(),
+            weapon=(weapon or "Unknown").strip(),
+            region="GLOBAL",
+            checked_in=True,
+        )
+
+        ok, msg = self.service.swap_bracket_player(
+            target_player=target.strip(),
+            new_participant=new_p,
+            guild_id=guild_id,
+        )
+        if not ok:
+            await ctx.send(f"❌ {msg}")
+            return
+
+        state = self.service.get_state(guild_id)
+        if state.bracket_channel_id and state.bracket_message_id:
+            try:
+                ch = self.bot.get_channel(state.bracket_channel_id)
+                if ch:
+                    b_msg = await ch.fetch_message(state.bracket_message_id)
+                    p_view = TournamentBracketPanelView(self.service, guild_id=guild_id, section="winners", round_num=1)
+                    p_view.message = b_msg
+                    b_embed, b_file = p_view.get_render_payload()
+                    await b_msg.edit(embed=b_embed, attachments=[b_file], view=p_view)
+            except Exception as e:
+                logger.warning("Failed to refresh live bracket panel after !t_sub: %s", e)
+
+        await ctx.send(f"✅ {msg}")
+
+    @commands.command(name="t_override", aliases=["bracket_override", "override_match"])
+    async def t_override_prefix(
+        self,
+        ctx: commands.Context,
+        match_id: str,
+        winner: str,
+        score: Optional[str] = None,
+    ):
+        """Prefix command fallback (!t_override <match_id> <winner_ign_or_id> [score])."""
+        if not ctx.guild:
+            await ctx.send("❌ This command can only be used in a server.")
+            return
+
+        if not check_is_tournament_admin(ctx.author, ctx.guild, self.bot):
+            await ctx.send("❌ You need Tournament Admin permissions to override matches.")
+            return
+
+        guild_id = ctx.guild.id
+        m_history = getattr(self.bot, "match_history_service", None)
+        c_showcase = getattr(self.bot, "clan_showcase_service", None)
+
+        ok, msg, match = self.service.override_bracket_match(
+            match_id=match_id.upper().strip(),
+            winner_identifier=winner.strip(),
+            score=score.strip() if score else None,
+            recorded_by=ctx.author.id,
+            match_history_service=m_history,
+            clan_showcase_service=c_showcase,
+            guild_id=guild_id,
+        )
+        if not ok or not match:
+            await ctx.send(f"❌ {msg}")
+            return
+
+        state = self.service.get_state(guild_id)
+        if state.bracket_channel_id and state.bracket_message_id:
+            try:
+                ch = self.bot.get_channel(state.bracket_channel_id)
+                if ch:
+                    b_msg = await ch.fetch_message(state.bracket_message_id)
+                    p_view = TournamentBracketPanelView(self.service, guild_id=guild_id, section=match.section, round_num=match.round_number)
+                    p_view.message = b_msg
+                    b_embed, b_file = p_view.get_render_payload()
+                    await b_msg.edit(embed=b_embed, attachments=[b_file], view=p_view)
+            except Exception as e:
+                logger.warning("Failed to refresh live bracket panel after !t_override: %s", e)
+
+        score_disp = f" (`{score}`)" if score else ""
+        await ctx.send(
+            f"✅ **Match `{match.match_id}` Overridden & Updated!**\n👑 **{match.winner_ign}** defeated **{match.loser_ign}**{score_disp}."
         )
 

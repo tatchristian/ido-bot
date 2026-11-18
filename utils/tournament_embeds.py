@@ -1196,9 +1196,15 @@ def build_bracket_embed(
     if section == "finals":
         matches = [m for m in bracket.matches.values() if m.section == "finals"]
         round_header = "Grand Finals"
+        total_r = 1
+    elif section == "losers":
+        matches = [m for m in bracket.matches.values() if m.section == "losers" and m.round_number == round_num]
+        total_r = max(1, bracket.total_rounds_lb)
+        round_header = f"Losers Round {round_num}"
     else:
-        matches = [m for m in bracket.matches.values() if m.section == section and m.round_number == round_num]
-        round_header = f"Round {round_num}"
+        matches = [m for m in bracket.matches.values() if m.section == "winners" and m.round_number == round_num]
+        total_r = max(1, bracket.total_rounds_wb)
+        round_header = f"Winners Round {round_num}"
 
     embed = discord.Embed(
         title=f"🏆 {tournament_name} — {sec_title}",
@@ -1213,7 +1219,12 @@ def build_bracket_embed(
     if bracket.champion_ign:
         desc_lines.append(f"\n🎉 👑 **TOURNAMENT CHAMPION:** **{bracket.champion_ign}** 👑 🎉\n")
     else:
-        desc_lines.append(f"**Viewing:** `{sec_title}` — `{round_header}`\n")
+        if section != "finals":
+            desc_lines.append(
+                f"**Viewing:** `{sec_title}` — `Round {round_num} of {total_r}` *(use ◀️ / ▶️ to flip rounds)*\n"
+            )
+        else:
+            desc_lines.append(f"**Viewing:** `{sec_title}`\n")
 
     embed.description = "\n".join(desc_lines)
 
